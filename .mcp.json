@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "confidence-flags": {
+      "type": "http",
+      "url": "https://mcp.confidence.dev/mcp/flags"
+    },
+    "confidence-docs": {
+      "type": "http",
+      "url": "https://mcp.confidence.dev/mcp/docs"
+    }
+  }
+}

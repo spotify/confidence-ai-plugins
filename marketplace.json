@@ -1,0 +1,18 @@
+{
+  "name": "confidence",
+  "version": "1.0.0",
+  "owner": {
+    "name": "Spotify Confidence"
+  },
+  "plugins": [
+    {
+      "name": "confidence",
+      "version": "1.0.0",
+      "description": "Access Confidence feature flags, experiments, and migration tools directly from Claude Code.",
+      "source": {
+        "source": "url",
+        "url": "https://github.com/spotify/confidence-ai-plugins.git"
+      }
+    }
+  ]
+}
