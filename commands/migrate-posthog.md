@@ -43,6 +43,45 @@ MCP-driven, self-sufficient migration plans for PostHog to Confidence.
 
 ---
 
+## Prerequisites
+
+Before starting any workflow, check that required MCP servers are available.
+Try calling a simple tool from each. If it fails, install the missing MCP.
+
+### PostHog MCP
+
+Test: `mcp__posthog__feature-flag-get-all` (with limit=1)
+
+If not available, install it:
+```
+claude mcp add posthog --transport http --url https://mcp-eu.posthog.com/mcp
+```
+
+The user will be prompted to authenticate via OAuth in their browser.
+For US-based PostHog projects, use `https://mcp.posthog.com/mcp` instead.
+
+### Confidence MCP
+
+Test: `mcp__confidence-flags__listClients`
+
+If not available, install it:
+```
+claude mcp add confidence-flags --transport http --url https://mcp.confidence.dev/mcp/flags
+```
+
+The user will be prompted to authenticate via OAuth in their browser.
+
+### Confidence Docs MCP (for `plan code` only)
+
+Test: `mcp__confidence-docs__searchDocumentation`
+
+If not available, install it:
+```
+claude mcp add confidence-docs --transport http --url https://mcp.confidence.dev/mcp/docs
+```
+
+---
+
 ## User-Facing Communication Rules
 
 **NEVER expose internal technical details to the user.** The user should see

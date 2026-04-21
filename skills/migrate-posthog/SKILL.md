@@ -1,7 +1,5 @@
 ---
-name: migrate-posthog
-description: Migrate feature flags from PostHog to Confidence SDK
-argument-hint: [plan flag | plan code | execute <plan-file>]
+description: Migrate feature flags from PostHog to Confidence SDK. Use when the user says /migrate-posthog, asks to migrate PostHog flags, or transform SDK code to Confidence.
 ---
 
 # PostHog to Confidence Migration
@@ -40,6 +38,45 @@ MCP-driven, self-sufficient migration plans for PostHog to Confidence.
 | **Self-sufficient** | Plan contains ALL information needed - no "query MCP for X" |
 | **Agent-agnostic** | Any agent with MCPs can execute without prior context |
 | **Language-agnostic** | Detect framework, fetch SDK guide from MCP dynamically |
+
+---
+
+## Prerequisites
+
+Before starting any workflow, check that required MCP servers are available.
+Try calling a simple tool from each. If it fails, install the missing MCP.
+
+### PostHog MCP
+
+Test: `mcp__posthog__feature-flag-get-all` (with limit=1)
+
+If not available, install it:
+```
+claude mcp add posthog --transport http --url https://mcp-eu.posthog.com/mcp
+```
+
+The user will be prompted to authenticate via OAuth in their browser.
+For US-based PostHog projects, use `https://mcp.posthog.com/mcp` instead.
+
+### Confidence MCP
+
+Test: `mcp__confidence-flags__listClients`
+
+If not available, install it:
+```
+claude mcp add confidence-flags --transport http --url https://mcp.confidence.dev/mcp/flags
+```
+
+The user will be prompted to authenticate via OAuth in their browser.
+
+### Confidence Docs MCP (for `plan code` only)
+
+Test: `mcp__confidence-docs__searchDocumentation`
+
+If not available, install it:
+```
+claude mcp add confidence-docs --transport http --url https://mcp.confidence.dev/mcp/docs
+```
 
 ---
 
