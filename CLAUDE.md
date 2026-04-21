@@ -6,6 +6,10 @@ This plugin integrates Confidence with Claude Code, providing tools for feature 
 
 - `/confidence:migrate-posthog <plan flag | plan code | execute <plan-file>>` — Migrate feature flags from PostHog to Confidence SDK
 
+## Skills
+
+- **migrate-posthog** — Auto-triggers when the user asks to migrate PostHog flags or transform SDK code to Confidence
+
 ## MCP Servers
 
 - **confidence-flags** — Feature flag management (create, list, resolve, target, archive)
