@@ -1,6 +1,6 @@
 ---
 name: migrate-posthog
-description: Migrate feature flags from PostHog to Confidence SDK
+description: Migrate feature flags from PostHog to Confidence
 argument-hint: [plan flag | plan code | execute <plan-file>]
 ---
 
