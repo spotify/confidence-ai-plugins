@@ -20,7 +20,7 @@ MCP-driven, self-sufficient migration plans for PostHog to Confidence.
 
 ## SDK Preference
 
-**ALWAYS prefer OpenFeature with local resolve.**
+**ALWAYS prefer OpenFeature with local resolve when possible.**
 
 | Priority | Approach | When to use |
 |----------|----------|-------------|
