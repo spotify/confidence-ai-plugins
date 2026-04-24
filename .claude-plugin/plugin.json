@@ -4,9 +4,9 @@
   "version": "1.0.0",
   "author": {
     "name": "Spotify Confidence",
-    "url": "https://confidence.dev"
+    "url": "https://confidence.spotify.com"
   },
-  "homepage": "https://confidence.dev",
+  "homepage": "https://confidence.spotify.com",
   "repository": "https://github.com/spotify/confidence-ai-plugins",
   "keywords": [
     "feature-flags",

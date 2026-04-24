@@ -2,11 +2,11 @@
   "mcpServers": {
     "confidence-flags": {
       "type": "http",
-      "url": "https://mcp.confidence.dev/mcp/flags"
+      "url": "https://mcp.confidence.spotify.com/mcp/flags"
     },
     "confidence-docs": {
       "type": "http",
-      "url": "https://mcp.confidence.dev/mcp/docs"
+      "url": "https://mcp.confidence.spotify.com/mcp/docs"
     }
   }
 }
