@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "confidence-flags": {
+      "type": "http",
+      "url": "https://mcp.confidence.spotify.com/mcp/flags"
+    },
+    "confidence-docs": {
+      "type": "http",
+      "url": "https://mcp.confidence.spotify.com/mcp/docs"
+    }
+  }
+}
