@@ -4,6 +4,6 @@ description: Migrate feature flags from PostHog to Confidence
 argument-hint: [plan flag | plan code | execute <plan-file>]
 ---
 
-**IMPORTANT:** All migration instructions are maintained in a single file to prevent divergence.
+All migration instructions are maintained in `skills/migrate-posthog/SKILL.md` to prevent divergence.
 
-Read and follow the complete instructions in `skills/migrate-posthog/SKILL.md` before proceeding.
+**Before doing anything else**, use the Read tool to read `skills/migrate-posthog/SKILL.md` and follow those instructions to handle this command.
