@@ -31,7 +31,6 @@ claude --plugin-dir ./confidence-ai-plugins
 This plugin provides access to Confidence tools across these categories:
 
 - **Feature flags** - Create, list, update, archive, and resolve feature flags
-- **Experiments** - View A/B tests, rollouts, and statistical results
 - **Migration** - Migrate feature flags from PostHog to Confidence
 
 ## Slash Commands
@@ -43,7 +42,6 @@ This plugin provides access to Confidence tools across these categories:
 ```
 > List my feature flags
 > Create a flag called new-checkout with a boolean schema
-> What are the results of the signup-flow experiment?
 > /migrate-posthog plan flag
 > /migrate-posthog plan code
 ```
