@@ -152,7 +152,7 @@ Test: `mcp__confidence__listClients`
 
 If not available, install it:
 ```
-claude mcp add confidence --transport http --url https://mcp.confidence.spotify.com/mcp/flags
+claude mcp add confidence --transport http --url https://mcp.confidence.dev/mcp/flags
 ```
 
 The user will be prompted to authenticate via OAuth in their browser.
@@ -163,7 +163,7 @@ Test: `mcp__confidence-docs__searchDocumentation`
 
 If not available, install it:
 ```
-claude mcp add confidence-docs --transport http --url https://mcp.confidence.spotify.com/mcp/docs
+claude mcp add confidence-docs --transport http --url https://mcp.confidence.dev/mcp/docs
 ```
 
 ---
