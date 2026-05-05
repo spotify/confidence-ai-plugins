@@ -202,8 +202,14 @@ Display this at the START and after EACH step completes (updating status):
 Status markers:
 - `○ pending` — not started yet
 - `◉ in progress` — currently running
+- `⏸ awaiting user` — blocked on user input (e.g. picking a client or entity)
 - `✓ done` — completed (add brief user-facing result)
 - `⊘ skipped` — skipped by user
+
+Use `⏸ awaiting user` whenever the workflow has asked a question and is
+waiting for an explicit reply. This makes "I'm blocked on you" visible
+to both agent and user, and prevents the agent from drifting into
+auto-progression while a question is open.
 
 **IMPORTANT:** Never expose internal/technical details in the tracker.
 No pagination info, no API page counts, no internal field names.
@@ -541,6 +547,12 @@ mcp__confidence__listClients
 > Which client should I use as the default for all flags?
 > You can always rearrange them later in the Confidence UI.
 
+**Wait for an explicit pick.** Set the step to `⏸ awaiting user` and
+stop. A re-run of `/migrate-posthog`, an empty message, or any reply
+that is not a number from the list / `new <name>` is **not** consent —
+NEVER infer the recommendation from silence. If the reply is ambiguous,
+re-ask, listing the choices again.
+
 - If user picks existing -> use it
 - If user wants new -> ASK for name -> `mcp__confidence__createClient`
 
@@ -586,6 +598,10 @@ This step maps PostHog's bucketing identifiers to Confidence entity fields.
 >
 > Which Confidence field represents the same user as `distinct_id`?
 
+**Wait for an explicit pick.** Same rule as Step 2 — set the step to
+`⏸ awaiting user` and stop. Silence, a re-run, or any non-listed reply
+is **not** consent. Re-ask if the reply is ambiguous.
+
 - If user picks existing -> use it as `targetingKey` for all per-user flags
 - If user wants new -> ASK for name + type -> `mcp__confidence__addContextField`
 
@@ -603,11 +619,30 @@ create it with `mcp__confidence__addContextField`. See **Confidence
 Naming Rules** above — always provide an explicit `entityReference`
 (e.g. `entities/company` for a field named `company_id`).
 
+**Step 3 only creates entity fields** (the per-user entity, plus any
+group identifiers from per-group flags). Attribute fields used in
+targeting rules (`plan`, `country`, `age`, etc.) MUST NOT be created
+here. Record them in Section 3 "Need to Create" and let `execute`
+create them — that way, if the user later skips a flag, no orphan
+schema fields are left in Confidence.
+
 **After entity mapped:** Write Section 2 (Randomization Mapping) to
 plan file, reconcile and write Section 3 (Context Schema), and update
 Generation Status step 3 to `✓ complete`.
 
 ### Step 4: Generate MCP Commands
+
+**Confirmation gate (MUST pass before generating).** Before writing
+Section 4, summarize chosen client + entity in chat and ask:
+
+> Plan will assume client `<client>` with randomization entity
+> `<entity>`. All flags will be defaulted to `[ ] Migrate  [ ] Skip`
+> (neither pre-checked) — you'll opt each one in during review.
+> Confirm or change?
+
+Set the step to `⏸ awaiting user` and stop. Only proceed on an
+explicit `yes` / `confirm` / equivalent. A re-run or ambiguous reply
+is **not** confirmation.
 
 For each flag in Section 4, generate the MCP command payloads
 (createFlag, addFlagToClient, addTargetingRule, resolveFlag) using the
@@ -620,7 +655,9 @@ Progress table (Section 5).
 **Tell the user:**
 > Plan generated! Review it at `.claude/plans/posthog-flag-migration-<date>.md`
 >
-> You can mark flags to skip by changing `[x] Migrate` to `[ ] Skip`.
+> Migration is **opt-in**: every flag starts with both checkboxes
+> empty. Tick `[x] Migrate` or `[x] Skip` for each flag — `execute`
+> will refuse any flag with neither box set.
 > When you're ready, run: `/migrate-posthog execute <plan-file>`
 
 ---
@@ -756,8 +793,10 @@ Listed for reference — no action needed.
 Below are the flags we're planning to migrate, along with their
 targeting rules described in plain language.
 
-Review each flag. You can mark any flag to skip by changing
-`[x] Migrate` to `[ ] Skip`.
+**Migration is opt-in.** Each flag starts with both checkboxes empty.
+Tick `[x] Migrate` for every flag you want to bring across, or
+`[x] Skip` to drop it. Flags with neither box ticked will be refused
+by `execute` — no implicit defaults.
 
 During execution, each flag will be created one by one, interactively.
 
@@ -768,7 +807,7 @@ During execution, each flag will be created one by one, interactively.
 **Rollout:** <percentage>
 **PostHog bucketing:** <"distinct_id (per user)" or "group type <N> (per company/group)">
 **Confidence entity:** <mapped entity field from Step 3>
-**Action:** [x] Migrate  [ ] Skip
+**Action:** [ ] Migrate  [ ] Skip
 
 **MCP Commands:**
 <createFlag, addTargetingRule, resolveFlag with full parameters>
@@ -828,6 +867,10 @@ request for each flag, keeping changes small and reviewable.
    - For flags where PostHog's bucketing_identifier is NOT distinct_id:
      use whatever PostHog uses as the targetingKey for that flag
      (e.g. if PostHog uses company_id, use company_id in Confidence too)
+   - REFUSE TO PROCEED if any flag has neither `[x] Migrate` nor
+     `[x] Skip` ticked. List those flags back to the user and ask
+     them to tick a box for each before re-running execute. Migration
+     is opt-in — never assume a default.
 2. FOR EACH FLAG marked [x] Migrate:
    - Show flag name, description, and rules in plain English
    - ASK: "Create this flag in Confidence? [Yes / Skip / Pause]"
