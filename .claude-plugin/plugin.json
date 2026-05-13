@@ -1,7 +1,7 @@
 {
   "name": "confidence",
   "description": "Access Confidence feature flags, experiments, and migration tools directly from Claude Code.",
-  "version": "0.2.2",
+  "version": "0.2.1",
   "author": {
     "name": "Spotify Confidence",
     "url": "https://confidence.spotify.com"
