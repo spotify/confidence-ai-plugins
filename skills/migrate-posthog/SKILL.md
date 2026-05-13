@@ -671,8 +671,8 @@ Use this when generating `addTargetingRule` payloads in the plan file.
 |---------|-------------------|
 | `exact: "X"` | `eqRule` with `stringValue` |
 | `is_not: "X"` | NOT expression wrapping `eqRule` |
-| `exact: ["A","B"]` | `or` expression with one `eqRule` per value |
-| `is_not: ["A","B"]` | NOT wrapping `or` of `eqRule` per value |
+| `exact: ["A","B"]` | `setRule` with `values` array |
+| `is_not: ["A","B"]` | NOT wrapping `setRule` with `values` array |
 | `gte: N` | `rangeRule` with `startInclusive` |
 | `gt: N` | `rangeRule` with `startExclusive` |
 | `lt: N` | `rangeRule` with `endExclusive` |
@@ -688,6 +688,30 @@ Use this when generating `addTargetingRule` payloads in the plan file.
 Use `and` expression with `operands` array.
 
 **Multiple groups (OR):** PostHog groups are ORed. Use `or` expression.
+
+### Multivariant A/B Split Handling
+
+**CRITICAL:** A single Confidence targeting rule CAN assign multiple
+variants at different split percentages. Use ONE rule per targeting
+condition, listing all variants and their shares in that rule.
+
+**How to map PostHog splits to Confidence rules:**
+
+For a 2-variant flag (e.g. control 50% / treatment 50%):
+- Add ONE rule with two variant assignments:
+  control at 50%, treatment at 50%.
+
+For a 3+ variant flag (e.g. control 34% / A 33% / B 33%):
+- Add ONE rule with three variant assignments:
+  control at 34%, A at 33%, B at 33%.
+
+**Do NOT create separate rules per variant.** One targeting rule =
+one set of targeting conditions, with the variant split defined
+inside that rule. The `rolloutPercentage` on the rule controls
+what fraction of users who match the targeting conditions enter the
+rule at all (use 100% unless you want a partial rollout on top of
+the targeting). The variant percentages within the rule control the
+split among those who enter.
 
 ---
 
@@ -805,12 +829,15 @@ During execution, each flag will be created one by one, interactively.
 **Description:** <from PostHog if available, otherwise empty>
 **Rules:** <plain English description of targeting>
 **Rollout:** <percentage>
+**Variants:** <variant names with percentages, e.g. "control (50%), treatment (50%)">
 **PostHog bucketing:** <"distinct_id (per user)" or "group type <N> (per company/group)">
 **Confidence entity:** <mapped entity field from Step 3>
+**Confidence rollout:** <rolloutPercentage for the rule + variant split inside the rule — see Multivariant A/B Split Handling>
 **Action:** [ ] Migrate  [ ] Skip
 
 **MCP Commands:**
-<createFlag, addTargetingRule, resolveFlag with full parameters>
+<createFlag, addTargetingRule (ONE rule with all variant assignments and their split), resolveFlag with full parameters>
+<resolveFlag MUST include both a positive-case and negative-case test>
 
 ---
 
@@ -908,11 +935,22 @@ STEP 3: addTargetingRule
 
 STEP 4: resolveFlag (verification)
   → Only NOW resolve to verify the flag works
+  → MUST test BOTH positive AND negative cases:
+    a. Resolve with a context that SHOULD match the targeting rule
+       → Verify the expected variant is returned
+    b. Resolve with a context that SHOULD NOT match
+       → Verify no variant / default is returned
+  → For attribute-based targeting (country, plan, etc.), the resolve
+    call MUST include those attributes in the evaluation context.
+    Without them, the targeting conditions cannot be evaluated and
+    may appear to match when they wouldn't in production.
   → If resolve fails with "No active flags found":
     something went wrong in steps 1-2 — diagnose, don't skip
   → If all rules show "Rule is inactive" / no match:
     targeting rules were likely added while flag was archived.
     Re-add the targeting rule now that the flag is active.
+  → Do NOT report a flag as successfully migrated until both
+    positive and negative resolve tests pass.
 ```
 
 **Why this matters:** Confidence flags can be in states that
