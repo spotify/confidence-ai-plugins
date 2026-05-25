@@ -6,12 +6,17 @@ Official Confidence plugin for AI clients. Access feature flags, experiments, an
 
 ### Claude Code
 
-1. Install the plugin:
+1. Add the Confidence marketplace:
+    ```bash
+    claude marketplace add spotify/confidence-ai-plugins
+    ```
+
+2. Install the plugin:
     ```bash
     claude plugin install confidence
     ```
 
-2. Authenticate via OAuth:
+3. Authenticate via OAuth:
     ```bash
     claude
     # Then use /mcp to connect to the Confidence MCP servers
