@@ -8,7 +8,7 @@ Official Confidence plugin for AI clients. Access feature flags, experiments, an
 
 1. Add the Confidence marketplace:
     ```bash
-    claude marketplace add https://raw.githubusercontent.com/spotify/confidence-ai-plugins/main/.claude-plugin/marketplace.json
+    claude marketplace add spotify/confidence-ai-plugins
     ```
 
 2. Install the plugin:
