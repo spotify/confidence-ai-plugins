@@ -667,27 +667,152 @@ Progress table (Section 5).
 This is how PostHog operators map to Confidence targeting payloads.
 Use this when generating `addTargetingRule` payloads in the plan file.
 
-| PostHog | Confidence Payload |
-|---------|-------------------|
-| `exact: "X"` | `eqRule` with `stringValue` |
-| `is_not: "X"` | NOT expression wrapping `eqRule` |
-| `exact: ["A","B"]` | `setRule` with `values` array |
-| `is_not: ["A","B"]` | NOT wrapping `setRule` with `values` array |
-| `gte: N` | `rangeRule` with `startInclusive` |
-| `gt: N` | `rangeRule` with `startExclusive` |
-| `lt: N` | `rangeRule` with `endExclusive` |
-| `lte: N` | `rangeRule` with `endInclusive` |
-| `regex: ^prefix.*` | `startsWithRule` |
-| `regex: .*suffix$` | `endsWithRule` |
+**CRITICAL: Confidence Targeting Payload Format**
+
+The payload uses a `criteria` + `expression` pattern. Criteria are named
+references (`ref-0`, `ref-1`, ...) that define individual conditions.
+The `expression` combines them with boolean logic (`and`, `or`, `not`, `ref`).
+
+```json
+{
+  "criteria": {
+    "ref-0": {
+      "attribute": {
+        "attributeName": "<field>",
+        "<rule>": { ... }
+      }
+    }
+  },
+  "expression": { "ref": "ref-0" }
+}
+```
+
+**DO NOT use nested rule objects like `{"or": {"operands": [{"eqRule": ...}]}}`
+at the top level.** That format is silently parsed as empty targeting
+(matching ALL contexts) due to `ignoringUnknownFields()` in the proto parser.
+
+### Criterion Rules
+
+| PostHog | Confidence Criterion |
+|---------|---------------------|
+| `exact: "X"` | `"eqRule": { "value": { "stringValue": "X" } }` |
+| `exact: N` (number) | `"eqRule": { "value": { "numberValue": N } }` |
+| `exact: true/false` | `"eqRule": { "value": { "boolValue": true } }` |
+| `gte: N` | `"rangeRule": { "startInclusive": { "numberValue": N } }` |
+| `gt: N` | `"rangeRule": { "startExclusive": { "numberValue": N } }` |
+| `lt: N` | `"rangeRule": { "endExclusive": { "numberValue": N } }` |
+| `lte: N` | `"rangeRule": { "endInclusive": { "numberValue": N } }` |
+| `regex: ^prefix.*` | `"startsWithRule": { "value": "prefix" }` |
+| `regex: .*suffix$` | `"endsWithRule": { "value": "suffix" }` |
+
+### Expression Combinators
+
+| Pattern | Expression |
+|---------|-----------|
+| Single condition | `{ "ref": "ref-0" }` |
+| AND | `{ "and": { "operands": [{ "ref": "ref-0" }, { "ref": "ref-1" }] } }` |
+| OR | `{ "or": { "operands": [{ "ref": "ref-0" }, { "ref": "ref-1" }] } }` |
+| NOT | `{ "not": { "ref": "ref-0" } }` |
+| NOT IN (list) | `{ "and": { "operands": [{ "not": { "ref": "ref-0" } }, { "not": { "ref": "ref-1" } }] } }` |
+
+### PostHog Operator Mapping
+
+| PostHog | Confidence Payload Strategy |
+|---------|---------------------------|
+| `exact: "X"` | One criterion with `eqRule`, expression: `ref` |
+| `is_not: "X"` | One criterion with `eqRule`, expression: `not` wrapping `ref` |
+| `exact: ["A","B"]` | One criterion per value with `eqRule`, expression: `or` of `ref`s |
+| `is_not: ["A","B"]` | One criterion per value with `eqRule`, expression: `and` of `not`-wrapped `ref`s |
+| `gte: N` | One criterion with `rangeRule`, expression: `ref` |
+| `regex: ^prefix.*` | One criterion with `startsWithRule`, expression: `ref` |
+| `regex: .*suffix$` | One criterion with `endsWithRule`, expression: `ref` |
 
 **Blocked (manual review):** `icontains`, `is_not_set`, cohort targeting
 
-**Boolean values:** Use `eqRule` with `boolValue` (true/false).
+### AND / OR Combinations
 
 **AND conditions:** All properties within one PostHog group are ANDed.
-Use `and` expression with `operands` array.
+Create one criterion per condition, combine with `and` expression.
 
-**Multiple groups (OR):** PostHog groups are ORed. Use `or` expression.
+**Multiple groups (OR):** PostHog groups are ORed. Create criteria for
+each group, combine group expressions with `or`.
+
+### Complete Examples
+
+**Single equality (country = "US"):**
+```json
+{
+  "criteria": {
+    "ref-0": { "attribute": { "attributeName": "country", "eqRule": { "value": { "stringValue": "US" } } } }
+  },
+  "expression": { "ref": "ref-0" }
+}
+```
+
+**IN operator (country IN [US, UK]):**
+```json
+{
+  "criteria": {
+    "ref-0": { "attribute": { "attributeName": "country", "eqRule": { "value": { "stringValue": "US" } } } },
+    "ref-1": { "attribute": { "attributeName": "country", "eqRule": { "value": { "stringValue": "UK" } } } }
+  },
+  "expression": { "or": { "operands": [{ "ref": "ref-0" }, { "ref": "ref-1" }] } }
+}
+```
+
+**NOT IN (country NOT IN [DE, FR]):**
+```json
+{
+  "criteria": {
+    "ref-0": { "attribute": { "attributeName": "country", "eqRule": { "value": { "stringValue": "DE" } } } },
+    "ref-1": { "attribute": { "attributeName": "country", "eqRule": { "value": { "stringValue": "FR" } } } }
+  },
+  "expression": { "and": { "operands": [{ "not": { "ref": "ref-0" } }, { "not": { "ref": "ref-1" } }] } }
+}
+```
+
+**AND (plan = "pro" AND country IN [US, UK]):**
+```json
+{
+  "criteria": {
+    "ref-0": { "attribute": { "attributeName": "plan", "eqRule": { "value": { "stringValue": "pro" } } } },
+    "ref-1": { "attribute": { "attributeName": "country", "eqRule": { "value": { "stringValue": "US" } } } },
+    "ref-2": { "attribute": { "attributeName": "country", "eqRule": { "value": { "stringValue": "UK" } } } }
+  },
+  "expression": { "and": { "operands": [{ "ref": "ref-0" }, { "or": { "operands": [{ "ref": "ref-1" }, { "ref": "ref-2" }] } }] } }
+}
+```
+
+**Range (age >= 30):**
+```json
+{
+  "criteria": {
+    "ref-0": { "attribute": { "attributeName": "age", "rangeRule": { "startInclusive": { "numberValue": 30 } } } }
+  },
+  "expression": { "ref": "ref-0" }
+}
+```
+
+**Ends with (email ends with @spotify.com OR @gmail.com):**
+```json
+{
+  "criteria": {
+    "ref-0": { "attribute": { "attributeName": "email", "endsWithRule": { "value": "@spotify.com" } } },
+    "ref-1": { "attribute": { "attributeName": "email", "endsWithRule": { "value": "@gmail.com" } } }
+  },
+  "expression": { "or": { "operands": [{ "ref": "ref-0" }, { "ref": "ref-1" }] } }
+}
+```
+
+**Starts with (utm_source starts with "email-"):**
+```json
+{
+  "criteria": {
+    "ref-0": { "attribute": { "attributeName": "utm_source", "startsWithRule": { "value": "email-" } } }
+  },
+  "expression": { "ref": "ref-0" }
+}
+```
 
 ### Multivariant A/B Split Handling
 
