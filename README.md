@@ -24,6 +24,12 @@ Official Confidence plugin for AI clients. Access feature flags, experiments, an
     ```
     Follow the browser prompts to log in.
 
+### Updating
+
+```bash
+claude plugin update confidence:confidence
+```
+
 ### Local Development
 
 ```bash
