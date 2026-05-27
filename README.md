@@ -42,11 +42,12 @@ claude --plugin-dir ./confidence-ai-plugins
 This plugin provides access to Confidence tools across these categories:
 
 - **Feature flags** - Create, list, update, archive, and resolve feature flags
-- **Migration** - Migrate feature flags from PostHog to Confidence
+- **Migration** - Migrate feature flags from PostHog or Eppo to Confidence
 
 ## Slash Commands
 
 - `/confidence:migrate-posthog` - Migrate feature flags from PostHog to Confidence SDK
+- `/confidence:migrate-eppo` - Migrate feature flags from Eppo to Confidence SDK
 
 ## Example Usage
 
@@ -55,6 +56,8 @@ This plugin provides access to Confidence tools across these categories:
 > Create a flag called new-checkout with a boolean schema
 > /migrate-posthog plan flag
 > /migrate-posthog plan code
+> /migrate-eppo plan flag
+> /migrate-eppo plan code
 ```
 
 ## MCP Servers
