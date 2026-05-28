@@ -27,7 +27,9 @@ Notable conventions:
     `offset` + `limit`
 
 Fixture flags are curated to exercise every branch of the skill's
-operator-mapping table and BLOCKED markers — see README.md.
+operator-mapping table and BLOCKED markers — see README.md. Flag #11
+is archived (`is_archived: true`) and hidden from list results by
+default to test the archive-filtering path.
 
 Run:
     python3 server.py [--port 3000] [--limit-default 50]
@@ -700,6 +702,64 @@ FLAGS: list[dict[str, Any]] = [
             },
         ],
         "tag_names": ["premium"],
+        "created_at": CREATED_AT,
+        "updated_at": UPDATED_AT,
+        "entity_id": 1,
+        "type": "FEATURE_FLAG",
+        "structured_metadata": [],
+    },
+    # 11. Archived flag. Excluded from list results by default; only
+    #     returned when `include_archived=true`. Tests that the skill's
+    #     pagination/filtering correctly hides archived flags unless the
+    #     user opts in.
+    {
+        "id": 11,
+        "key": "old-onboarding-flow",
+        "name": "Old onboarding flow",
+        "description": "Archived experiment from Q1 — superseded by new onboarding.",
+        "is_archived": True,
+        "variation_type": "BOOLEAN",
+        "owner": None,
+        "variations": _bool_variations(1101),
+        "allocations": [
+            {
+                "id": 11001,
+                "key": "new-onboarding-rollout",
+                "name": "New onboarding rollout",
+                "created_at": CREATED_AT,
+                "type": "FEATURE_GATE",
+                "variation_weight": [{"variation_id": 1101, "weight": 100}],
+                "targeting_rules": [
+                    {
+                        "conditions": [
+                            {
+                                "operator": "ONE_OF",
+                                "attribute": "country",
+                                "values": ["US"],
+                            }
+                        ]
+                    }
+                ],
+                "audiences": [],
+                "percent_exposure": 100,
+                "is_default": False,
+                "experiment": None,
+            },
+            {
+                "id": 11002,
+                "key": "old-onboarding-flow-default",
+                "name": "Default off",
+                "created_at": CREATED_AT,
+                "type": "FEATURE_GATE",
+                "variation_weight": [{"variation_id": 1102, "weight": 100}],
+                "targeting_rules": [],
+                "audiences": [],
+                "percent_exposure": 100,
+                "is_default": True,
+                "experiment": None,
+            },
+        ],
+        "tag_names": ["archived", "onboarding"],
         "created_at": CREATED_AT,
         "updated_at": UPDATED_AT,
         "entity_id": 1,

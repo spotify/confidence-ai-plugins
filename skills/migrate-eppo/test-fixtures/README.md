@@ -26,7 +26,7 @@ Python 3.10+ stdlib, no dependencies.
 ```bash
 python3 server.py
 # Fake Eppo server listening on http://127.0.0.1:3000/api/v1
-#   10 fixture flags, 3 environments
+#   11 fixture flags, 3 environments
 ```
 
 Override the port if 3000 is taken:
@@ -82,6 +82,7 @@ confirm, and review the generated plan file.
 | 8 | `missing-attribute-fallback` | `IS_NULL` operator → BLOCKED | BLOCKED |
 | 9 | `delivery-pricing-switchback` | `SWITCHBACK` allocation type → entire flag BLOCKED | BLOCKED |
 | 10 | `premium-users-only` | Allocation with non-empty `audiences[]` (with `IS_NOT_IN` inversion) → BLOCKED | BLOCKED |
+| 11 | `old-onboarding-flow` | `is_archived: true` → hidden from list by default, visible with `include_archived=true` | Skipped (archived) |
 
 The default value for each flag lives on the trailing allocation
 marked `is_default: true` — that mirrors how real Eppo stores defaults
@@ -92,7 +93,9 @@ and gives the skill something concrete to consume.
 After running `plan flags`, the generated plan file at
 `.claude/plans/eppo-flag-migration-<date>.md` should:
 
-- Have all 10 flags in Section 4
+- Have 10 non-archived flags in Section 4 (flag #11 `old-onboarding-flow`
+  is archived and excluded by default; if the user opted in to archived
+  flags, all 11 should appear)
 - For `pricing-experiment`, list **two** non-default allocations in order:
   the internal-QA feature gate first, then the NA 50/50 experiment.
   The third allocation (`is_default: true`) should NOT appear as a
