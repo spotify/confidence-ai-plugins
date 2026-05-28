@@ -140,6 +140,15 @@ curl -sS -H "X-Eppo-Token: $EPPO_API_KEY" \
 If this returns a `401`/`403` or HTML, stop and surface the error to
 the user — do not start scanning.
 
+### Local testing (no Eppo account needed)
+
+For development and CI smoke tests, this skill ships with a fake Eppo
+server under `skills/migrate-eppo/test-fixtures/`. It implements the
+four read endpoints with curated fixture flags that exercise every
+operator-mapping branch. See that directory's `README.md` for usage —
+short version is `python3 server.py`, then point this skill at
+`http://127.0.0.1:3000/api/v1` when prompted for the base URL.
+
 ---
 
 ## Eppo REST Reference
