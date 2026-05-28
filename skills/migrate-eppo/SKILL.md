@@ -133,7 +133,7 @@ communication rules.)
 
 ```bash
 curl -sS -H "X-Eppo-Token: $EPPO_API_KEY" \
-  "https://eppo.cloud/api/v1/feature-flags?page=1&per_page=1" \
+  "https://eppo.cloud/api/v1/feature-flags?offset=0&limit=1" \
   | head -c 200
 ```
 
@@ -156,27 +156,63 @@ short version is `python3 server.py`, then point this skill at
 The migration uses these endpoints. All require `-H "X-Eppo-Token: $EPPO_API_KEY"`.
 Base URL defaults to `https://eppo.cloud/api/v1`.
 
+> **Source of truth.** Field names and shapes here are taken directly from
+> Eppo's OpenAPI 3.0 spec, embedded at
+> <https://eppo.cloud/api/docs/swagger-ui-init.js> (public, no auth). Refer
+> back to it if you encounter a field that isn't documented below.
+
 | Purpose | Endpoint |
 |---------|----------|
 | List environments | `GET /environments` |
-| List feature flags | `GET /feature-flags?page=<n>&per_page=<n>` |
+| List feature flags | `GET /feature-flags?offset=<n>&limit=<n>` |
 | Get a single flag (full definition: variations, allocations, rules) | `GET /feature-flags/{id}` |
-| Get environment-specific flag state (enabled + per-env allocations) | `GET /feature-flags/{id}/environments/{environmentId}` |
+| Get environment-specific flag state (active + per-env allocations) | `GET /feature-flags/{id}/environments/{environmentId}` |
 
-The flag object includes:
-- `key` — used in code (subject of `get_*_assignment` calls)
-- `name`, `description`
-- `variationType` — `STRING` / `BOOLEAN` / `NUMERIC` / `INTEGER` / `JSON`
-- `variations[]` — each has `key`, `name`, `value`
+**Convention.** All field names are `snake_case`. All IDs are integers
+(numeric Eppo Object IDs). All condition `values` are arrays even when
+the operator only consumes a single value.
+
+The flag object (`PublicApiFeatureFlag`) includes:
+- `id` (number), `key` (string used in code as the first arg to
+  `get_*_assignment`), `name`, `description`
+- `is_archived` (boolean)
+- `variation_type` — `BOOLEAN` / `INTEGER` / `JSON` / `NUMERIC` / `STRING`
+- `variations[]` — each has `id` (number), `name`, `variant_key`
 - `allocations[]` — ordered waterfall (top wins). Each allocation has:
-  - `name`, `allocationType` (`FEATURE_GATE` / `EXPERIMENT` / `AUDIENCE`)
-  - `targetingRules[]` — each rule is `{ conditions: [{ attribute, operator, value }] }`
-  - `variationWeightsByKey` or `variationWeights[]` — split among variations
-  - `trafficExposure` (0–1) — fraction of matched subjects that enter the allocation
-- `environments[]` — per-environment state (enabled flag, env-specific allocations)
+  - `id`, `key`, `name`
+  - `type` — `FEATURE_GATE` / `EXPERIMENT` / `SWITCHBACK`
+  - `targeting_rules[]` — each rule is `{ conditions: [{ operator, attribute, values: [...] }] }`
+  - `variation_weight[]` — array of `{ variation_id, weight }` referencing variations by numeric `id`
+  - `audiences[]` — array of `{ audience_id, type }` where `type` is `IS_IN` or `IS_NOT_IN`
+  - `percent_exposure` (0–100) — fraction of matched subjects that enter the allocation
+  - `is_default` (boolean) — the default allocation sits at the bottom of the waterfall and supplies the "no match" variation
+  - `experiment` — the linked Eppo experiment object, or `null` for non-experiment allocations
+  - `environment_id` — only set on the env-scoped endpoint
+- `environments[]` — per-environment state (`PublicApiFeatureFlagEnvironment`: `id`, `name`, `active`, `is_production`); allocations are NOT included here, only env status
 
-**Always paginate** until the response returns fewer items than `per_page` or
-an empty page. Eppo's API uses page-based pagination, not cursors.
+The env-scoped endpoint (`GET /feature-flags/{id}/environments/{environmentId}`)
+returns a `PublicApiFeatureFlagEnvironmentWithAllocation`: the env status
+fields above PLUS `allocations[]` for that environment. This is the
+canonical place to read the per-env waterfall.
+
+**Default value lives on the allocation marked `is_default: true`**, not
+on the flag. The default allocation has empty `targeting_rules[]` and
+`audiences[]` and matches everyone; its `variation_weight[]` decides what
+unmatched subjects see.
+
+**Pagination.** Eppo uses `offset` + `limit` (both numbers), not cursors
+and not page numbers. Loop:
+
+```
+offset = 0
+LOOP:
+  items = GET /feature-flags?offset=<offset>&limit=50
+  process items
+  if len(items) < 50 OR items is empty → STOP
+  offset += 50 → continue LOOP
+```
+
+The list endpoint returns a **bare JSON array**, no wrapper object.
 
 ---
 
@@ -258,55 +294,61 @@ Set the step to `⏸ awaiting user` and wait for an explicit pick.
 **Step 1b — list all flags. CRITICAL: paginate until exhausted.**
 
 ```
-page = 1
+offset = 0
 LOOP:
-  response = curl GET /feature-flags?page=<page>&per_page=50
-  process response items
-  if response items < 50 OR response is empty → STOP
-  page += 1 → continue LOOP
+  items = curl GET /feature-flags?offset=<offset>&limit=50
+  process items (bare array, no wrapper)
+  if len(items) < 50 OR items is empty → STOP
+  offset += 50 → continue LOOP
 ```
 
 ```bash
 curl -sS -H "X-Eppo-Token: $EPPO_API_KEY" \
-  "https://eppo.cloud/api/v1/feature-flags?page=1&per_page=50"
+  "https://eppo.cloud/api/v1/feature-flags?offset=0&limit=50"
 ```
 
-**Step 1c — fetch each flag's full definition (in batches of 5).**
-
-```bash
-curl -sS -H "X-Eppo-Token: $EPPO_API_KEY" \
-  "https://eppo.cloud/api/v1/feature-flags/<id>"
-```
-
-And the environment-specific state for the chosen environment:
+**Step 1c — fetch each flag's environment-scoped definition (in batches of 5).**
 
 ```bash
 curl -sS -H "X-Eppo-Token: $EPPO_API_KEY" \
   "https://eppo.cloud/api/v1/feature-flags/<id>/environments/<environmentId>"
 ```
 
+This is the env-scoped endpoint — it returns the flag's per-env
+`active` state AND the full `allocations[]` for that environment in
+one shot, which is everything Step 4 needs. You don't also need
+`GET /feature-flags/{id}` unless you need cross-environment data.
+
 **After each batch of 5**, write the flag data to the plan file —
 append the flag sections to Section 4. This way if the session closes
 mid-scan, the flags fetched so far are saved.
 
-Skip flags that are **archived** in Eppo unless the user opts in (ask
-once up-front: "Include archived flags too? Default: no").
+Skip flags that are **archived** in Eppo unless the user opts in. Ask
+once up-front: "Include archived flags too? Default: no". The list
+endpoint defaults to excluding archived; pass `include_archived=true`
+in the query string if the user opted in.
 
 Extract from each flag:
 
-- `key` and `name`
-- `description` (if Eppo provides one, include it; otherwise leave blank)
-- `variationType` and the list of `variations` (key + value)
-- For the chosen environment:
-  - `enabled` state — flags that are disabled in the chosen environment
-    still migrate, but with rollout 0% so they don't activate
-    accidentally; surface this clearly in the plan
-  - Ordered list of `allocations` with:
-    - `allocationType` (Feature Gate, Experiment, or Audience)
-    - `trafficExposure` (0–1) → maps to Confidence rule `rolloutPercentage`
-    - `targetingRules[]` (`conditions: [{ attribute, operator, value }]`)
-    - `variationWeightsByKey` — the split among variations
-- The default variation (what subjects see when no allocation matches)
+- `key`, `name`, `description` (if Eppo provides a description, include
+  it; otherwise leave blank)
+- `variation_type` and `variations[]` (each: `id`, `name`, `variant_key`)
+- For the chosen environment (from the env-scoped endpoint):
+  - `active` — flags inactive in the chosen environment still migrate,
+    but with rollout 0% so they don't activate accidentally; surface
+    this clearly in the plan
+  - Ordered list of `allocations[]`. For each:
+    - `type` (`FEATURE_GATE`, `EXPERIMENT`, or `SWITCHBACK`)
+    - `percent_exposure` (0–100) → maps to Confidence rule `rolloutPercentage`
+    - `targeting_rules[]` (`conditions: [{ operator, attribute, values: [...] }]`)
+    - `variation_weight[]` — array of `{ variation_id, weight }`. Look up
+      each `variation_id` against the flag's `variations[]` to recover
+      `variant_key`
+    - `audiences[]` — if non-empty, this allocation references reusable
+      audience definitions; see the BLOCKED rules under Operator Mapping
+    - `is_default` — the default allocation supplies the "no match"
+      variation; treat its `variation_weight[]` as the default value and
+      do NOT emit it as a Confidence targeting rule
 
 **Randomization unit.** Eppo always uses `subjectKey`. Unlike PostHog
 there's no per-group bucketing concept built into the flag — group-level
@@ -382,40 +424,79 @@ half.
 
 Within a single Eppo rule, all `conditions` are ANDed. Across multiple
 rules in the same allocation, conditions are ORed (any rule satisfying
-means the allocation matches). Across allocations, each Eppo allocation
-becomes a **separate Confidence targeting rule** — see the waterfall
-ordering note in Step 4 above.
+means the allocation matches). Across allocations, each non-default
+Eppo allocation becomes a **separate Confidence targeting rule** — see
+the waterfall ordering note in Step 4 above. The `is_default`
+allocation does NOT emit a rule; its `variation_weight[]` is set as
+the flag's default value at `createFlag` time.
 
-| Eppo operator (`GT`, `LT`, `GTE`, `LTE`, `MATCHES`, `ONE_OF`, `NOT_ONE_OF`) | Confidence payload strategy |
+Eppo's operator enum (`ERuleConditionOperator`) is `LT`, `LTE`, `GT`,
+`GTE`, `MATCHES`, `ONE_OF`, `NOT_ONE_OF`, `IS_NULL`. Conditions always
+use array `values`, even when there's only one value.
+
+| Eppo condition | Confidence payload strategy |
 |---|---|
-| `GT` / `>` | One criterion with `rangeRule.startExclusive`, expression: `ref` |
-| `GTE` / `>=` | One criterion with `rangeRule.startInclusive`, expression: `ref` |
-| `LT` / `<` | One criterion with `rangeRule.endExclusive`, expression: `ref` |
-| `LTE` / `<=` | One criterion with `rangeRule.endInclusive`, expression: `ref` |
-| `ONE_OF ["A"]` (single value) | One criterion with `eqRule`, expression: `ref` |
-| `ONE_OF ["A","B",...]` | One criterion per value with `eqRule`, expression: `or` of `ref`s |
-| `NOT_ONE_OF ["A"]` (single value) | One criterion with `eqRule`, expression: `not` wrapping `ref` |
-| `NOT_ONE_OF ["A","B",...]` | One criterion per value with `eqRule`, expression: `and` of `not`-wrapped `ref`s |
-| `MATCHES "^prefix.*"` | One criterion with `startsWithRule { value: "prefix" }`, expression: `ref` |
-| `MATCHES ".*suffix$"` | One criterion with `endsWithRule { value: "suffix" }`, expression: `ref` |
+| `{operator: GT, values: ["N"]}` | One criterion with `rangeRule.startExclusive: N`, expression: `ref` |
+| `{operator: GTE, values: ["N"]}` | One criterion with `rangeRule.startInclusive: N`, expression: `ref` |
+| `{operator: LT, values: ["N"]}` | One criterion with `rangeRule.endExclusive: N`, expression: `ref` |
+| `{operator: LTE, values: ["N"]}` | One criterion with `rangeRule.endInclusive: N`, expression: `ref` |
+| `{operator: ONE_OF, values: ["A"]}` (singleton) | One criterion with `eqRule`, expression: `ref` |
+| `{operator: ONE_OF, values: ["A","B",...]}` | One criterion per value with `eqRule`, expression: `or` of `ref`s |
+| `{operator: NOT_ONE_OF, values: ["A"]}` (singleton) | One criterion with `eqRule`, expression: `not` wrapping `ref` |
+| `{operator: NOT_ONE_OF, values: ["A","B",...]}` | One criterion per value with `eqRule`, expression: `and` of `not`-wrapped `ref`s |
+| `{operator: MATCHES, values: ["^prefix.*"]}` | One criterion with `startsWithRule { value: "prefix" }`, expression: `ref` |
+| `{operator: MATCHES, values: [".*suffix$"]}` | One criterion with `endsWithRule { value: "suffix" }`, expression: `ref` |
 
 **Blocked (manual review):**
 
-- **`MATCHES` regex that is not a simple prefix/suffix anchor.** Confidence
-  has no general regex rule. Surface the flag in Section 4 with an
-  explicit `BLOCKED` marker and a brief explanation; the user must
-  either rewrite the rule using set membership / starts-with / ends-with
-  or migrate manually.
-- **SemVer comparisons.** Eppo can compare SemVer strings numerically.
-  Confidence's `rangeRule` is purely numeric. If the attribute type is
-  SemVer, mark the rule `BLOCKED` and ask the user whether to convert
-  the comparison to a numeric `appVersionMajor` / `appVersionMinor`
-  context field, or migrate manually.
+- **`{operator: IS_NULL}`** — Confidence has no native "attribute is
+  null" rule. Mark the allocation `BLOCKED` in Section 4 with the
+  reason `Uses IS_NULL on '<attribute>'; Confidence has no null-check
+  rule.` The user must either change the Eppo rule to use explicit
+  values, or migrate manually with a default-value strategy.
+- **`{operator: MATCHES, values: ["<non-anchor regex>"]}`** — anything
+  not a clean `^prefix.*` or `.*suffix$`. Confidence has no general
+  regex rule. Surface in Section 4 with the BLOCKED marker.
+- **SemVer-looking numeric comparisons.** Eppo's spec has no value-type
+  field — numeric operators (`GT/GTE/LT/LTE`) take strings, and Eppo's
+  SDK decides at evaluation time whether to compare numerically or as
+  SemVer based on whether the value parses as SemVer (`X.Y.Z` or
+  `X.Y.Z-suffix`). Confidence's `rangeRule` is purely numeric. If any
+  `values[0]` for a numeric operator matches the regex
+  `^\d+\.\d+\.\d+([.-].+)?$`, mark the allocation `BLOCKED` with the
+  reason `SemVer comparison on '<attribute>'; Confidence rangeRule is
+  numeric only.` Offer to convert to a numeric `appVersionMajor` /
+  `appVersionMinor` context field.
 
-**Eppo subject `id` targeting** (`id` ONE_OF [...]): rewrite the
-`attributeName` from `id` to the chosen entity field name from Step 3
-(e.g. `user_id`). Lists up to ~50 values are fine; Eppo caps them at 50
-but Confidence handles larger sets.
+**Eppo allocation `type` handling:**
+
+- `FEATURE_GATE` and `EXPERIMENT` → migrate normally as one Confidence
+  targeting rule each.
+- `SWITCHBACK` → Eppo switchback allocations rotate variations over
+  time windows for experiments on temporally-correlated outcomes
+  (surge pricing, dispatch routing, etc.). Confidence does not model
+  time-bucketed exposure. Mark the entire **flag** `BLOCKED` in
+  Section 4 with the reason `Contains SWITCHBACK allocation; not
+  supported in Confidence.`
+
+**Eppo allocation `audiences[]` handling:**
+
+- Empty `audiences[]` → no action.
+- Non-empty `audiences[]` → mark the allocation `BLOCKED` with the
+  reason `References Eppo audience(s) <ids>; resolve audience
+  definitions to inline conditions, or migrate manually.` Audiences
+  are reusable targeting definitions stored in a separate Eppo
+  resource and would need to be fetched via `GET /audiences/{id}`
+  and inlined; we don't do that automatically because the inversion
+  semantics (`IS_IN` vs `IS_NOT_IN`) and combination with
+  `targeting_rules[]` are non-trivial.
+
+**Eppo subject `id` targeting** (`{operator: ONE_OF, attribute: "id",
+values: [...]}`): the special `id` attribute targets the subject key
+directly. Rewrite `attribute` from `id` to the chosen Confidence
+entity field name from Step 3 (e.g. `user_id`). Lists up to ~50
+values are fine; Eppo caps them at 50 but Confidence handles larger
+sets.
 
 ### Worked example (waterfall)
 
@@ -522,19 +603,25 @@ by `execute` — no implicit defaults.
 ### Flag: `<flag-key>`
 
 **Description:** <from Eppo if available, otherwise empty>
-**Variation type:** <STRING / BOOLEAN / NUMERIC / INTEGER / JSON>
-**Variations:** <variant key — value list, e.g. "control = false, treatment = true">
-**Enabled in `<env>`:** <yes / no — if no, all rules will be added at 0% rollout and flag created in the OFF state>
+**Variation type:** <BOOLEAN / INTEGER / JSON / NUMERIC / STRING>
+**Variations:** <variant_key — value list, e.g. "control = false, treatment = true">
+**Active in `<env>`:** <yes / no — if no, all rules will be added at 0% rollout and flag created in the OFF state>
 **Allocations (Eppo, in order):**
   1. `<allocation name>` (`<FEATURE_GATE | EXPERIMENT>`) — <plain-English rule>, exposure <X>%, splits <variant=X%, ...>
   2. ...
-**Default value (no allocation matches):** <variation key>
+**Default allocation:** `<allocation name>` (is_default: true) → variation `<variant_key>`
 **Confidence entity:** <mapped entity field from Step 3>
-**Confidence rules:** one targeting rule per allocation, in the same order
+**Confidence rules:** one targeting rule per non-default allocation, in the same order
 **Action:** [ ] Migrate  [ ] Skip
 
+If any allocation or the whole flag is BLOCKED, replace the **Action**
+line with:
+
+**Status:** BLOCKED — <one-line reason from the BLOCKED rules above>
+**Action:** [ ] Skip (no migrate option available until the block is resolved)
+
 **MCP Commands:**
-<createFlag, addFlagToClient, addTargetingRule (ONE per allocation, in order, with variant assignments and their split), resolveFlag with full parameters — positive AND negative case>
+<createFlag (default value = is_default allocation's variation), addFlagToClient, addTargetingRule (ONE per non-default allocation, in order, with variant assignments and their split), resolveFlag with full parameters — positive AND negative case>
 
 ---
 
@@ -552,17 +639,23 @@ by `execute` — no implicit defaults.
 (The core file defines the execute flow and the Flag Setup Sequence.
 This section adds Eppo-specific guidance.)
 
-**Disabled-in-environment handling.** If a flag is off in the source
-Eppo environment, surface that during execute:
+**Inactive-in-environment handling.** If a flag's `active` flag is
+false in the source Eppo environment, surface that during execute:
 
-> This flag is OFF in Eppo (<env>). I'll create it in Confidence but
-> keep the rules at 0% rollout so it stays inactive until you turn it
-> on intentionally. Continue?
+> This flag is INACTIVE in Eppo (<env>). I'll create it in Confidence
+> but keep the rules at 0% rollout so it stays off until you turn it on
+> intentionally. Continue?
 
-**Variation type → Confidence schema.** Use the Eppo `variationType`
-(`STRING` / `BOOLEAN` / `NUMERIC` / `INTEGER` / `JSON`) as the
+**Variation type → Confidence schema.** Use the Eppo `variation_type`
+(`BOOLEAN` / `INTEGER` / `JSON` / `NUMERIC` / `STRING`) as the
 Confidence schema type when calling `createFlag`. Include all Eppo
-variations as Confidence variants.
+variations (`variant_key` → `value`) as Confidence variants.
+
+**Default value.** Take the variation referenced by the allocation
+with `is_default: true` (its `variation_weight[0].variation_id`,
+resolved against `variations[]`) and pass that variant's value as
+`createFlag`'s default. Do NOT emit a targeting rule for the default
+allocation.
 
 **Waterfall verification.** Because Eppo flags often have multiple
 allocations, the core file's Flag Setup Sequence Step 4 requires you to

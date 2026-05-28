@@ -3,409 +3,716 @@
 
 Implements the four read endpoints the skill calls:
   GET /api/v1/environments
-  GET /api/v1/feature-flags?page=N&per_page=M
+  GET /api/v1/feature-flags?offset=N&limit=N&include_archived=true|false
   GET /api/v1/feature-flags/{id}
   GET /api/v1/feature-flags/{id}/environments/{environmentId}
 
-The fixture flags are deliberately chosen to exercise every branch of the
-PostHog/Eppo-side operator-mapping table the skill ships with. See README.md
-for the full list and what each flag tests.
+JSON shapes are derived directly from Eppo's public OpenAPI 3.0 spec
+(embedded inline in <https://eppo.cloud/api/docs/swagger-ui-init.js>;
+no auth required to fetch). Field names, enum values, required-field
+sets and pagination semantics match `PublicApiFeatureFlag` and friends
+in that spec as of 2026-05-28.
 
-The JSON shapes here are our best guess at Eppo's actual responses, modeled
-on the Swagger summary at https://eppo.cloud/api/docs and the public docs.
-A future "Tier 3" pass with a real Eppo account should diff a real response
-against these fixtures and update either the fixtures or the skill.
+Notable conventions:
+  * snake_case everywhere (`variation_type`, `is_archived`, ...)
+  * IDs are numeric (Eppo Object IDs)
+  * Variation weights are an array of {variation_id, weight}, never a map
+  * Condition `values` is always an array, even for single-value operators
+  * Default value lives on the allocation marked `is_default: true`, NOT
+    on the flag
+  * Allocations are per-environment via `environment_id`; for fixtures
+    where all envs share the same allocations we stamp env_id at serve
+    time to avoid duplicate fixture data
+  * The list endpoint returns a bare array (no wrapper), paginated via
+    `offset` + `limit`
+
+Fixture flags are curated to exercise every branch of the skill's
+operator-mapping table and BLOCKED markers — see README.md.
 
 Run:
-    python3 server.py [--port 3000] [--per-page-default 50]
+    python3 server.py [--port 3000] [--limit-default 50]
 """
 
 import argparse
+import copy
 import json
 import re
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
+CREATED_AT = "2026-01-15T12:00:00.000Z"
+UPDATED_AT = "2026-05-20T09:30:00.000Z"
+
 
 # ---------------------------------------------------------------------------
-# Fixtures
+# Environments
 # ---------------------------------------------------------------------------
 
 ENVIRONMENTS: list[dict[str, Any]] = [
-    {"id": "env-prod", "name": "Production"},
-    {"id": "env-staging", "name": "Staging"},
-    {"id": "env-test", "name": "Test"},
+    {
+        "id": 1,
+        "name": "Production",
+        "is_production": True,
+        "sdk_key_count": 3,
+        "client_token_count": 2,
+        "created_at": CREATED_AT,
+        "updated_at": UPDATED_AT,
+    },
+    {
+        "id": 2,
+        "name": "Staging",
+        "is_production": False,
+        "sdk_key_count": 1,
+        "client_token_count": 1,
+        "created_at": CREATED_AT,
+        "updated_at": UPDATED_AT,
+    },
+    {
+        "id": 3,
+        "name": "Test",
+        "is_production": False,
+        "sdk_key_count": 1,
+        "client_token_count": 0,
+        "created_at": CREATED_AT,
+        "updated_at": UPDATED_AT,
+    },
 ]
 
 
-def _bool_variations() -> list[dict[str, Any]]:
+# ---------------------------------------------------------------------------
+# Variation helpers
+# ---------------------------------------------------------------------------
+
+
+def _bool_variations(base_id: int) -> list[dict[str, Any]]:
+    """Stable {Enabled, Disabled} pair with deterministic IDs.
+
+    base_id is offset by 0 for Enabled and 1 for Disabled so different
+    flags get distinct variation IDs.
+    """
     return [
-        {"key": "enabled", "name": "Enabled", "value": True},
-        {"key": "disabled", "name": "Disabled", "value": False},
+        {"id": base_id, "name": "Enabled", "variant_key": "enabled"},
+        {"id": base_id + 1, "name": "Disabled", "variant_key": "disabled"},
     ]
 
 
-# Each entry is the full /feature-flags/{id} response body. Per-env state is
-# derived from these by overlaying the per-env overrides in ENV_OVERRIDES.
+# ---------------------------------------------------------------------------
+# Fixture flags
+# ---------------------------------------------------------------------------
+#
+# Each entry is the canonical /feature-flags/{id} response body, MINUS the
+# `environments` array — that's stamped on at serve time per ENV_OVERRIDES.
+# Allocations here are environment-agnostic; the serve-time helper assigns
+# `environment_id` for the env-specific endpoint.
+
 FLAGS: list[dict[str, Any]] = [
-    # 1. Tests MATCHES with a clean suffix anchor → endsWithRule.
+    # 1. MATCHES with a clean suffix anchor → endsWithRule.
     {
-        "id": "ff-001",
+        "id": 1,
         "key": "internal-tools-gate",
         "name": "Internal tools gate",
         "description": "Show internal tooling to Spotify employees only.",
-        "variationType": "BOOLEAN",
-        "archived": False,
-        "variations": _bool_variations(),
-        "defaultVariation": "disabled",
+        "is_archived": False,
+        "variation_type": "BOOLEAN",
+        "owner": None,
+        "variations": _bool_variations(101),
         "allocations": [
             {
-                "id": "alloc-001-1",
+                "id": 1001,
+                "key": "spotify-employees",
                 "name": "Spotify employees",
-                "allocationType": "FEATURE_GATE",
-                "trafficExposure": 1.0,
-                "targetingRules": [
+                "created_at": CREATED_AT,
+                "type": "FEATURE_GATE",
+                "variation_weight": [{"variation_id": 101, "weight": 100}],
+                "targeting_rules": [
                     {
                         "conditions": [
                             {
-                                "attribute": "email",
                                 "operator": "MATCHES",
-                                "value": ".*@spotify\\.com$",
+                                "attribute": "email",
+                                "values": [".*@spotify\\.com$"],
                             }
                         ]
                     }
                 ],
-                "variationWeightsByKey": {"enabled": 100},
-            }
+                "audiences": [],
+                "percent_exposure": 100,
+                "is_default": False,
+                "experiment": None,
+            },
+            {
+                "id": 1002,
+                "key": "internal-tools-gate-default",
+                "name": "Default off",
+                "created_at": CREATED_AT,
+                "type": "FEATURE_GATE",
+                "variation_weight": [{"variation_id": 102, "weight": 100}],
+                "targeting_rules": [],
+                "audiences": [],
+                "percent_exposure": 100,
+                "is_default": True,
+                "experiment": None,
+            },
         ],
+        "tag_names": ["internal"],
+        "created_at": CREATED_AT,
+        "updated_at": UPDATED_AT,
+        "entity_id": 1,
+        "type": "FEATURE_FLAG",
+        "structured_metadata": [],
     },
-    # 2. Tests waterfall (two allocations), Feature Gate + Experiment, ONE_OF
+    # 2. Waterfall (two allocations), Feature Gate + Experiment, ONE_OF
     #    set membership, multivariant 50/50 split.
     {
-        "id": "ff-002",
+        "id": 2,
         "key": "pricing-experiment",
         "name": "Pricing page experiment",
         "description": "Test a new pricing layout against control.",
-        "variationType": "STRING",
-        "archived": False,
+        "is_archived": False,
+        "variation_type": "STRING",
+        "owner": None,
         "variations": [
-            {"key": "control", "name": "Control", "value": "control"},
-            {"key": "treatment_a", "name": "Treatment A", "value": "treatment_a"},
-            {"key": "treatment_b", "name": "Treatment B", "value": "treatment_b"},
+            {"id": 201, "name": "Control", "variant_key": "control"},
+            {"id": 202, "name": "Treatment A", "variant_key": "treatment_a"},
+            {"id": 203, "name": "Treatment B", "variant_key": "treatment_b"},
         ],
-        "defaultVariation": "control",
         "allocations": [
             {
-                "id": "alloc-002-1",
+                "id": 2001,
+                "key": "internal-qa-force-on",
                 "name": "Internal QA force-on",
-                "allocationType": "FEATURE_GATE",
-                "trafficExposure": 1.0,
-                "targetingRules": [
+                "created_at": CREATED_AT,
+                "type": "FEATURE_GATE",
+                "variation_weight": [{"variation_id": 202, "weight": 100}],
+                "targeting_rules": [
                     {
                         "conditions": [
                             {
-                                "attribute": "email",
                                 "operator": "MATCHES",
-                                "value": ".*@spotify\\.com$",
+                                "attribute": "email",
+                                "values": [".*@spotify\\.com$"],
                             }
                         ]
                     }
                 ],
-                "variationWeightsByKey": {"treatment_a": 100},
+                "audiences": [],
+                "percent_exposure": 100,
+                "is_default": False,
+                "experiment": None,
             },
             {
-                "id": "alloc-002-2",
+                "id": 2002,
+                "key": "north-america-50-50",
                 "name": "North America 50/50",
-                "allocationType": "EXPERIMENT",
-                "trafficExposure": 1.0,
-                "targetingRules": [
+                "created_at": CREATED_AT,
+                "type": "EXPERIMENT",
+                "variation_weight": [
+                    {"variation_id": 201, "weight": 50},
+                    {"variation_id": 202, "weight": 50},
+                ],
+                "targeting_rules": [
                     {
                         "conditions": [
                             {
-                                "attribute": "country",
                                 "operator": "ONE_OF",
-                                "value": ["US", "CA"],
+                                "attribute": "country",
+                                "values": ["US", "CA"],
                             }
                         ]
                     }
                 ],
-                "variationWeightsByKey": {"control": 50, "treatment_a": 50},
+                "audiences": [],
+                "percent_exposure": 100,
+                "is_default": False,
+                "experiment": {
+                    "id": 9001,
+                    "name": "Pricing layout A/B",
+                    "status": "RUNNING",
+                },
+            },
+            {
+                "id": 2003,
+                "key": "pricing-experiment-default",
+                "name": "Default control",
+                "created_at": CREATED_AT,
+                "type": "FEATURE_GATE",
+                "variation_weight": [{"variation_id": 201, "weight": 100}],
+                "targeting_rules": [],
+                "audiences": [],
+                "percent_exposure": 100,
+                "is_default": True,
+                "experiment": None,
             },
         ],
+        "tag_names": ["pricing", "experiment"],
+        "created_at": CREATED_AT,
+        "updated_at": UPDATED_AT,
+        "entity_id": 1,
+        "type": "FEATURE_FLAG",
+        "structured_metadata": [],
     },
-    # 3. Tests NOT_ONE_OF, GTE numeric, AND combination within a single rule.
+    # 3. NOT_ONE_OF + GTE numeric, AND combination within a single rule.
     {
-        "id": "ff-003",
+        "id": 3,
         "key": "legacy-search-rollout",
         "name": "Legacy search rollout",
         "description": "Roll out new search outside DE/FR for app v28+.",
-        "variationType": "BOOLEAN",
-        "archived": False,
-        "variations": _bool_variations(),
-        "defaultVariation": "disabled",
+        "is_archived": False,
+        "variation_type": "BOOLEAN",
+        "owner": None,
+        "variations": _bool_variations(301),
         "allocations": [
             {
-                "id": "alloc-003-1",
+                "id": 3001,
+                "key": "eligible-users",
                 "name": "Eligible users",
-                "allocationType": "FEATURE_GATE",
-                "trafficExposure": 1.0,
-                "targetingRules": [
+                "created_at": CREATED_AT,
+                "type": "FEATURE_GATE",
+                "variation_weight": [{"variation_id": 301, "weight": 100}],
+                "targeting_rules": [
                     {
                         "conditions": [
                             {
-                                "attribute": "country",
                                 "operator": "NOT_ONE_OF",
-                                "value": ["DE", "FR"],
+                                "attribute": "country",
+                                "values": ["DE", "FR"],
                             },
                             {
-                                "attribute": "appVersion",
                                 "operator": "GTE",
-                                "value": 28,
+                                "attribute": "appVersion",
+                                "values": ["28"],
                             },
                         ]
                     }
                 ],
-                "variationWeightsByKey": {"enabled": 100},
-            }
+                "audiences": [],
+                "percent_exposure": 100,
+                "is_default": False,
+                "experiment": None,
+            },
+            {
+                "id": 3002,
+                "key": "legacy-search-rollout-default",
+                "name": "Default off",
+                "created_at": CREATED_AT,
+                "type": "FEATURE_GATE",
+                "variation_weight": [{"variation_id": 302, "weight": 100}],
+                "targeting_rules": [],
+                "audiences": [],
+                "percent_exposure": 100,
+                "is_default": True,
+                "experiment": None,
+            },
         ],
+        "tag_names": ["search"],
+        "created_at": CREATED_AT,
+        "updated_at": UPDATED_AT,
+        "entity_id": 1,
+        "type": "FEATURE_FLAG",
+        "structured_metadata": [],
     },
-    # 4. Tests subject-key targeting via the special `id` attribute, which
-    #    must be rewritten to the chosen Confidence entity field (e.g. user_id).
+    # 4. Subject-key targeting via the special `id` attribute. The skill
+    #    must rewrite this to the chosen Confidence entity field.
     {
-        "id": "ff-004",
+        "id": 4,
         "key": "subject-id-targeting",
         "name": "Specific test users",
         "description": "Allowlist of test user IDs.",
-        "variationType": "BOOLEAN",
-        "archived": False,
-        "variations": _bool_variations(),
-        "defaultVariation": "disabled",
+        "is_archived": False,
+        "variation_type": "BOOLEAN",
+        "owner": None,
+        "variations": _bool_variations(401),
         "allocations": [
             {
-                "id": "alloc-004-1",
+                "id": 4001,
+                "key": "test-allowlist",
                 "name": "Test allowlist",
-                "allocationType": "FEATURE_GATE",
-                "trafficExposure": 1.0,
-                "targetingRules": [
+                "created_at": CREATED_AT,
+                "type": "FEATURE_GATE",
+                "variation_weight": [{"variation_id": 401, "weight": 100}],
+                "targeting_rules": [
                     {
                         "conditions": [
                             {
-                                "attribute": "id",
                                 "operator": "ONE_OF",
-                                "value": ["test-user-1", "test-user-2"],
+                                "attribute": "id",
+                                "values": ["test-user-1", "test-user-2"],
                             }
                         ]
                     }
                 ],
-                "variationWeightsByKey": {"enabled": 100},
-            }
+                "audiences": [],
+                "percent_exposure": 100,
+                "is_default": False,
+                "experiment": None,
+            },
+            {
+                "id": 4002,
+                "key": "subject-id-targeting-default",
+                "name": "Default off",
+                "created_at": CREATED_AT,
+                "type": "FEATURE_GATE",
+                "variation_weight": [{"variation_id": 402, "weight": 100}],
+                "targeting_rules": [],
+                "audiences": [],
+                "percent_exposure": 100,
+                "is_default": True,
+                "experiment": None,
+            },
         ],
+        "tag_names": [],
+        "created_at": CREATED_AT,
+        "updated_at": UPDATED_AT,
+        "entity_id": 1,
+        "type": "FEATURE_FLAG",
+        "structured_metadata": [],
     },
-    # 5. Tests disabled-in-environment handling. Configured but turned OFF in
-    #    the Production env (see ENV_OVERRIDES below). Migration should still
-    #    create the flag, but with the rule at 0% rollout.
+    # 5. Disabled in Production via ENV_OVERRIDES below. Migration should
+    #    still create the flag, but with all rules at 0% rollout so it
+    #    doesn't activate accidentally.
     {
-        "id": "ff-005",
+        "id": 5,
         "key": "legacy-checkout-redesign",
         "name": "Legacy checkout redesign",
         "description": "Old experiment that's been turned off.",
-        "variationType": "BOOLEAN",
-        "archived": False,
-        "variations": _bool_variations(),
-        "defaultVariation": "disabled",
+        "is_archived": False,
+        "variation_type": "BOOLEAN",
+        "owner": None,
+        "variations": _bool_variations(501),
         "allocations": [
             {
-                "id": "alloc-005-1",
-                "name": "Test cohort",
-                "allocationType": "FEATURE_GATE",
-                "trafficExposure": 1.0,
-                "targetingRules": [
+                "id": 5001,
+                "key": "us-test-cohort",
+                "name": "US test cohort",
+                "created_at": CREATED_AT,
+                "type": "FEATURE_GATE",
+                "variation_weight": [{"variation_id": 501, "weight": 100}],
+                "targeting_rules": [
                     {
                         "conditions": [
                             {
-                                "attribute": "country",
                                 "operator": "ONE_OF",
-                                "value": ["US"],
+                                "attribute": "country",
+                                "values": ["US"],
                             }
                         ]
                     }
                 ],
-                "variationWeightsByKey": {"enabled": 100},
-            }
+                "audiences": [],
+                "percent_exposure": 100,
+                "is_default": False,
+                "experiment": None,
+            },
+            {
+                "id": 5002,
+                "key": "legacy-checkout-redesign-default",
+                "name": "Default off",
+                "created_at": CREATED_AT,
+                "type": "FEATURE_GATE",
+                "variation_weight": [{"variation_id": 502, "weight": 100}],
+                "targeting_rules": [],
+                "audiences": [],
+                "percent_exposure": 100,
+                "is_default": True,
+                "experiment": None,
+            },
         ],
+        "tag_names": ["legacy"],
+        "created_at": CREATED_AT,
+        "updated_at": UPDATED_AT,
+        "entity_id": 1,
+        "type": "FEATURE_FLAG",
+        "structured_metadata": [],
     },
-    # 6. Tests SemVer BLOCKED path. The appVersion attribute uses SemVer
-    #    semantics (string comparison, not numeric), which Confidence's
-    #    rangeRule cannot express.
+    # 6. SemVer BLOCKED. `appVersion >= "1.2.0"` looks like SemVer but
+    #    Eppo's spec has no valueType field — detection is by heuristic
+    #    on the value string ("looks like X.Y.Z"). Confidence's rangeRule
+    #    is purely numeric.
     {
-        "id": "ff-006",
+        "id": 6,
         "key": "mobile-only-feature",
         "name": "Mobile only feature",
         "description": "iOS/Android users on app v1.2.0+.",
-        "variationType": "BOOLEAN",
-        "archived": False,
-        "variations": _bool_variations(),
-        "defaultVariation": "disabled",
+        "is_archived": False,
+        "variation_type": "BOOLEAN",
+        "owner": None,
+        "variations": _bool_variations(601),
         "allocations": [
             {
-                "id": "alloc-006-1",
+                "id": 6001,
+                "key": "modern-mobile-clients",
                 "name": "Modern mobile clients",
-                "allocationType": "FEATURE_GATE",
-                "trafficExposure": 1.0,
-                "targetingRules": [
+                "created_at": CREATED_AT,
+                "type": "FEATURE_GATE",
+                "variation_weight": [{"variation_id": 601, "weight": 100}],
+                "targeting_rules": [
                     {
                         "conditions": [
                             {
-                                "attribute": "device",
                                 "operator": "ONE_OF",
-                                "value": ["iOS", "Android"],
+                                "attribute": "device",
+                                "values": ["iOS", "Android"],
                             },
                             {
-                                "attribute": "appVersion",
                                 "operator": "GTE",
-                                "value": "1.2.0",
-                                "valueType": "SEMVER",
+                                "attribute": "appVersion",
+                                "values": ["1.2.0"],
                             },
                         ]
                     }
                 ],
-                "variationWeightsByKey": {"enabled": 100},
-            }
+                "audiences": [],
+                "percent_exposure": 100,
+                "is_default": False,
+                "experiment": None,
+            },
+            {
+                "id": 6002,
+                "key": "mobile-only-feature-default",
+                "name": "Default off",
+                "created_at": CREATED_AT,
+                "type": "FEATURE_GATE",
+                "variation_weight": [{"variation_id": 602, "weight": 100}],
+                "targeting_rules": [],
+                "audiences": [],
+                "percent_exposure": 100,
+                "is_default": True,
+                "experiment": None,
+            },
         ],
+        "tag_names": ["mobile"],
+        "created_at": CREATED_AT,
+        "updated_at": UPDATED_AT,
+        "entity_id": 1,
+        "type": "FEATURE_FLAG",
+        "structured_metadata": [],
     },
-    # 7. Tests general-regex BLOCKED path. The MATCHES regex uses alternation,
-    #    which can't be expressed as startsWithRule or endsWithRule.
+    # 7. General-regex BLOCKED. MATCHES with alternation can't be expressed
+    #    as startsWithRule or endsWithRule.
     {
-        "id": "ff-007",
+        "id": 7,
         "key": "general-regex-flag",
         "name": "Non-prod email gate",
         "description": "Block production traffic from test/qa/staging email domains.",
-        "variationType": "BOOLEAN",
-        "archived": False,
-        "variations": _bool_variations(),
-        "defaultVariation": "disabled",
+        "is_archived": False,
+        "variation_type": "BOOLEAN",
+        "owner": None,
+        "variations": _bool_variations(701),
         "allocations": [
             {
-                "id": "alloc-007-1",
+                "id": 7001,
+                "key": "non-prod-emails",
                 "name": "Non-prod emails",
-                "allocationType": "FEATURE_GATE",
-                "trafficExposure": 1.0,
-                "targetingRules": [
+                "created_at": CREATED_AT,
+                "type": "FEATURE_GATE",
+                "variation_weight": [{"variation_id": 701, "weight": 100}],
+                "targeting_rules": [
                     {
                         "conditions": [
                             {
-                                "attribute": "email",
                                 "operator": "MATCHES",
-                                "value": ".*@(test|qa|staging)\\.com$",
+                                "attribute": "email",
+                                "values": [".*@(test|qa|staging)\\.com$"],
                             }
                         ]
                     }
                 ],
-                "variationWeightsByKey": {"enabled": 100},
-            }
+                "audiences": [],
+                "percent_exposure": 100,
+                "is_default": False,
+                "experiment": None,
+            },
+            {
+                "id": 7002,
+                "key": "general-regex-flag-default",
+                "name": "Default off",
+                "created_at": CREATED_AT,
+                "type": "FEATURE_GATE",
+                "variation_weight": [{"variation_id": 702, "weight": 100}],
+                "targeting_rules": [],
+                "audiences": [],
+                "percent_exposure": 100,
+                "is_default": True,
+                "experiment": None,
+            },
         ],
+        "tag_names": [],
+        "created_at": CREATED_AT,
+        "updated_at": UPDATED_AT,
+        "entity_id": 1,
+        "type": "FEATURE_FLAG",
+        "structured_metadata": [],
     },
-    # 8-10. Boring extras to push the list past per_page=5 and verify the
-    #       skill's pagination loop terminates correctly.
+    # 8. IS_NULL BLOCKED. Confidence has no "attribute is null" rule.
     {
-        "id": "ff-008",
-        "key": "extra-flag-1",
-        "name": "Extra flag 1 (pagination filler)",
-        "description": "",
-        "variationType": "BOOLEAN",
-        "archived": False,
-        "variations": _bool_variations(),
-        "defaultVariation": "disabled",
+        "id": 8,
+        "key": "missing-attribute-fallback",
+        "name": "Missing attribute fallback",
+        "description": "Show fallback experience when subjects have no plan attribute set.",
+        "is_archived": False,
+        "variation_type": "BOOLEAN",
+        "owner": None,
+        "variations": _bool_variations(801),
         "allocations": [
             {
-                "id": "alloc-008-1",
-                "name": "All US",
-                "allocationType": "FEATURE_GATE",
-                "trafficExposure": 1.0,
-                "targetingRules": [
+                "id": 8001,
+                "key": "no-plan-fallback",
+                "name": "No plan attribute",
+                "created_at": CREATED_AT,
+                "type": "FEATURE_GATE",
+                "variation_weight": [{"variation_id": 801, "weight": 100}],
+                "targeting_rules": [
                     {
                         "conditions": [
                             {
-                                "attribute": "country",
-                                "operator": "ONE_OF",
-                                "value": ["US"],
+                                "operator": "IS_NULL",
+                                "attribute": "plan",
+                                "values": [],
                             }
                         ]
                     }
                 ],
-                "variationWeightsByKey": {"enabled": 100},
-            }
+                "audiences": [],
+                "percent_exposure": 100,
+                "is_default": False,
+                "experiment": None,
+            },
+            {
+                "id": 8002,
+                "key": "missing-attribute-fallback-default",
+                "name": "Default off",
+                "created_at": CREATED_AT,
+                "type": "FEATURE_GATE",
+                "variation_weight": [{"variation_id": 802, "weight": 100}],
+                "targeting_rules": [],
+                "audiences": [],
+                "percent_exposure": 100,
+                "is_default": True,
+                "experiment": None,
+            },
         ],
+        "tag_names": [],
+        "created_at": CREATED_AT,
+        "updated_at": UPDATED_AT,
+        "entity_id": 1,
+        "type": "FEATURE_FLAG",
+        "structured_metadata": [],
     },
+    # 9. SWITCHBACK BLOCKED. Eppo's switchback experiments rotate
+    #    variations over time windows. Confidence doesn't model
+    #    time-bucketed exposure; the whole flag should be BLOCKED.
     {
-        "id": "ff-009",
-        "key": "extra-flag-2",
-        "name": "Extra flag 2 (pagination filler)",
-        "description": "",
-        "variationType": "BOOLEAN",
-        "archived": False,
-        "variations": _bool_variations(),
-        "defaultVariation": "disabled",
+        "id": 9,
+        "key": "delivery-pricing-switchback",
+        "name": "Delivery pricing switchback",
+        "description": "Time-windowed switchback experiment for surge pricing.",
+        "is_archived": False,
+        "variation_type": "STRING",
+        "owner": None,
+        "variations": [
+            {"id": 901, "name": "Surge off", "variant_key": "surge_off"},
+            {"id": 902, "name": "Surge on", "variant_key": "surge_on"},
+        ],
         "allocations": [
             {
-                "id": "alloc-009-1",
-                "name": "All UK",
-                "allocationType": "FEATURE_GATE",
-                "trafficExposure": 1.0,
-                "targetingRules": [
-                    {
-                        "conditions": [
-                            {
-                                "attribute": "country",
-                                "operator": "ONE_OF",
-                                "value": ["UK"],
-                            }
-                        ]
-                    }
+                "id": 9001,
+                "key": "hourly-switchback",
+                "name": "Hourly switchback",
+                "created_at": CREATED_AT,
+                "type": "SWITCHBACK",
+                "variation_weight": [
+                    {"variation_id": 901, "weight": 50},
+                    {"variation_id": 902, "weight": 50},
                 ],
-                "variationWeightsByKey": {"enabled": 100},
-            }
+                "targeting_rules": [],
+                "audiences": [],
+                "percent_exposure": 100,
+                "is_default": False,
+                "experiment": {
+                    "id": 9101,
+                    "name": "Delivery surge pricing switchback",
+                    "status": "RUNNING",
+                },
+            },
+            {
+                "id": 9002,
+                "key": "delivery-pricing-switchback-default",
+                "name": "Default surge off",
+                "created_at": CREATED_AT,
+                "type": "FEATURE_GATE",
+                "variation_weight": [{"variation_id": 901, "weight": 100}],
+                "targeting_rules": [],
+                "audiences": [],
+                "percent_exposure": 100,
+                "is_default": True,
+                "experiment": None,
+            },
         ],
+        "tag_names": ["pricing", "switchback"],
+        "created_at": CREATED_AT,
+        "updated_at": UPDATED_AT,
+        "entity_id": 1,
+        "type": "FEATURE_FLAG",
+        "structured_metadata": [],
     },
+    # 10. Allocation with non-empty `audiences[]` and IS_NOT_IN inversion.
+    #     Audience definitions live behind a separate /audiences/{id}
+    #     endpoint the skill does not currently fetch — BLOCKED.
     {
-        "id": "ff-010",
-        "key": "extra-flag-3",
-        "name": "Extra flag 3 (pagination filler)",
-        "description": "",
-        "variationType": "BOOLEAN",
-        "archived": False,
-        "variations": _bool_variations(),
-        "defaultVariation": "disabled",
+        "id": 10,
+        "key": "premium-users-only",
+        "name": "Premium users only",
+        "description": "Targets a reusable Premium audience defined in Eppo.",
+        "is_archived": False,
+        "variation_type": "BOOLEAN",
+        "owner": None,
+        "variations": _bool_variations(1001),
         "allocations": [
             {
-                "id": "alloc-010-1",
-                "name": "All DE",
-                "allocationType": "FEATURE_GATE",
-                "trafficExposure": 1.0,
-                "targetingRules": [
-                    {
-                        "conditions": [
-                            {
-                                "attribute": "country",
-                                "operator": "ONE_OF",
-                                "value": ["DE"],
-                            }
-                        ]
-                    }
+                "id": 10001,
+                "key": "exclude-internal-audience",
+                "name": "Premium audience minus internal",
+                "created_at": CREATED_AT,
+                "type": "FEATURE_GATE",
+                "variation_weight": [{"variation_id": 1001, "weight": 100}],
+                "targeting_rules": [],
+                "audiences": [
+                    {"audience_id": 7001, "type": "IS_IN"},
+                    {"audience_id": 7002, "type": "IS_NOT_IN"},
                 ],
-                "variationWeightsByKey": {"enabled": 100},
-            }
+                "percent_exposure": 100,
+                "is_default": False,
+                "experiment": None,
+            },
+            {
+                "id": 10002,
+                "key": "premium-users-only-default",
+                "name": "Default off",
+                "created_at": CREATED_AT,
+                "type": "FEATURE_GATE",
+                "variation_weight": [{"variation_id": 1002, "weight": 100}],
+                "targeting_rules": [],
+                "audiences": [],
+                "percent_exposure": 100,
+                "is_default": True,
+                "experiment": None,
+            },
         ],
+        "tag_names": ["premium"],
+        "created_at": CREATED_AT,
+        "updated_at": UPDATED_AT,
+        "entity_id": 1,
+        "type": "FEATURE_FLAG",
+        "structured_metadata": [],
     },
 ]
 
 
-# Per-environment overrides. Default for any (flag_id, env_id) pair not
-# listed here is enabled=True, allocations=flag.allocations.
-ENV_OVERRIDES: dict[tuple[str, str], dict[str, Any]] = {
-    # legacy-checkout-redesign is OFF in Production but ON in Staging/Test.
-    ("ff-005", "env-prod"): {"enabled": False},
+# Per-(flag_id, env_id) state overrides. Default is `active: True`. Only
+# include entries that differ from the default.
+ENV_OVERRIDES: dict[tuple[int, int], dict[str, Any]] = {
+    (5, 1): {"active": False},  # legacy-checkout-redesign is OFF in Production
 }
 
 
@@ -414,44 +721,62 @@ ENV_OVERRIDES: dict[tuple[str, str], dict[str, Any]] = {
 # ---------------------------------------------------------------------------
 
 ROUTE_FLAG_LIST = re.compile(r"^/api/v1/feature-flags/?$")
-ROUTE_FLAG_BY_ID = re.compile(r"^/api/v1/feature-flags/(?P<id>[^/]+)/?$")
+ROUTE_FLAG_BY_ID = re.compile(r"^/api/v1/feature-flags/(?P<id>\d+)/?$")
 ROUTE_FLAG_BY_ENV = re.compile(
-    r"^/api/v1/feature-flags/(?P<id>[^/]+)/environments/(?P<env_id>[^/]+)/?$"
+    r"^/api/v1/feature-flags/(?P<id>\d+)/environments/(?P<env_id>\d+)/?$"
 )
 ROUTE_ENVIRONMENTS = re.compile(r"^/api/v1/environments/?$")
 
 
-def _flag_summary(flag: dict[str, Any]) -> dict[str, Any]:
-    """The /feature-flags list response returns summaries, not full configs."""
-    return {
-        "id": flag["id"],
-        "key": flag["key"],
-        "name": flag["name"],
-        "description": flag.get("description", ""),
-        "variationType": flag["variationType"],
-        "archived": flag["archived"],
-    }
+def _env_status_summary(flag_id: int) -> list[dict[str, Any]]:
+    """Build the per-flag `environments` array (statuses only, no allocations)."""
+    out: list[dict[str, Any]] = []
+    for env in ENVIRONMENTS:
+        override = ENV_OVERRIDES.get((flag_id, env["id"]), {})
+        out.append(
+            {
+                "id": env["id"],
+                "name": env["name"],
+                "active": override.get("active", True),
+                "is_production": env["is_production"],
+            }
+        )
+    return out
 
 
-def _env_view(flag: dict[str, Any], env_id: str) -> dict[str, Any] | None:
+def _flag_full(flag: dict[str, Any], include_allocations: bool = True) -> dict[str, Any]:
+    """Full flag definition as returned by GET /feature-flags/{id}."""
+    out = copy.deepcopy(flag)
+    out["environments"] = _env_status_summary(flag["id"])
+    if not include_allocations:
+        out["allocations"] = []
+    return out
+
+
+def _flag_env_view(flag: dict[str, Any], env_id: int) -> dict[str, Any] | None:
+    """The PublicApiFeatureFlagEnvironmentWithAllocation response shape."""
     env = next((e for e in ENVIRONMENTS if e["id"] == env_id), None)
     if env is None:
         return None
-    overrides = ENV_OVERRIDES.get((flag["id"], env_id), {})
+    override = ENV_OVERRIDES.get((flag["id"], env_id), {})
+    allocations_for_env = [
+        {**copy.deepcopy(alloc), "environment_id": env_id}
+        for alloc in flag["allocations"]
+    ]
     return {
-        "id": env_id,
+        "id": env["id"],
         "name": env["name"],
-        "enabled": overrides.get("enabled", True),
-        "allocations": overrides.get("allocations", flag["allocations"]),
+        "active": override.get("active", True),
+        "is_production": env["is_production"],
+        "allocations": allocations_for_env,
     }
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "FakeEppo/0.1"
-    per_page_default = 50
+    server_version = "FakeEppo/0.2"
+    limit_default = 50
 
     def log_message(self, fmt: str, *args: Any) -> None:
-        # Cleaner one-line log format than the default.
         print(f"  {self.address_string()} → {fmt % args}")
 
     def _send(self, code: int, body: Any) -> None:
@@ -466,12 +791,14 @@ class Handler(BaseHTTPRequestHandler):
     def _check_auth(self) -> bool:
         token = self.headers.get("X-Eppo-Token", "")
         if not token:
-            self._send(
-                401,
-                {"error": "Missing X-Eppo-Token header"},
-            )
+            self._send(401, {"error": "Missing X-Eppo-Token header"})
             return False
         return True
+
+    def _bool_param(self, query: dict[str, list[str]], name: str, default: bool) -> bool:
+        if name not in query:
+            return default
+        return query[name][0].lower() in ("true", "1", "yes")
 
     def do_GET(self) -> None:  # noqa: N802 (BaseHTTPRequestHandler API)
         if not self._check_auth():
@@ -486,36 +813,42 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         if ROUTE_FLAG_LIST.match(path):
-            page = int(query.get("page", ["1"])[0])
-            per_page = int(query.get("per_page", [str(self.per_page_default)])[0])
-            start = (page - 1) * per_page
-            end = start + per_page
-            page_items = [_flag_summary(f) for f in FLAGS[start:end]]
-            self._send(200, page_items)
+            offset = int(query.get("offset", ["0"])[0])
+            limit = int(query.get("limit", [str(self.limit_default)])[0])
+            include_archived = self._bool_param(query, "include_archived", False)
+            include_detailed = self._bool_param(
+                query, "include_detailed_allocations", False
+            )
+
+            visible = [f for f in FLAGS if include_archived or not f["is_archived"]]
+            page = visible[offset : offset + limit]
+            response = [_flag_full(f, include_allocations=include_detailed) for f in page]
+            self._send(200, response)
             return
 
         m = ROUTE_FLAG_BY_ENV.match(path)
         if m:
-            flag = next((f for f in FLAGS if f["id"] == m["id"]), None)
+            flag_id = int(m["id"])
+            env_id = int(m["env_id"])
+            flag = next((f for f in FLAGS if f["id"] == flag_id), None)
             if flag is None:
-                self._send(404, {"error": f"Flag {m['id']} not found"})
+                self._send(404, {"error": f"Flag {flag_id} not found"})
                 return
-            view = _env_view(flag, m["env_id"])
+            view = _flag_env_view(flag, env_id)
             if view is None:
-                self._send(
-                    404, {"error": f"Environment {m['env_id']} not found"}
-                )
+                self._send(404, {"error": f"Environment {env_id} not found"})
                 return
             self._send(200, view)
             return
 
         m = ROUTE_FLAG_BY_ID.match(path)
         if m:
-            flag = next((f for f in FLAGS if f["id"] == m["id"]), None)
+            flag_id = int(m["id"])
+            flag = next((f for f in FLAGS if f["id"] == flag_id), None)
             if flag is None:
-                self._send(404, {"error": f"Flag {m['id']} not found"})
+                self._send(404, {"error": f"Flag {flag_id} not found"})
                 return
-            self._send(200, flag)
+            self._send(200, _flag_full(flag, include_allocations=True))
             return
 
         self._send(404, {"error": f"No route for {path}"})
@@ -534,14 +867,14 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--port", type=int, default=3000)
     parser.add_argument(
-        "--per-page-default",
+        "--limit-default",
         type=int,
         default=50,
-        help="Page size used when the client doesn't pass per_page.",
+        help="Page size used when the client doesn't pass `limit`.",
     )
     args = parser.parse_args()
 
-    Handler.per_page_default = args.per_page_default
+    Handler.limit_default = args.limit_default
     server = HTTPServer(("127.0.0.1", args.port), Handler)
     base = f"http://127.0.0.1:{args.port}/api/v1"
     print(f"Fake Eppo server listening on {base}")
