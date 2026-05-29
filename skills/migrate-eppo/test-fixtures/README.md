@@ -3,10 +3,12 @@
 A local HTTP server that mimics Eppo's REST admin API for testing the
 `migrate-eppo` skill end-to-end without needing an Eppo account.
 
-The server is read-only and serves four endpoints — exactly the four the
-skill calls. Fixture flag definitions are inline in `server.py` and chosen
-to exercise every branch of the skill's operator-mapping table including
-all BLOCKED paths.
+The server is read-only and serves the read endpoints the skill calls
+(feature flags, environments, and audiences). Fixture flag definitions
+are inline in `server.py` and chosen to exercise every branch of the
+skill's operator-mapping table — both the auto-migratable translations
+(including SemVer, regex alternation, IS_NULL, and audience→segment) and
+the genuinely BLOCKED paths.
 
 ## Schema source of truth
 
@@ -26,7 +28,7 @@ Python 3.10+ stdlib, no dependencies.
 ```bash
 python3 server.py
 # Fake Eppo server listening on http://127.0.0.1:3000/api/v1
-#   11 fixture flags, 3 environments
+#   13 fixture flags, 2 audiences, 3 environments
 ```
 
 Override the port if 3000 is taken:
@@ -74,45 +76,77 @@ confirm, and review the generated plan file.
 |---|---|---|---|
 | 1 | `internal-tools-gate` | `MATCHES .*suffix$` → `endsWithRule` | Migrate |
 | 2 | `pricing-experiment` | Waterfall (Feature Gate + Experiment), multivariant 50/50 split, `ONE_OF` set membership | Migrate |
-| 3 | `legacy-search-rollout` | `NOT_ONE_OF`, `GTE` numeric, AND combination within one rule | Migrate |
+| 3 | `legacy-search-rollout` | `NOT_ONE_OF` (→ `setRule` + `not`), `GTE` numeric on `appBuildNumber`, AND combination within one rule | Migrate |
 | 4 | `subject-id-targeting` | The special `id` attribute → rewrite to chosen Confidence entity field | Migrate |
 | 5 | `legacy-checkout-redesign` | `active: false` in Production → migration creates flag at 0% rollout | Migrate (with warning) |
-| 6 | `mobile-only-feature` | SemVer `appVersion >= "1.2.0"` → BLOCKED (heuristic on value string) | BLOCKED |
-| 7 | `general-regex-flag` | `MATCHES` regex with alternation (not a clean prefix/suffix) → BLOCKED | BLOCKED |
-| 8 | `missing-attribute-fallback` | `IS_NULL` operator → BLOCKED | BLOCKED |
+| 6 | `mobile-only-feature` | SemVer `appVersion >= "1.2.0"` → `rangeRule` with `versionValue`; ANDed with a `device` set membership | Migrate |
+| 7 | `general-regex-flag` | `MATCHES` suffix **alternation** `.*@(test\|qa\|staging)\.com$` → one `endsWithRule` per branch, OR'd | Migrate |
+| 8 | `missing-attribute-fallback` | `IS_NULL` redundant with default (positive rule + IS_NULL fallback serving the default variant) → IS_NULL allocation dropped | Migrate |
 | 9 | `delivery-pricing-switchback` | `SWITCHBACK` allocation type → entire flag BLOCKED | BLOCKED |
-| 10 | `premium-users-only` | Allocation with non-empty `audiences[]` (with `IS_NOT_IN` inversion) → BLOCKED | BLOCKED |
-| 11 | `old-onboarding-flow` | `is_archived: true` → hidden from list by default, visible with `include_archived=true` | Skipped (archived) |
+| 10 | `premium-users-only` | Allocation referencing `audiences[]` (`IS_IN` 7001 AND `IS_NOT_IN` 7002) → each audience becomes a Confidence segment | Migrate |
+| 11 | `regex-id-format` | Generic regex `^user_[0-9]{4}$` (char class + quantifier, not prefix/suffix/alternation) → BLOCKED | BLOCKED |
+| 12 | `null-and-condition` | `IS_NULL` ANDed with `plan == free` in one rule → BLOCKED | BLOCKED |
+| 13 | `old-onboarding-flow` | `is_archived: true` → hidden from list by default, visible with `include_archived=true` | Skipped (archived) |
+
+Two audiences back fixture #10, served from `/api/v1/audiences/{id}`:
+
+| `id` | `name` | Targeting |
+|---|---|---|
+| 7001 | Premium subscribers | `plan ONE_OF [premium, enterprise]` |
+| 7002 | Internal staff | `email MATCHES .*@spotify\.com$` |
 
 The default value for each flag lives on the trailing allocation
 marked `is_default: true` — that mirrors how real Eppo stores defaults
 and gives the skill something concrete to consume.
+
+## Verifying the translation logic (`verify_migration.py`)
+
+`verify_migration.py` computes Eppo's ground-truth waterfall evaluation
+(regex, SemVer, set membership, IS_NULL, and audience IS_IN/IS_NOT_IN)
+locally over the fixtures and prints a context × flag matrix of expected
+results. Run it before/after `execute` to spot-check that Confidence
+resolves match Eppo for the same context:
+
+```bash
+python3 verify_migration.py
+```
+
+It covers the nine migratable fixtures across eight contexts (72 cases)
+and lists the three intentionally-BLOCKED fixtures separately. No network
+or running server needed — it imports the fixture data directly.
 
 ## What a successful test looks like
 
 After running `plan flags`, the generated plan file at
 `.claude/plans/eppo-flag-migration-<date>.md` should:
 
-- Have 10 non-archived flags in Section 4 (flag #11 `old-onboarding-flow`
-  is archived and excluded by default; if the user opted in to archived
-  flags, all 11 should appear)
+- Have all 12 non-archived flags in Section 4 (flag #13
+  `old-onboarding-flow` is archived and excluded by default; if the user
+  opted in to archived flags, all 13 should appear)
 - For `pricing-experiment`, list **two** non-default allocations in order:
   the internal-QA feature gate first, then the NA 50/50 experiment.
   The third allocation (`is_default: true`) should NOT appear as a
   separate targeting rule but should set the default value to `control`
 - For `legacy-search-rollout`, render the rule in plain English as
-  something like "country is not DE and is not FR AND appVersion >= 28"
+  something like "country is not DE and is not FR AND appBuildNumber >= 28"
 - For `subject-id-targeting`, show the `id` attribute rewritten to
   `user_id` (or whatever Confidence entity field you chose)
 - For `legacy-checkout-redesign`, note "Active in Production: no" and
   warn that rules will be added at 0% rollout
-- Mark `mobile-only-feature`, `general-regex-flag`,
-  `missing-attribute-fallback`, `delivery-pricing-switchback`, and
-  `premium-users-only` as **BLOCKED** with clear reasons (SemVer,
-  general regex, IS_NULL, SWITCHBACK, audience reference respectively).
+- For `mobile-only-feature`, translate `appVersion >= "1.2.0"` to a
+  version range criterion (not a numeric one)
+- For `general-regex-flag`, decompose the alternation into three
+  `endsWithRule`s (`@test.com`, `@qa.com`, `@staging.com`) OR'd together
+- For `missing-attribute-fallback`, drop the `IS_NULL` allocation and
+  keep the positive `plan in [premium, enterprise]` rule with default off
+- For `premium-users-only`, list two segments in Section 3b (from
+  audiences 7001 / 7002) and reference them from the rule
+- Mark only `delivery-pricing-switchback`, `regex-id-format`, and
+  `null-and-condition` as **BLOCKED** with clear reasons (SWITCHBACK,
+  generic regex, IS_NULL combined with another condition).
   `execute` should refuse to proceed on these unless they're `[x] Skip`'d
 
-After you tick `[x] Migrate` on the five non-blocked flags and run
+After you tick `[x] Migrate` on the nine non-blocked flags and run
 `/migrate-eppo execute <plan-file>`, each migrated flag should:
 
 - Be created in your throwaway Confidence client with the right
@@ -155,17 +189,14 @@ The server has no caching, so changes take effect when you restart it
 
 ## What this does NOT test
 
-- **Real Eppo evaluation logic.** This server is config-only; it never
-  decides "given subject X, what variant?". That's Eppo's SDK, which is
-  irrelevant to the migration — the migration translates *configs*, and
-  post-migration evaluation happens on Confidence's side.
+- **Real Eppo evaluation logic.** This *server* is config-only; it never
+  decides "given subject X, what variant?". The migration translates
+  *configs*, and post-migration evaluation happens on Confidence's side.
+  (`verify_migration.py` does model Eppo's evaluation locally, but only
+  to produce the expected-results matrix you check Confidence against —
+  it is not part of the server.)
 - **Authentication semantics.** The server validates the header is
   present but doesn't check the value, scope, or rate-limit behavior.
-- **The `/audiences/{id}` endpoint.** Fixture flag #10 references audience
-  IDs `7001` and `7002` to test the BLOCKED path, but the server does
-  not serve audience definitions. If we ever extend the skill to
-  auto-inline audiences, this fixture set will need that endpoint
-  too.
 - **Mutations.** All write endpoints (POST/PUT/DELETE) return 405.
   Migration is read-only on the Eppo side; writes happen against
   Confidence.

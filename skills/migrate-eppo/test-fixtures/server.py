@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """Fake Eppo REST API server for testing the migrate-eppo skill end-to-end.
 
-Implements the four read endpoints the skill calls:
+Implements the read endpoints the skill calls:
   GET /api/v1/environments
   GET /api/v1/feature-flags?offset=N&limit=N&include_archived=true|false
   GET /api/v1/feature-flags/{id}
   GET /api/v1/feature-flags/{id}/environments/{environmentId}
+  GET /api/v1/audiences
+  GET /api/v1/audiences/{id}
 
 JSON shapes are derived directly from Eppo's public OpenAPI 3.0 spec
 (embedded inline in <https://eppo.cloud/api/docs/swagger-ui-init.js>;
@@ -27,7 +29,7 @@ Notable conventions:
     `offset` + `limit`
 
 Fixture flags are curated to exercise every branch of the skill's
-operator-mapping table and BLOCKED markers — see README.md. Flag #11
+operator-mapping table and BLOCKED markers — see README.md. Flag #13
 is archived (`is_archived: true`) and hidden from list results by
 default to test the archive-filtering path.
 
@@ -255,11 +257,13 @@ FLAGS: list[dict[str, Any]] = [
         "structured_metadata": [],
     },
     # 3. NOT_ONE_OF + GTE numeric, AND combination within a single rule.
+    #    Uses a numeric build number (distinct from the SemVer appVersion
+    #    used by flag 6) so numeric vs version comparison stay separable.
     {
         "id": 3,
         "key": "legacy-search-rollout",
         "name": "Legacy search rollout",
-        "description": "Roll out new search outside DE/FR for app v28+.",
+        "description": "Roll out new search outside DE/FR for app build 28+.",
         "is_archived": False,
         "variation_type": "BOOLEAN",
         "owner": None,
@@ -282,7 +286,7 @@ FLAGS: list[dict[str, Any]] = [
                             },
                             {
                                 "operator": "GTE",
-                                "attribute": "appVersion",
+                                "attribute": "appBuildNumber",
                                 "values": ["28"],
                             },
                         ]
@@ -427,10 +431,10 @@ FLAGS: list[dict[str, Any]] = [
         "type": "FEATURE_FLAG",
         "structured_metadata": [],
     },
-    # 6. SemVer BLOCKED. `appVersion >= "1.2.0"` looks like SemVer but
-    #    Eppo's spec has no valueType field — detection is by heuristic
-    #    on the value string ("looks like X.Y.Z"). Confidence's rangeRule
-    #    is purely numeric.
+    # 6. SemVer → MIGRATABLE. `appVersion >= "1.2.0"` is detected as a
+    #    version comparison (value matches the SemVer heuristic) and maps
+    #    to a rangeRule with versionValue — Confidence has a first-class
+    #    SemanticVersion value type. ANDed with a device set-membership.
     {
         "id": 6,
         "key": "mobile-only-feature",
@@ -490,8 +494,10 @@ FLAGS: list[dict[str, Any]] = [
         "type": "FEATURE_FLAG",
         "structured_metadata": [],
     },
-    # 7. General-regex BLOCKED. MATCHES with alternation can't be expressed
-    #    as startsWithRule or endsWithRule.
+    # 7. Regex alternation → MIGRATABLE. MATCHES with a suffix-anchored
+    #    alternation `.*@(test|qa|staging)\.com$` decomposes into one
+    #    endsWithRule per branch (@test.com / @qa.com / @staging.com),
+    #    OR'd together.
     {
         "id": 7,
         "key": "general-regex-flag",
@@ -546,12 +552,18 @@ FLAGS: list[dict[str, Any]] = [
         "type": "FEATURE_FLAG",
         "structured_metadata": [],
     },
-    # 8. IS_NULL BLOCKED. Confidence has no "attribute is null" rule.
+    # 8. IS_NULL (redundant with default) → MIGRATABLE. A positive rule
+    #    (plan in [premium, enterprise] → enabled) plus an IS_NULL
+    #    fallback whose variant (`disabled`) equals the default
+    #    allocation's variant. In Confidence, null-plan subjects fall
+    #    through to the default (disabled) automatically, so the IS_NULL
+    #    allocation is redundant and is dropped — leaving exactly one
+    #    targeting rule and the default. Behaviourally identical.
     {
         "id": 8,
         "key": "missing-attribute-fallback",
         "name": "Missing attribute fallback",
-        "description": "Show fallback experience when subjects have no plan attribute set.",
+        "description": "Premium/enterprise get the feature; everyone else (incl. no-plan) is off.",
         "is_archived": False,
         "variation_type": "BOOLEAN",
         "owner": None,
@@ -559,11 +571,34 @@ FLAGS: list[dict[str, Any]] = [
         "allocations": [
             {
                 "id": 8001,
-                "key": "no-plan-fallback",
-                "name": "No plan attribute",
+                "key": "paid-plans",
+                "name": "Paid plans",
                 "created_at": CREATED_AT,
                 "type": "FEATURE_GATE",
                 "variation_weight": [{"variation_id": 801, "weight": 100}],
+                "targeting_rules": [
+                    {
+                        "conditions": [
+                            {
+                                "operator": "ONE_OF",
+                                "attribute": "plan",
+                                "values": ["premium", "enterprise"],
+                            }
+                        ]
+                    }
+                ],
+                "audiences": [],
+                "percent_exposure": 100,
+                "is_default": False,
+                "experiment": None,
+            },
+            {
+                "id": 8002,
+                "key": "no-plan-fallback",
+                "name": "No plan attribute → off",
+                "created_at": CREATED_AT,
+                "type": "FEATURE_GATE",
+                "variation_weight": [{"variation_id": 802, "weight": 100}],
                 "targeting_rules": [
                     {
                         "conditions": [
@@ -581,7 +616,7 @@ FLAGS: list[dict[str, Any]] = [
                 "experiment": None,
             },
             {
-                "id": 8002,
+                "id": 8003,
                 "key": "missing-attribute-fallback-default",
                 "name": "Default off",
                 "created_at": CREATED_AT,
@@ -658,14 +693,16 @@ FLAGS: list[dict[str, Any]] = [
         "type": "FEATURE_FLAG",
         "structured_metadata": [],
     },
-    # 10. Allocation with non-empty `audiences[]` and IS_NOT_IN inversion.
-    #     Audience definitions live behind a separate /audiences/{id}
-    #     endpoint the skill does not currently fetch — BLOCKED.
+    # 10. Reusable audiences → MIGRATABLE via Confidence segments. The
+    #     allocation references audience 7001 (IS_IN) and 7002
+    #     (IS_NOT_IN). Each audience (fetched from /audiences/{id})
+    #     becomes a Confidence segment; the rule is "in segment 7001 AND
+    #     not in segment 7002". Audience definitions are in AUDIENCES.
     {
         "id": 10,
         "key": "premium-users-only",
         "name": "Premium users only",
-        "description": "Targets a reusable Premium audience defined in Eppo.",
+        "description": "Targets the reusable Premium audience, excluding internal staff.",
         "is_archived": False,
         "variation_type": "BOOLEAN",
         "owner": None,
@@ -708,27 +745,147 @@ FLAGS: list[dict[str, Any]] = [
         "type": "FEATURE_FLAG",
         "structured_metadata": [],
     },
-    # 11. Archived flag. Excluded from list results by default; only
-    #     returned when `include_archived=true`. Tests that the skill's
-    #     pagination/filtering correctly hides archived flags unless the
-    #     user opts in.
+    # 11. Generic regex → BLOCKED. `^user_[0-9]{4}$` uses a character
+    #     class and quantifier; it is not a prefix/suffix/alternation, so
+    #     it can't be decomposed into startsWith/endsWith rules.
     {
         "id": 11,
-        "key": "old-onboarding-flow",
-        "name": "Old onboarding flow",
-        "description": "Archived experiment from Q1 — superseded by new onboarding.",
-        "is_archived": True,
+        "key": "regex-id-format",
+        "name": "Structured id format gate",
+        "description": "Only subjects whose id matches a strict numeric pattern.",
+        "is_archived": False,
         "variation_type": "BOOLEAN",
         "owner": None,
         "variations": _bool_variations(1101),
         "allocations": [
             {
                 "id": 11001,
+                "key": "matching-ids",
+                "name": "Matching ids",
+                "created_at": CREATED_AT,
+                "type": "FEATURE_GATE",
+                "variation_weight": [{"variation_id": 1101, "weight": 100}],
+                "targeting_rules": [
+                    {
+                        "conditions": [
+                            {
+                                "operator": "MATCHES",
+                                "attribute": "id",
+                                "values": ["^user_[0-9]{4}$"],
+                            }
+                        ]
+                    }
+                ],
+                "audiences": [],
+                "percent_exposure": 100,
+                "is_default": False,
+                "experiment": None,
+            },
+            {
+                "id": 11002,
+                "key": "regex-id-format-default",
+                "name": "Default off",
+                "created_at": CREATED_AT,
+                "type": "FEATURE_GATE",
+                "variation_weight": [{"variation_id": 1102, "weight": 100}],
+                "targeting_rules": [],
+                "audiences": [],
+                "percent_exposure": 100,
+                "is_default": True,
+                "experiment": None,
+            },
+        ],
+        "tag_names": [],
+        "created_at": CREATED_AT,
+        "updated_at": UPDATED_AT,
+        "entity_id": 1,
+        "type": "FEATURE_FLAG",
+        "structured_metadata": [],
+    },
+    # 12. IS_NULL combined with another condition → BLOCKED. "country is
+    #     null AND plan == free" can't be expressed: Confidence's default
+    #     covers all no-match subjects, so a null-attribute check can't be
+    #     ANDed with a positive condition.
+    {
+        "id": 12,
+        "key": "null-and-condition",
+        "name": "Null country free plan",
+        "description": "Subjects with no country AND on the free plan.",
+        "is_archived": False,
+        "variation_type": "BOOLEAN",
+        "owner": None,
+        "variations": _bool_variations(1201),
+        "allocations": [
+            {
+                "id": 12001,
+                "key": "null-country-free",
+                "name": "Null country, free plan",
+                "created_at": CREATED_AT,
+                "type": "FEATURE_GATE",
+                "variation_weight": [{"variation_id": 1201, "weight": 100}],
+                "targeting_rules": [
+                    {
+                        "conditions": [
+                            {
+                                "operator": "IS_NULL",
+                                "attribute": "country",
+                                "values": [],
+                            },
+                            {
+                                "operator": "ONE_OF",
+                                "attribute": "plan",
+                                "values": ["free"],
+                            },
+                        ]
+                    }
+                ],
+                "audiences": [],
+                "percent_exposure": 100,
+                "is_default": False,
+                "experiment": None,
+            },
+            {
+                "id": 12002,
+                "key": "null-and-condition-default",
+                "name": "Default off",
+                "created_at": CREATED_AT,
+                "type": "FEATURE_GATE",
+                "variation_weight": [{"variation_id": 1202, "weight": 100}],
+                "targeting_rules": [],
+                "audiences": [],
+                "percent_exposure": 100,
+                "is_default": True,
+                "experiment": None,
+            },
+        ],
+        "tag_names": [],
+        "created_at": CREATED_AT,
+        "updated_at": UPDATED_AT,
+        "entity_id": 1,
+        "type": "FEATURE_FLAG",
+        "structured_metadata": [],
+    },
+    # 13. Archived flag. Excluded from list results by default; only
+    #     returned when `include_archived=true`. Tests that the skill's
+    #     pagination/filtering correctly hides archived flags unless the
+    #     user opts in.
+    {
+        "id": 13,
+        "key": "old-onboarding-flow",
+        "name": "Old onboarding flow",
+        "description": "Archived experiment from Q1 — superseded by new onboarding.",
+        "is_archived": True,
+        "variation_type": "BOOLEAN",
+        "owner": None,
+        "variations": _bool_variations(1301),
+        "allocations": [
+            {
+                "id": 13001,
                 "key": "new-onboarding-rollout",
                 "name": "New onboarding rollout",
                 "created_at": CREATED_AT,
                 "type": "FEATURE_GATE",
-                "variation_weight": [{"variation_id": 1101, "weight": 100}],
+                "variation_weight": [{"variation_id": 1301, "weight": 100}],
                 "targeting_rules": [
                     {
                         "conditions": [
@@ -746,12 +903,12 @@ FLAGS: list[dict[str, Any]] = [
                 "experiment": None,
             },
             {
-                "id": 11002,
+                "id": 13002,
                 "key": "old-onboarding-flow-default",
                 "name": "Default off",
                 "created_at": CREATED_AT,
                 "type": "FEATURE_GATE",
-                "variation_weight": [{"variation_id": 1102, "weight": 100}],
+                "variation_weight": [{"variation_id": 1302, "weight": 100}],
                 "targeting_rules": [],
                 "audiences": [],
                 "percent_exposure": 100,
@@ -765,6 +922,68 @@ FLAGS: list[dict[str, Any]] = [
         "entity_id": 1,
         "type": "FEATURE_FLAG",
         "structured_metadata": [],
+    },
+]
+
+
+# ---------------------------------------------------------------------------
+# Audiences (reusable targeting definitions → Confidence segments)
+# ---------------------------------------------------------------------------
+#
+# Shape matches `PublicApiAudience` in Eppo's OpenAPI spec. Each audience's
+# `targeting_rules[]` use the SAME condition shape as flag allocations, so
+# the skill reuses its operator-mapping table to translate them.
+
+AUDIENCES: list[dict[str, Any]] = [
+    {
+        "id": 7001,
+        "name": "Premium subscribers",
+        "description": "Subjects on a paid plan.",
+        "team": "",
+        "creator_email": "",
+        "last_edited_by_email": "",
+        "targeting_rules": [
+            {
+                "id": 70011,
+                "conditions": [
+                    {
+                        "operator": "ONE_OF",
+                        "attribute": "plan",
+                        "values": ["premium", "enterprise"],
+                    }
+                ],
+            }
+        ],
+        "allocation_count": 1,
+        "created_at": CREATED_AT,
+        "updated_at": UPDATED_AT,
+        "archived_at": None,
+        "is_archived": False,
+    },
+    {
+        "id": 7002,
+        "name": "Internal staff",
+        "description": "Spotify employees, identified by email domain.",
+        "team": "",
+        "creator_email": "",
+        "last_edited_by_email": "",
+        "targeting_rules": [
+            {
+                "id": 70021,
+                "conditions": [
+                    {
+                        "operator": "MATCHES",
+                        "attribute": "email",
+                        "values": [".*@spotify\\.com$"],
+                    }
+                ],
+            }
+        ],
+        "allocation_count": 1,
+        "created_at": CREATED_AT,
+        "updated_at": UPDATED_AT,
+        "archived_at": None,
+        "is_archived": False,
     },
 ]
 
@@ -786,6 +1005,8 @@ ROUTE_FLAG_BY_ENV = re.compile(
     r"^/api/v1/feature-flags/(?P<id>\d+)/environments/(?P<env_id>\d+)/?$"
 )
 ROUTE_ENVIRONMENTS = re.compile(r"^/api/v1/environments/?$")
+ROUTE_AUDIENCE_LIST = re.compile(r"^/api/v1/audiences/?$")
+ROUTE_AUDIENCE_BY_ID = re.compile(r"^/api/v1/audiences/(?P<id>\d+)/?$")
 
 
 def _env_status_summary(flag_id: int) -> list[dict[str, Any]]:
@@ -872,6 +1093,20 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, ENVIRONMENTS)
             return
 
+        if ROUTE_AUDIENCE_LIST.match(path):
+            self._send(200, AUDIENCES)
+            return
+
+        m = ROUTE_AUDIENCE_BY_ID.match(path)
+        if m:
+            audience_id = int(m["id"])
+            audience = next((a for a in AUDIENCES if a["id"] == audience_id), None)
+            if audience is None:
+                self._send(404, {"error": f"Audience {audience_id} not found"})
+                return
+            self._send(200, audience)
+            return
+
         if ROUTE_FLAG_LIST.match(path):
             offset = int(query.get("offset", ["0"])[0])
             limit = int(query.get("limit", [str(self.limit_default)])[0])
@@ -938,7 +1173,10 @@ def main() -> None:
     server = HTTPServer(("127.0.0.1", args.port), Handler)
     base = f"http://127.0.0.1:{args.port}/api/v1"
     print(f"Fake Eppo server listening on {base}")
-    print(f"  {len(FLAGS)} fixture flags, {len(ENVIRONMENTS)} environments")
+    print(
+        f"  {len(FLAGS)} fixture flags, {len(AUDIENCES)} audiences, "
+        f"{len(ENVIRONMENTS)} environments"
+    )
     print("  Point the migrate-eppo skill at this base URL when prompted.")
     print("  Set EPPO_API_KEY to anything (any non-empty value passes).")
     print("  Press Ctrl+C to stop.")

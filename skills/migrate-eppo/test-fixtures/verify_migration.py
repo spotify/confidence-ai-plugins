@@ -17,36 +17,76 @@ Usage:
 import re
 from typing import Any
 
-from server import ENV_OVERRIDES, FLAGS
+from server import AUDIENCES, ENV_OVERRIDES, FLAGS
 
 # Resolve flags against the Production environment (matches the
 # `legacy-checkout-redesign` inactive-in-prod fixture override).
 ENVIRONMENT_ID = 1
 
-# Flags the skill migrates by default. Five additional fixture flags
-# (`mobile-only-feature`, `general-regex-flag`, `missing-attribute-
-# fallback`, `delivery-pricing-switchback`, `premium-users-only`) are
-# deliberately BLOCKED by the skill and won't have Confidence
-# equivalents to verify against unless the user manually rewrites them
-# during execute.
+# Flags the skill migrates by default. After the deep-dive into the
+# Confidence resolver proto/source, four cases that were previously
+# treated as blockers now migrate cleanly and are verified here:
+#   * mobile-only-feature       — SemVer via versionValue
+#   * general-regex-flag        — MATCHES alternation → endsWith decomposition
+#   * missing-attribute-fallback — IS_NULL redundant with default → dropped
+#   * premium-users-only        — Eppo audiences → Confidence segments
+#
+# Three fixtures remain genuinely BLOCKED (no clean translation) and are
+# NOT listed here:
+#   * delivery-pricing-switchback — time-windowed SWITCHBACK
+#   * regex-id-format             — generic regex (char class + quantifier)
+#   * null-and-condition          — IS_NULL ANDed with another condition
 MIGRATED_FLAGS = [
     "internal-tools-gate",
     "pricing-experiment",
     "legacy-search-rollout",
     "subject-id-targeting",
     "legacy-checkout-redesign",
+    "mobile-only-feature",
+    "general-regex-flag",
+    "missing-attribute-fallback",
+    "premium-users-only",
+]
+
+BLOCKED_FLAGS = [
+    "delivery-pricing-switchback",
+    "regex-id-format",
+    "null-and-condition",
 ]
 
 TEST_CONTEXTS: list[dict[str, Any]] = [
-    {"name": "spotify-employee-SE", "user_id": "u1", "email": "alice@spotify.com", "country": "SE", "appVersion": 30},
-    {"name": "us-user-v30", "user_id": "u2", "email": "bob@gmail.com", "country": "US", "appVersion": 30},
-    {"name": "ca-user-v30", "user_id": "u3", "email": "carol@gmail.com", "country": "CA", "appVersion": 30},
-    {"name": "de-user-v30", "user_id": "u4", "email": "dave@gmail.com", "country": "DE", "appVersion": 30},
-    {"name": "fr-user-v25", "user_id": "u5", "email": "eve@gmail.com", "country": "FR", "appVersion": 25},
-    {"name": "uk-user-v30", "user_id": "u6", "email": "fran@gmail.com", "country": "UK", "appVersion": 30},
-    {"name": "test-user-1", "user_id": "test-user-1", "email": "test@gmail.com", "country": "SE", "appVersion": 30},
-    {"name": "normal-user-SE", "user_id": "u11", "email": "user@gmail.com", "country": "SE", "appVersion": 30},
+    {"name": "spotify-employee-SE", "user_id": "u1", "email": "alice@spotify.com", "country": "SE", "appBuildNumber": 30, "appVersion": "2.0.0", "device": "iOS", "plan": "premium"},
+    {"name": "us-premium-ios", "user_id": "u2", "email": "bob@gmail.com", "country": "US", "appBuildNumber": 30, "appVersion": "2.1.0", "device": "iOS", "plan": "premium"},
+    {"name": "ca-free-android", "user_id": "u3", "email": "carol@gmail.com", "country": "CA", "appBuildNumber": 30, "appVersion": "1.1.0", "device": "Android", "plan": "free"},
+    {"name": "de-enterprise-web", "user_id": "u4", "email": "dave@gmail.com", "country": "DE", "appBuildNumber": 30, "appVersion": "2.0.0", "device": "Web", "plan": "enterprise"},
+    {"name": "fr-build25-old", "user_id": "u5", "email": "eve@gmail.com", "country": "FR", "appBuildNumber": 25, "appVersion": "1.0.0", "device": "Android", "plan": "free"},
+    {"name": "uk-qa-email", "user_id": "u6", "email": "tester@qa.com", "country": "UK", "appBuildNumber": 30, "appVersion": "2.0.0", "device": "iOS", "plan": "premium"},
+    {"name": "test-user-1", "user_id": "test-user-1", "email": "test@gmail.com", "country": "SE", "appBuildNumber": 30, "appVersion": "2.0.0", "device": "iOS", "plan": "premium"},
+    {"name": "noplan-user-SE", "user_id": "u11", "email": "user@gmail.com", "country": "SE", "appBuildNumber": 30, "appVersion": "1.5.0", "device": "Android"},
 ]
+
+# Matches the migration skill's SemVer heuristic: 2–4 numeric segments
+# with an optional pre-release suffix.
+_SEMVER_RE = re.compile(r"^\d+(\.\d+){1,3}(-.+)?$")
+
+
+def _parse_version(value: Any) -> tuple[int, int, int, int]:
+    """Mirror the Confidence resolver's version parser (value.rs).
+
+    2–4 numeric segments; pre-release suffix after '-' is stripped;
+    anything unparseable sorts as (0, 0, 0, 0). This is the ground truth
+    we expect Confidence to reproduce for versionValue comparisons.
+    """
+    s = str(value).split("-", 1)[0]
+    parts = s.split(".")
+    if not (2 <= len(parts) <= 4) or not all(p.isdigit() and len(p) <= 10 for p in parts):
+        return (0, 0, 0, 0)
+    nums = [int(p) for p in parts]
+    if len(parts) == 3 and len(parts[2]) > 3:
+        # >3-digit third segment is treated as a tag, patch becomes 0
+        nums = [nums[0], nums[1], 0, nums[2]]
+    nums += [0] * (4 - len(nums))
+    return tuple(nums[:4])  # type: ignore[return-value]
 
 
 def _coerce_numeric(*vals: Any) -> tuple[float, ...] | None:
@@ -60,12 +100,32 @@ def _coerce_numeric(*vals: Any) -> tuple[float, ...] | None:
     return tuple(out)
 
 
+def _compare(op: str, ctx_val: Any, rule_val: Any) -> bool:
+    """GT/GTE/LT/LTE comparison. Versions if the rule value looks like a
+    SemVer (matching the skill's detection), otherwise numeric."""
+    if _SEMVER_RE.match(str(rule_val)):
+        a: Any = _parse_version(ctx_val)
+        b: Any = _parse_version(rule_val)
+    else:
+        coerced = _coerce_numeric(ctx_val, rule_val)
+        if coerced is None:
+            return False
+        a, b = coerced
+    if op == "GTE":
+        return a >= b
+    if op == "GT":
+        return a > b
+    if op == "LTE":
+        return a <= b
+    return a < b
+
+
 def eval_condition(condition: dict[str, Any], context: dict[str, Any]) -> bool:
     """Eppo-style condition evaluation against the real schema.
 
-    Uses `values` (array), not `value` (scalar). Numeric operators
-    coerce both sides to float; SemVer-looking values would fail
-    coercion and return False (the migration skill marks those BLOCKED).
+    Models Eppo's ground-truth behaviour (the target the migration must
+    reproduce): regex via Python `re`, numeric vs SemVer comparison by
+    the value shape, set membership, and null checks.
     """
     attr = condition["attribute"]
     op = condition["operator"]
@@ -85,19 +145,9 @@ def eval_condition(condition: dict[str, Any], context: dict[str, Any]) -> bool:
     if op == "NOT_ONE_OF":
         return str(ctx_val) not in [str(v) for v in values]
     if op == "MATCHES":
-        return bool(re.match(values[0], str(ctx_val)))
+        return bool(re.search(values[0], str(ctx_val)))
     if op in ("GTE", "GT", "LTE", "LT"):
-        coerced = _coerce_numeric(ctx_val, values[0])
-        if coerced is None:
-            return False
-        a, b = coerced
-        if op == "GTE":
-            return a >= b
-        if op == "GT":
-            return a > b
-        if op == "LTE":
-            return a <= b
-        return a < b
+        return _compare(op, ctx_val, values[0])
     return False
 
 
@@ -105,17 +155,39 @@ def eval_rule(rule: dict[str, Any], context: dict[str, Any]) -> bool:
     return all(eval_condition(c, context) for c in rule.get("conditions", []))
 
 
-def eval_allocation(allocation: dict[str, Any], context: dict[str, Any]) -> bool:
-    """An allocation matches if any of its targeting_rules matches.
+_AUDIENCES_BY_ID = {a["id"]: a for a in AUDIENCES}
 
-    The default allocation has empty `targeting_rules[]` and empty
-    `audiences[]`, which matches everyone — that's Eppo's catch-all
-    pattern at the bottom of the waterfall.
+
+def _in_audience(audience_id: int, context: dict[str, Any]) -> bool:
+    """An audience matches if any of its targeting_rules matches (rules
+    OR'd, conditions within a rule AND'd) — same shape as a flag rule."""
+    audience = _AUDIENCES_BY_ID.get(audience_id)
+    if audience is None:
+        return False
+    return any(eval_rule(r, context) for r in audience.get("targeting_rules", []))
+
+
+def eval_allocation(allocation: dict[str, Any], context: dict[str, Any]) -> bool:
+    """An allocation matches when its targeting_rules AND audiences match.
+
+    - targeting_rules[]: OR across rules (empty → matches on this axis)
+    - audiences[]: IS_IN must be in, IS_NOT_IN must not be in (ANDed)
+    The default allocation has neither and matches everyone.
     """
     rules = allocation.get("targeting_rules", [])
-    if not rules:
-        return not allocation.get("audiences", [])
-    return any(eval_rule(r, context) for r in rules)
+    audiences = allocation.get("audiences", [])
+
+    rules_ok = (not rules) or any(eval_rule(r, context) for r in rules)
+    if not rules_ok:
+        return False
+
+    for ref in audiences:
+        inside = _in_audience(ref["audience_id"], context)
+        if ref["type"] == "IS_IN" and not inside:
+            return False
+        if ref["type"] == "IS_NOT_IN" and inside:
+            return False
+    return True
 
 
 def _variant_key(flag: dict[str, Any], variation_id: int) -> str:
@@ -194,6 +266,17 @@ def main() -> None:
     print("  NO_MATCH (inactive)  flag is OFF in this env — Confidence returns its default value")
     print("  NO_MATCH             no allocation matched (shouldn't happen with a default allocation)")
     print("  a(50%) | b(50%)      probabilistic split — Confidence returns one of these variants")
+    print()
+    blocked_present = [k for k in BLOCKED_FLAGS if k in flags_by_key]
+    if blocked_present:
+        print("Intentionally BLOCKED (no clean Confidence translation; not migrated):")
+        reasons = {
+            "delivery-pricing-switchback": "time-windowed SWITCHBACK allocation",
+            "regex-id-format": "generic regex (character class + quantifier)",
+            "null-and-condition": "IS_NULL ANDed with another condition",
+        }
+        for k in blocked_present:
+            print(f"  ⊘ {k:<28} {reasons.get(k, '')}")
 
 
 if __name__ == "__main__":

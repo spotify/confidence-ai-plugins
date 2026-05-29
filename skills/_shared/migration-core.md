@@ -286,17 +286,69 @@ parser.
 
 ### Criterion rules
 
+These mirror the canonical `Targeting` proto in the open-source
+resolver (`spotify/confidence-resolver`,
+`protos/confidence/flags/types/v1/target.proto`). The JSON wire form is
+proto3 → JSON (camelCase keys); the examples below are taken from the
+resolver's own spec fixtures (`test-payloads/resolver-spec/state.json`).
+
 | Match | Form |
 |---|---|
 | String eq | `"eqRule": { "value": { "stringValue": "X" } }` |
 | Number eq | `"eqRule": { "value": { "numberValue": N } }` |
 | Bool eq | `"eqRule": { "value": { "boolValue": true } }` |
+| Version eq | `"eqRule": { "value": { "versionValue": { "version": "1.2.3" } } }` |
+| String set (in) | `"setRule": { "values": [{ "stringValue": "A" }, { "stringValue": "B" }] }` |
 | `>=` | `"rangeRule": { "startInclusive": { "numberValue": N } }` |
 | `>` | `"rangeRule": { "startExclusive": { "numberValue": N } }` |
 | `<` | `"rangeRule": { "endExclusive": { "numberValue": N } }` |
 | `<=` | `"rangeRule": { "endInclusive": { "numberValue": N } }` |
+| Version `>=` | `"rangeRule": { "startInclusive": { "versionValue": { "version": "2.0.0" } } }` |
+| Version `<` | `"rangeRule": { "endExclusive": { "versionValue": { "version": "3.0.0" } } }` |
+| Timestamp `>=` | `"rangeRule": { "startInclusive": { "timestampValue": "2022-11-17T15:16:17Z" } }` |
 | starts with | `"startsWithRule": { "value": "prefix" }` |
 | ends with | `"endsWithRule": { "value": "suffix" }` |
+| segment membership | `{ "segment": { "segment": "segments/<id>" } }` (a whole criterion, not an `attribute` rule) |
+
+**Value types.** A `Value` is a oneof: `boolValue`, `numberValue`,
+`stringValue`, `timestampValue` (RFC-3339 string), `versionValue`
+(`{ "version": "X.Y.Z" }`), or `listValue`. Equality (`==`, `!=`, set
+membership) is defined for all types; comparison (`<`, `<=`, `>`, `>=`
+via `rangeRule`) is defined for **number, timestamp, and version**.
+
+**Version semantics.** The resolver parses version strings with 2–4
+numeric segments (`1.2`, `1.2.3`, `1.2.3.4`), strips any pre-release
+suffix after `-` (`1.2.3-beta` compares as `1.2.3`), and rejects
+non-numeric or `v`-prefixed strings (`v1.0.0` → does not parse).
+Send the version in the evaluation context as a plain string; the
+`versionValue` criterion makes Confidence compare it as a version
+rather than lexically.
+
+**Set rule vs OR-of-eq.** `setRule` with multiple values is the native
+"is one of" and is preferred over an `or` of `eqRule`s when realizing
+list membership. Use whichever the platform mapping specifies; both
+resolve identically.
+
+### Segment criteria
+
+A criterion can reference a reusable **segment** instead of an
+inline attribute rule. This is how you map a source platform's reusable
+audience / cohort concept (e.g. an Eppo audience) onto Confidence:
+create the segment once with `createSegment`, then reference it from
+each flag's targeting via a segment criterion.
+
+```json
+{
+  "criteria": {
+    "ref-0": { "segment": { "segment": "segments/eu-power-users" } }
+  },
+  "expression": { "ref": "ref-0" }
+}
+```
+
+A segment criterion composes in the `expression` exactly like an
+attribute criterion: wrap it in `not` to invert (membership exclusion),
+or combine several with `and` / `or`.
 
 ### Expression combinators
 
@@ -306,7 +358,7 @@ parser.
 | AND | `{ "and": { "operands": [{ "ref": "ref-0" }, { "ref": "ref-1" }] } }` |
 | OR | `{ "or": { "operands": [{ "ref": "ref-0" }, { "ref": "ref-1" }] } }` |
 | NOT | `{ "not": { "ref": "ref-0" } }` |
-| NOT IN (list) | `{ "and": { "operands": [{ "not": { "ref": "ref-0" } }, { "not": { "ref": "ref-1" } }] } }` |
+| NOT IN (list) | Prefer one `setRule` criterion wrapped in `not`: `{ "not": { "ref": "ref-0" } }`. (An `and` of `not`-wrapped per-value `eqRule`s is equivalent if you didn't use a set rule.) |
 
 ### Worked examples
 
@@ -384,6 +436,93 @@ parser.
   "expression": { "ref": "ref-0" }
 }
 ```
+
+**Version range (appVersion >= 2.0.0):**
+```json
+{
+  "criteria": {
+    "ref-0": { "attribute": { "attributeName": "appVersion", "rangeRule": { "startInclusive": { "versionValue": { "version": "2.0.0" } } } } }
+  },
+  "expression": { "ref": "ref-0" }
+}
+```
+
+**Set membership (country in [US, UK, SE]):**
+```json
+{
+  "criteria": {
+    "ref-0": { "attribute": { "attributeName": "country", "setRule": { "values": [{ "stringValue": "US" }, { "stringValue": "UK" }, { "stringValue": "SE" }] } } }
+  },
+  "expression": { "ref": "ref-0" }
+}
+```
+
+**Set exclusion (country NOT in [DE, FR]):**
+```json
+{
+  "criteria": {
+    "ref-0": { "attribute": { "attributeName": "country", "setRule": { "values": [{ "stringValue": "DE" }, { "stringValue": "FR" }] } } }
+  },
+  "expression": { "not": { "ref": "ref-0" } }
+}
+```
+
+**Segment membership (in segment, AND country = US):**
+```json
+{
+  "criteria": {
+    "ref-0": { "segment": { "segment": "segments/beta-testers" } },
+    "ref-1": { "attribute": { "attributeName": "country", "eqRule": { "value": { "stringValue": "US" } } } }
+  },
+  "expression": { "and": { "operands": [{ "ref": "ref-0" }, { "ref": "ref-1" }] } }
+}
+```
+
+**Segment exclusion (NOT in segment):**
+```json
+{
+  "criteria": {
+    "ref-0": { "segment": { "segment": "segments/internal-staff" } }
+  },
+  "expression": { "not": { "ref": "ref-0" } }
+}
+```
+
+---
+
+## Reusable Segments (createSegment)
+
+When a source platform has a **reusable audience / cohort** that
+multiple flags reference, map it to a Confidence **segment** rather than
+inlining its conditions into every flag. A segment is created once and
+referenced from many flags' targeting via a segment criterion (see
+"Segment criteria" above).
+
+**Create a segment** with the standard MCP call. The `targeting` payload
+uses the exact same `criteria` + `expression` format as a flag's
+targeting rule:
+
+```
+mcp__confidence__createSegment
+  segmentId: "<clean-id>"            ← [a-z0-9-], 4–63 chars
+  displayName: "<human name>"
+  targeting: { "criteria": { ... }, "expression": { ... } }
+```
+
+This yields a segment named `segments/<clean-id>`, which you then
+reference from each flag via `{ "segment": { "segment": "segments/<clean-id>" } }`.
+
+**De-duplicate.** If several source flags reference the same audience,
+create the segment **once** and reuse its name everywhere. Maintain a
+source-audience-id → `segments/<clean-id>` map in the plan file so
+`execute` reuses the segment instead of recreating it. Before creating,
+the platform skill should check whether the segment already exists
+(`listSegments` / `getSegment` if available) and skip creation if so.
+
+**Allocation/proportion.** A segment created for targeting reuse should
+be allocated at 100% (it defines *who is eligible*, not a rollout
+percentage). Rollout percentages belong on the flag's targeting rule,
+not the segment.
 
 ---
 
@@ -855,4 +994,4 @@ prerequisites.
 
 | MCP | Tools Used |
 |-----|------------|
-| `confidence` | `listClients`, `createClient`, `getContextSchema`, `addContextField`, `createFlag`, `addFlagToClient`, `unarchiveFlag`, `addTargetingRule`, `resolveFlag` |
+| `confidence` | `listClients`, `createClient`, `getContextSchema`, `addContextField`, `createFlag`, `addFlagToClient`, `unarchiveFlag`, `addTargetingRule`, `resolveFlag`, plus (when the source has reusable audiences) `createSegment` and, if available, `listSegments` / `getSegment` for de-duplication |
