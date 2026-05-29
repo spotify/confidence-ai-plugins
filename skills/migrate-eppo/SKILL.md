@@ -594,7 +594,8 @@ attribute targets the subject key directly. Rewrite `attribute` from
 
 ### Blocked (manual review)
 
-Only these genuinely have no clean Confidence translation:
+Only these genuinely have no clean Confidence translation (a ruleless
+presence criterion covers null checks, so IS_NULL is no longer here):
 
 - **Generic `MATCHES` regex** — anything that fails the decomposition
   rule above (character classes, quantifiers, wildcard `.`, backrefs,
