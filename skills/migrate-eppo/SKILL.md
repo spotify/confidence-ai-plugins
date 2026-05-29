@@ -603,13 +603,18 @@ Only these genuinely have no clean Confidence translation:
   differs from the existing default allocation's variant (see the
   IS_NULL table above). Reason: `IS_NULL on '<attribute>' combined with
   other conditions / serves a non-default variant; needs manual review.`
-- **`SWITCHBACK` allocations** — Eppo switchback rotates variations over
-  **time windows** for experiments on temporally-correlated outcomes
-  (surge pricing, dispatch routing, etc.). Confidence does not model
-  time-bucketed exposure; sticky assignments persist *per subject*, not
-  per time window, so they don't substitute. Mark the entire **flag**
-  `BLOCKED` with the reason `Contains SWITCHBACK allocation; Confidence
-  has no time-windowed exposure. Migrate manually or skip.`
+- **`SWITCHBACK` allocations** — Eppo switchback deliberately rotates a
+  *single subject* through *different* variations across consecutive
+  **time windows**, for experiments on temporally-correlated outcomes
+  (surge pricing, dispatch routing, etc.). The blocker is the
+  time-window rotation specifically: Confidence has no time-bucketed
+  exposure primitive — its assignment model is the opposite, keeping a
+  subject on one variant. (Note this is *not* a sticky-assignment gap:
+  Confidence supports consistent per-subject assignment natively, and
+  goes further with a materialization API. Switchback just isn't that.)
+  Mark the entire **flag** `BLOCKED` with the reason `Contains SWITCHBACK
+  allocation; Confidence has no time-windowed exposure. Migrate manually
+  or skip.`
 - **Unnormalizable version strings** — version values that aren't
   `v`-strippable into the supported 2–4-segment form (see Version
   caveats). Reason: `Version comparison on '<attribute>' uses a format
