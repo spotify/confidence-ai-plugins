@@ -365,8 +365,9 @@ Extract from each flag:
       These become Confidence segments — see "Reusable audiences" under
       Operator Mapping.
     - `is_default` — the default allocation supplies the "no match"
-      variation; treat its `variation_weight[]` as the default value and
-      do NOT emit it as a Confidence targeting rule
+      variation; emit it as the **final catch-all** Confidence targeting
+      rule (no payload, 100% → its variation), since Confidence has no
+      server-side flag default
 
 **Step 1d — fetch referenced audiences (once per unique id).** While
 scanning allocations, collect every `audiences[].audience_id` seen
@@ -458,8 +459,11 @@ rules in the same allocation, conditions are ORed (any rule satisfying
 means the allocation matches). Across allocations, each non-default
 Eppo allocation becomes a **separate Confidence targeting rule** — see
 the waterfall ordering note in Step 4 above. The `is_default`
-allocation does NOT emit a rule; its `variation_weight[]` is set as
-the flag's default value at `createFlag` time.
+allocation becomes the **catch-all final rule**: Confidence has no
+server-side flag default (see "Default value" in the core file), so
+its variation must be emitted as a last `addTargetingRule` with
+`variantAllocations { <defaultVariant>: 100 }` and no payload, placed
+after every specific rule.
 
 Eppo's operator enum (`ERuleConditionOperator`) is `LT`, `LTE`, `GT`,
 `GTE`, `MATCHES`, `ONE_OF`, `NOT_ONE_OF`, `IS_NULL`. Conditions always
@@ -625,13 +629,16 @@ blocked or it contains a SWITCHBACK allocation.
 
 ### Worked example (waterfall)
 
-A two-allocation Eppo flag — internal users gate at 100% treatment,
-then a 50/50 experiment on US/CA users — becomes TWO `addTargetingRule`
-calls in order:
+A three-allocation Eppo flag — internal users gate at 100% treatment,
+then a 50/50 experiment on US/CA users, then an `is_default` allocation
+serving `control` — becomes THREE `addTargetingRule` calls in order:
 
 1. Rule 1: `email endsWith @spotify.com` → `treatment` at 100%
 2. Rule 2: `country ONE_OF ["US", "CA"]` (one `setRule`) → `control`
    50%, `treatment` 50%
+3. Rule 3 (catch-all default): no payload → `control` at 100%. This
+   reproduces the `is_default` allocation, since Confidence has no
+   server-side flag default; it MUST come last.
 
 If an allocation referenced an audience instead (e.g. `IS_IN` the
 "eu-power-users" audience), `execute` would first `createSegment`
@@ -765,7 +772,7 @@ by `execute` — no implicit defaults.
 **Segments referenced:** <none, or list of segments/<id> from Section 3b>
 **Null rules emitted:** <none, or "IS_NULL on '<attr>' → ruleless presence criterion under `not`; may render empty in the segment editor">
 **Confidence entity:** <mapped entity field from Step 3>
-**Confidence rules:** one targeting rule per non-default allocation, in the same order
+**Confidence rules:** one targeting rule per non-default allocation, in the same order, plus a final catch-all rule (no payload, 100% → default variant) for the `is_default` allocation
 **Action:** [ ] Migrate  [ ] Skip
 
 If any allocation or the whole flag is BLOCKED, replace the **Action**
@@ -775,7 +782,7 @@ line with:
 **Action:** [ ] Skip (no migrate option available until the block is resolved)
 
 **MCP Commands:**
-<createFlag (default value = is_default allocation's variation), addFlagToClient, addTargetingRule (ONE per non-default allocation, in order, with variant assignments and their split), resolveFlag with full parameters — positive AND negative case>
+<createFlag, addFlagToClient, addTargetingRule (ONE per non-default allocation, in order, with variant assignments and their split) THEN a final catch-all addTargetingRule (no payload, 100% → is_default allocation's variation), resolveFlag with full parameters — positive AND negative case (negative must land on the catch-all and return the default variation)>
 
 ---
 
@@ -817,11 +824,15 @@ false in the source Eppo environment, surface that during execute:
 Confidence schema type when calling `createFlag`. Include all Eppo
 variations (`variant_key` → `value`) as Confidence variants.
 
-**Default value.** Take the variation referenced by the allocation
-with `is_default: true` (its `variation_weight[0].variation_id`,
-resolved against `variations[]`) and pass that variant's value as
-`createFlag`'s default. Do NOT emit a targeting rule for the default
-allocation.
+**Default value → catch-all rule.** Take the variation referenced by
+the allocation with `is_default: true` (its
+`variation_weight[0].variation_id`, resolved against `variations[]`).
+`createFlag` has no default field, so emit this variation as the
+**final** `addTargetingRule` with `variantAllocations
+{ <defaultVariant>: 100 }` and **no payload** (empty payload targets
+all contexts). It MUST be added after every non-default allocation's
+rule so it only catches subjects that matched nothing above. See
+"Default value" in the core file for why this is required.
 
 **Waterfall verification.** Because Eppo flags often have multiple
 allocations, the core file's Flag Setup Sequence Step 4 requires you to

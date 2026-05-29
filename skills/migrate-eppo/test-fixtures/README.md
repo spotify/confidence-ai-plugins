@@ -125,8 +125,10 @@ After running `plan flags`, the generated plan file at
   opted in to archived flags, all 13 should appear)
 - For `pricing-experiment`, list **two** non-default allocations in order:
   the internal-QA feature gate first, then the NA 50/50 experiment.
-  The third allocation (`is_default: true`) should NOT appear as a
-  separate targeting rule but should set the default value to `control`
+  The third allocation (`is_default: true`) should appear as a **final
+  catch-all rule** (no payload, 100% → `control`) — Confidence has no
+  server-side flag default, so the default variation must be an explicit
+  trailing rule
 - For `legacy-search-rollout`, render the rule in plain English as
   something like "country is not DE and is not FR AND appBuildNumber >= 28"
 - For `subject-id-targeting`, show the `id` attribute rewritten to
@@ -154,11 +156,13 @@ After you tick `[x] Migrate` on the ten non-blocked flags and run
 
 - Be created in your throwaway Confidence client with the right
   variations (one per Eppo variation, keyed by `variant_key`)
-- Have the default value set from the `is_default` allocation
 - Have one targeting rule per non-default Eppo allocation, in the same
-  order
+  order, plus a final catch-all rule (no payload, 100% → the
+  `is_default` allocation's variation) reproducing the default variation
 - Resolve correctly for both positive and negative test contexts (the
-  skill generates these automatically)
+  skill generates these automatically); a negative context that matches
+  no specific rule should land on the catch-all and return the default
+  variation, not a client-code default
 - For `pricing-experiment` specifically, also pass the waterfall test:
   resolve with a `country: US` context (no Spotify email) that misses
   the first allocation and confirm it lands in the 50/50 second
