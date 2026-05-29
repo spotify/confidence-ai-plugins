@@ -207,8 +207,10 @@ def eppo_resolve(flag: dict[str, Any], context: dict[str, Any]) -> str:
         one of these variants for the given context
       - `NO_MATCH (inactive)` — flag is OFF in the chosen env, Confidence
         is created in the OFF state with all rules at 0% rollout
-      - `NO_MATCH` — defensive; with a proper default allocation this
-        shouldn't trigger
+      - `NO_MATCH` — defensive; a flag with an `is_default` allocation
+        never reaches this, because that allocation matches everyone and
+        is migrated as Confidence's catch-all final rule (100% → default
+        variant), which Confidence returns when no specific rule matches
     """
     override = ENV_OVERRIDES.get((flag["id"], ENVIRONMENT_ID), {})
     if not override.get("active", True):
@@ -265,7 +267,7 @@ def main() -> None:
     print("Legend:")
     print("  → variant            deterministic — Confidence must return this exact variant")
     print("  NO_MATCH (inactive)  flag is OFF in this env — Confidence returns its default value")
-    print("  NO_MATCH             no allocation matched (shouldn't happen with a default allocation)")
+    print("  NO_MATCH             no allocation matched (won't happen when an is_default allocation exists — it's the catch-all rule)")
     print("  a(50%) | b(50%)      probabilistic split — Confidence returns one of these variants")
     print()
     blocked_present = [k for k in BLOCKED_FLAGS if k in flags_by_key]

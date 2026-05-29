@@ -377,6 +377,31 @@ A segment criterion composes in the `expression` exactly like an
 attribute criterion: wrap it in `not` to invert (membership exclusion),
 or combine several with `and` / `or`.
 
+### Default value (no server-side default → emit a catch-all rule)
+
+Confidence has **no server-side flag default**. The `Flag` resource
+carries variants and an ordered list of rules but no default-value
+field (`createFlag` accepts none), and the resolver's contract is
+explicit: *"each rule is tried in order; the first match assigns a
+variant; if no rule matches, no variant is assigned."* When no rule
+matches, the SDK returns **the default the caller passed at the call
+site** (`getBoolValue(flag, false)`) — a `ClientDefaultAssignment`.
+
+So a source platform's configured default variation (the value served
+when nothing else matches) does **not** map to any flag-level field. To
+preserve it faithfully, emit it as an explicit **catch-all final rule**:
+
+- `addTargetingRule` with `variantAllocations` = `{ "<defaultVariant>": 100 }`
+  and **no `payload`** (an omitted/empty payload targets all contexts).
+- Add it **last**, after every specific rule, so it only catches
+  subjects that matched nothing above it.
+
+Without this rule, every no-match subject falls back to whatever default
+the application code happens to pass — which the migration cannot
+control — instead of the source platform's configured default. Do not
+rely on "falls through to the flag default"; there is no such default
+unless you create this rule.
+
 ### Expression combinators
 
 | Pattern | Expression |
@@ -983,6 +1008,14 @@ STEP 3: addTargetingRule
     PostHog filter groups), emit one addTargetingRule call per unit in
     the SAME ORDER. Confidence evaluates rules top-down — order is
     semantically significant.
+  → If the source platform defines a default variation (the platform
+    skill states whether it does — e.g. Eppo's `is_default` allocation),
+    add it LAST as a catch-all rule: addTargetingRule with
+    variantAllocations { <defaultVariant>: 100 } and NO payload (empty
+    payload = targets all contexts). Confidence has no flag-level default
+    (see "Default value" above), so this is the only way to reproduce it.
+    It MUST come after every specific rule so it only catches no-match
+    subjects.
   → IMPORTANT: targeting rules added while a flag is archived OR
     immediately after unarchiving may become inactive. Always complete
     steps 1-2 fully (createFlag, unarchive, addFlagToClient) BEFORE
@@ -994,8 +1027,10 @@ STEP 4: resolveFlag (verification)
   → MUST test BOTH positive AND negative cases:
     a. Resolve with a context that SHOULD match the targeting rule
        → Verify the expected variant is returned
-    b. Resolve with a context that SHOULD NOT match
-       → Verify no variant / default is returned
+    b. Resolve with a context that SHOULD NOT match any specific rule
+       → If a catch-all default rule was emitted (see Step 3), verify it
+         lands there and returns the source platform's default variant.
+         Otherwise verify no variant is returned (client-code default).
   → For multi-rule flags, also resolve with a context that misses the
     first rule but matches a later one — this verifies the waterfall
     order is correct.
