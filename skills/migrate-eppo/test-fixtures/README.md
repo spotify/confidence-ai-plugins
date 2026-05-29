@@ -81,11 +81,11 @@ confirm, and review the generated plan file.
 | 5 | `legacy-checkout-redesign` | `active: false` in Production → migration creates flag at 0% rollout | Migrate (with warning) |
 | 6 | `mobile-only-feature` | SemVer `appVersion >= "1.2.0"` → `rangeRule` with `versionValue`; ANDed with a `device` set membership | Migrate |
 | 7 | `general-regex-flag` | `MATCHES` suffix **alternation** `.*@(test\|qa\|staging)\.com$` → one `endsWithRule` per branch, OR'd | Migrate |
-| 8 | `missing-attribute-fallback` | `IS_NULL` redundant with default (positive rule + IS_NULL fallback serving the default variant) → IS_NULL allocation dropped | Migrate |
+| 8 | `missing-attribute-fallback` | `IS_NULL` serving a **non-default** variant (no-plan subjects → on) → ruleless presence criterion under `not` | Migrate |
 | 9 | `delivery-pricing-switchback` | `SWITCHBACK` allocation type → entire flag BLOCKED | BLOCKED |
 | 10 | `premium-users-only` | Allocation referencing `audiences[]` (`IS_IN` 7001 AND `IS_NOT_IN` 7002) → each audience becomes a Confidence segment | Migrate |
 | 11 | `regex-id-format` | Generic regex `^user_[0-9]{4}$` (char class + quantifier, not prefix/suffix/alternation) → BLOCKED | BLOCKED |
-| 12 | `null-and-condition` | `IS_NULL` ANDed with `plan == free` in one rule → BLOCKED | BLOCKED |
+| 12 | `null-and-condition` | `IS_NULL` ANDed with `plan == free` → `and(not(exists country), plan eq free)` | Migrate |
 | 13 | `old-onboarding-flow` | `is_archived: true` → hidden from list by default, visible with `include_archived=true` | Skipped (archived) |
 
 Two audiences back fixture #10, served from `/api/v1/audiences/{id}`:
@@ -111,8 +111,8 @@ resolves match Eppo for the same context:
 python3 verify_migration.py
 ```
 
-It covers the nine migratable fixtures across eight contexts (72 cases)
-and lists the three intentionally-BLOCKED fixtures separately. No network
+It covers the ten migratable fixtures across nine contexts (90 cases)
+and lists the two intentionally-BLOCKED fixtures separately. No network
 or running server needed — it imports the fixture data directly.
 
 ## What a successful test looks like
@@ -137,16 +137,19 @@ After running `plan flags`, the generated plan file at
   version range criterion (not a numeric one)
 - For `general-regex-flag`, decompose the alternation into three
   `endsWithRule`s (`@test.com`, `@qa.com`, `@staging.com`) OR'd together
-- For `missing-attribute-fallback`, drop the `IS_NULL` allocation and
-  keep the positive `plan in [premium, enterprise]` rule with default off
+- For `missing-attribute-fallback`, emit two rules: the positive
+  `plan in [premium, enterprise]` rule, plus a ruleless presence
+  criterion on `plan` under `not` (no-plan subjects → on), default off
+- For `null-and-condition`, emit one rule combining a ruleless presence
+  criterion on `country` under `not` with `plan eq free`:
+  `and(not(exists country), plan eq free)`
 - For `premium-users-only`, list two segments in Section 3b (from
   audiences 7001 / 7002) and reference them from the rule
-- Mark only `delivery-pricing-switchback`, `regex-id-format`, and
-  `null-and-condition` as **BLOCKED** with clear reasons (SWITCHBACK,
-  generic regex, IS_NULL combined with another condition).
+- Mark only `delivery-pricing-switchback` and `regex-id-format` as
+  **BLOCKED** with clear reasons (SWITCHBACK, generic regex).
   `execute` should refuse to proceed on these unless they're `[x] Skip`'d
 
-After you tick `[x] Migrate` on the nine non-blocked flags and run
+After you tick `[x] Migrate` on the ten non-blocked flags and run
 `/migrate-eppo execute <plan-file>`, each migrated flag should:
 
 - Be created in your throwaway Confidence client with the right

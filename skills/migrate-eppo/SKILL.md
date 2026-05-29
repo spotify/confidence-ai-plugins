@@ -537,24 +537,26 @@ branch, OR'd together. Anything else is BLOCKED (see below).
 
 ### Null checks (`IS_NULL`)
 
-Confidence has no positive "attribute is null" criterion, and it
-doesn't need one: a subject missing the attribute fails every attribute
-criterion and **falls through to the flag's default value** (served
-when no rule matches). The key consequence — Confidence has a *single*
-default for all no-match subjects, so it can't serve "attribute is
-null" subjects differently from "attribute set but no rule matched"
-subjects.
+Confidence **does** have a null/existence check. An attribute criterion
+with no inner rule — `{ "attribute": { "attributeName": "X" } }` — is a
+presence test ("X is set"); wrap it in `not` for "X is null/absent". See
+"Existence / null checks" in the core file for the proof (resolver
+`ir_builder.rs` existence arm, resolver spec fixtures, and
+`epx-flags-admin` `TargetingValidator` accepting ruleless attribute
+criteria on create).
 
-So an Eppo `IS_NULL` allocation maps cleanly only when the variant it
-serves is the same as the default allocation's variant — in which case
-it's **redundant** (Confidence's default already serves null subjects
-that variant) and is simply dropped.
+So `IS_NULL(attr)` translates directly: emit a ruleless presence
+criterion on `attr` and reference it under `not` in the expression.
 
 | Eppo `IS_NULL` shape | Confidence strategy |
 |---|---|
-| `IS_NULL` is the **sole condition** of its allocation AND its variant **equals** the `is_default` allocation's variant | **Drop the allocation** — null subjects already fall through to that same default. No rule emitted. Note it in the plan. |
-| `IS_NULL` is the sole condition but its variant **differs** from the default | BLOCKED — Confidence's single default can't serve null subjects differently from other unmatched subjects. |
-| `IS_NULL` is **combined** (ANDed) with other conditions in the same rule | BLOCKED — "X is null AND Y = foo" can't be expressed. |
+| `IS_NULL` is the **sole condition** of its allocation | Criterion `ref-0 = { "attribute": { "attributeName": "<attr>" } }`, expression `{ "not": { "ref": "ref-0" } }`, assigned to the allocation's variant. |
+| `IS_NULL` **combined** (ANDed) with other conditions in the same rule | Emit the presence criterion plus the other criteria, e.g. `and(not(ref-null), ref-other)`. Each non-null condition uses its normal mapping. |
+| `IS_NULL` as one branch of an OR across rules | Same — `not(ref-null)` becomes one operand of the allocation's `or`. |
+
+Caveat: the web segment editor may not render a control for a ruleless
+criterion, so a migrated null rule can look empty in the UI even though
+it resolves correctly. Note this in the plan whenever you emit one.
 
 ### Reusable audiences (`audiences[]`) → Confidence segments
 
@@ -579,7 +581,7 @@ map directly onto Confidence **segments** (see "Reusable Segments" and
      allocation → AND all the parts together in the expression.
 
 An audience is BLOCKED only if one of *its* conditions is itself
-blocked (generic regex, combined IS_NULL) — same rules as inline
+blocked (generic regex) — same rules as inline
 conditions.
 
 ### Eppo subject `id` targeting
@@ -599,10 +601,6 @@ Only these genuinely have no clean Confidence translation:
   multiple alternation groups, etc.). Reason: `Uses a regex on
   '<attribute>' that isn't a prefix/suffix/alternation; Confidence has
   no general regex rule.`
-- **`IS_NULL` combined with other conditions**, or whose variant
-  differs from the existing default allocation's variant (see the
-  IS_NULL table above). Reason: `IS_NULL on '<attribute>' combined with
-  other conditions / serves a non-default variant; needs manual review.`
 - **`SWITCHBACK` allocations** — Eppo switchback deliberately rotates a
   *single subject* through *different* variations across consecutive
   **time windows**, for experiments on temporally-correlated outcomes
@@ -763,9 +761,8 @@ by `execute` — no implicit defaults.
   1. `<allocation name>` (`<FEATURE_GATE | EXPERIMENT>`) — <plain-English rule>, exposure <X>%, splits <variant=X%, ...> <if audience-referencing: "via segment(s) segments/<id>">
   2. ...
 **Default allocation:** `<allocation name>` (is_default: true) → variation `<variant_key>`
-  <if an IS_NULL allocation was demoted to the default, note it here:
-   "default also covers Eppo IS_NULL allocation '<name>'">
 **Segments referenced:** <none, or list of segments/<id> from Section 3b>
+**Null rules emitted:** <none, or "IS_NULL on '<attr>' → ruleless presence criterion under `not`; may render empty in the segment editor">
 **Confidence entity:** <mapped entity field from Step 3>
 **Confidence rules:** one targeting rule per non-default allocation, in the same order
 **Action:** [ ] Migrate  [ ] Skip

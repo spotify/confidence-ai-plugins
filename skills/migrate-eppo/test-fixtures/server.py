@@ -552,18 +552,21 @@ FLAGS: list[dict[str, Any]] = [
         "type": "FEATURE_FLAG",
         "structured_metadata": [],
     },
-    # 8. IS_NULL (redundant with default) → MIGRATABLE. A positive rule
-    #    (plan in [premium, enterprise] → enabled) plus an IS_NULL
-    #    fallback whose variant (`disabled`) equals the default
-    #    allocation's variant. In Confidence, null-plan subjects fall
-    #    through to the default (disabled) automatically, so the IS_NULL
-    #    allocation is redundant and is dropped — leaving exactly one
-    #    targeting rule and the default. Behaviourally identical.
+    # 8. IS_NULL serving a NON-default variant → MIGRATABLE via a
+    #    ruleless presence criterion under `not`. A positive rule (plan in
+    #    [premium, enterprise] → enabled) plus an IS_NULL allocation that
+    #    turns the feature ON for subjects with no `plan` at all — a
+    #    different outcome than the default (off). This can only migrate
+    #    because Confidence has a real null check: emit
+    #    `{ "attribute": { "attributeName": "plan" } }` referenced under
+    #    `not`, assigned to `enabled`. (The old "drop the redundant rule"
+    #    trick could NOT express this, since null subjects need a variant
+    #    that differs from the default.)
     {
         "id": 8,
         "key": "missing-attribute-fallback",
         "name": "Missing attribute fallback",
-        "description": "Premium/enterprise get the feature; everyone else (incl. no-plan) is off.",
+        "description": "Premium/enterprise get the feature; subjects with no plan also get it; plan'd-but-unpaid are off.",
         "is_archived": False,
         "variation_type": "BOOLEAN",
         "owner": None,
@@ -594,11 +597,11 @@ FLAGS: list[dict[str, Any]] = [
             },
             {
                 "id": 8002,
-                "key": "no-plan-fallback",
-                "name": "No plan attribute → off",
+                "key": "no-plan-on",
+                "name": "No plan attribute → on",
                 "created_at": CREATED_AT,
                 "type": "FEATURE_GATE",
-                "variation_weight": [{"variation_id": 802, "weight": 100}],
+                "variation_weight": [{"variation_id": 801, "weight": 100}],
                 "targeting_rules": [
                     {
                         "conditions": [
@@ -802,10 +805,11 @@ FLAGS: list[dict[str, Any]] = [
         "type": "FEATURE_FLAG",
         "structured_metadata": [],
     },
-    # 12. IS_NULL combined with another condition → BLOCKED. "country is
-    #     null AND plan == free" can't be expressed: Confidence's default
-    #     covers all no-match subjects, so a null-attribute check can't be
-    #     ANDed with a positive condition.
+    # 12. IS_NULL combined with another condition → MIGRATABLE. "country
+    #     is null AND plan == free" maps to
+    #     `and(not(ref_country_exists), ref_plan_eq_free)`: a ruleless
+    #     presence criterion on `country` under `not`, ANDed with an
+    #     eqRule on `plan`. Both conditions live in one Confidence rule.
     {
         "id": 12,
         "key": "null-and-condition",
