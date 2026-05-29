@@ -308,6 +308,7 @@ resolver's own spec fixtures (`test-payloads/resolver-spec/state.json`).
 | Timestamp `>=` | `"rangeRule": { "startInclusive": { "timestampValue": "2022-11-17T15:16:17Z" } }` |
 | starts with | `"startsWithRule": { "value": "prefix" }` |
 | ends with | `"endsWithRule": { "value": "suffix" }` |
+| attribute is set (exists) | `{ "attribute": { "attributeName": "X" } }` (attribute criterion with **no** inner rule) |
 | segment membership | `{ "segment": { "segment": "segments/<id>" } }` (a whole criterion, not an `attribute` rule) |
 
 **Value types.** A `Value` is a oneof: `boolValue`, `numberValue`,
@@ -328,6 +329,32 @@ rather than lexically.
 "is one of" and is preferred over an `or` of `eqRule`s when realizing
 list membership. Use whichever the platform mapping specifies; both
 resolve identically.
+
+**Existence / null checks.** An attribute criterion with **no inner
+rule** — just `{ "attribute": { "attributeName": "X" } }` — is a
+presence check: it matches when attribute `X` is set. The resolver
+compiles a ruleless attribute criterion to an existence test
+(`spotify/confidence-resolver`, `ir_builder.rs`: the `_ =>` arm emits
+`I64Neqz`), and the resolver's own spec fixtures include a bare
+`{ "attributeName": "country" }` criterion. The admin API accepts it on
+create (`epx-flags-admin` `TargetingValidator` does no structural
+validation for `ATTRIBUTE` criteria). To express **"attribute is
+null/absent"**, reference that criterion under `not`:
+
+```json
+{
+  "criteria": {
+    "ref-0": { "attribute": { "attributeName": "country" } }
+  },
+  "expression": { "not": { "ref": "ref-0" } }
+}
+```
+
+Because it composes like any other criterion, "X is null AND Y = foo"
+is expressible: `and(not(ref-x), ref-y)`. Note: the web segment editor
+may not render a control for a ruleless criterion, so a null rule can
+look empty in the UI even though it resolves correctly — call this out
+in the plan when you emit one.
 
 ### Segment criteria
 
@@ -359,6 +386,7 @@ or combine several with `and` / `or`.
 | OR | `{ "or": { "operands": [{ "ref": "ref-0" }, { "ref": "ref-1" }] } }` |
 | NOT | `{ "not": { "ref": "ref-0" } }` |
 | NOT IN (list) | Prefer one `setRule` criterion wrapped in `not`: `{ "not": { "ref": "ref-0" } }`. (An `and` of `not`-wrapped per-value `eqRule`s is equivalent if you didn't use a set rule.) |
+| attribute IS null | `not`-wrap a ruleless presence criterion: `{ "not": { "ref": "ref-0" } }` where `ref-0` is `{ "attribute": { "attributeName": "X" } }` |
 
 ### Worked examples
 
@@ -391,6 +419,27 @@ or combine several with `and` / `or`.
     "ref-1": { "attribute": { "attributeName": "country", "eqRule": { "value": { "stringValue": "FR" } } } }
   },
   "expression": { "and": { "operands": [{ "not": { "ref": "ref-0" } }, { "not": { "ref": "ref-1" } }] } }
+}
+```
+
+**IS null (country is not set):**
+```json
+{
+  "criteria": {
+    "ref-0": { "attribute": { "attributeName": "country" } }
+  },
+  "expression": { "not": { "ref": "ref-0" } }
+}
+```
+
+**IS null combined (country is not set AND plan = "free"):**
+```json
+{
+  "criteria": {
+    "ref-0": { "attribute": { "attributeName": "country" } },
+    "ref-1": { "attribute": { "attributeName": "plan", "eqRule": { "value": { "stringValue": "free" } } } }
+  },
+  "expression": { "and": { "operands": [{ "not": { "ref": "ref-0" } }, { "ref": "ref-1" }] } }
 }
 ```
 

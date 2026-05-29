@@ -24,18 +24,18 @@ from server import AUDIENCES, ENV_OVERRIDES, FLAGS
 ENVIRONMENT_ID = 1
 
 # Flags the skill migrates by default. After the deep-dive into the
-# Confidence resolver proto/source, four cases that were previously
+# Confidence resolver proto/source, five cases that were previously
 # treated as blockers now migrate cleanly and are verified here:
 #   * mobile-only-feature       — SemVer via versionValue
 #   * general-regex-flag        — MATCHES alternation → endsWith decomposition
-#   * missing-attribute-fallback — IS_NULL redundant with default → dropped
+#   * missing-attribute-fallback — IS_NULL → ruleless presence criterion under `not`
+#   * null-and-condition        — IS_NULL ANDed with another condition → and(not(exists), eq)
 #   * premium-users-only        — Eppo audiences → Confidence segments
 #
-# Three fixtures remain genuinely BLOCKED (no clean translation) and are
+# Two fixtures remain genuinely BLOCKED (no clean translation) and are
 # NOT listed here:
 #   * delivery-pricing-switchback — time-windowed SWITCHBACK
 #   * regex-id-format             — generic regex (char class + quantifier)
-#   * null-and-condition          — IS_NULL ANDed with another condition
 MIGRATED_FLAGS = [
     "internal-tools-gate",
     "pricing-experiment",
@@ -45,13 +45,13 @@ MIGRATED_FLAGS = [
     "mobile-only-feature",
     "general-regex-flag",
     "missing-attribute-fallback",
+    "null-and-condition",
     "premium-users-only",
 ]
 
 BLOCKED_FLAGS = [
     "delivery-pricing-switchback",
     "regex-id-format",
-    "null-and-condition",
 ]
 
 TEST_CONTEXTS: list[dict[str, Any]] = [
@@ -63,6 +63,7 @@ TEST_CONTEXTS: list[dict[str, Any]] = [
     {"name": "uk-qa-email", "user_id": "u6", "email": "tester@qa.com", "country": "UK", "appBuildNumber": 30, "appVersion": "2.0.0", "device": "iOS", "plan": "premium"},
     {"name": "test-user-1", "user_id": "test-user-1", "email": "test@gmail.com", "country": "SE", "appBuildNumber": 30, "appVersion": "2.0.0", "device": "iOS", "plan": "premium"},
     {"name": "noplan-user-SE", "user_id": "u11", "email": "user@gmail.com", "country": "SE", "appBuildNumber": 30, "appVersion": "1.5.0", "device": "Android"},
+    {"name": "nocountry-free", "user_id": "u12", "email": "user2@gmail.com", "appBuildNumber": 30, "appVersion": "2.0.0", "device": "iOS", "plan": "free"},
 ]
 
 # Matches the migration skill's SemVer heuristic: 2–4 numeric segments
@@ -273,7 +274,6 @@ def main() -> None:
         reasons = {
             "delivery-pricing-switchback": "time-windowed SWITCHBACK allocation",
             "regex-id-format": "generic regex (character class + quantifier)",
-            "null-and-condition": "IS_NULL ANDed with another condition",
         }
         for k in blocked_present:
             print(f"  ⊘ {k:<28} {reasons.get(k, '')}")
