@@ -906,16 +906,28 @@ Then the core's Step 2b transitions apply:
 
 ```
 Grep: pattern="eppo|Eppo|EppoClient" → Find Eppo imports
-Grep: pattern="get_(string|boolean|numeric|integer|json)_assignment|get(String|Boolean|Bool|Numeric|Integer|JSON|Json)Assignment" → Find typed evaluations
-Grep: pattern="get_assignment|getAssignment" → Find LEGACY untyped evaluations (older SDKs)
+Grep: pattern="[Gg]et(String|Boolean|Bool|Numeric|Integer|Int|Double|Float|JSON|Json)(String)?Assignment|get_(string|boolean|numeric|integer|double|json)_assignment" → Find typed evaluations
+Grep: pattern="get_assignment|getAssignment|GetAssignment" → Find LEGACY untyped evaluations (older SDKs)
 Grep: pattern="getPrecomputedConfiguration|offlinePrecomputedInit|getPrecomputedInstance" → Find the PRECOMPUTED pattern (JS/React)
+Grep: pattern="getBanditAction|BanditResult|getBandit" → Find BANDITS (BLOCKED — no Confidence equivalent)
 ```
 
-**JS method-name variants.** The JS SDKs shorten boolean to
-**`getBoolAssignment`** (e.g. `@eppo/js-client-sdk-common`) while others
-use `getBooleanAssignment` (e.g. `@eppo/js-client-sdk@3.x`); JSON appears
-as both `getJSONAssignment` and `getJsonAssignment`. The grep above covers
-all spellings — don't assume the underscore/`Boolean` forms.
+**Scan case-insensitively, and don't assume one spelling per type.** The
+assignment method name varies by language AND by value type. Go exports
+PascalCase (`GetBoolAssignment`); Java uses `getDoubleAssignment` for
+numeric and `getJSONStringAssignment` (returns a serialized string) for
+JSON; JS shortens boolean to `getBoolAssignment` and JSON to
+`getJsonAssignment`; Python is snake_case. The grep above is the union —
+run it case-insensitively (`rg -i` / `Grep -i`). Map whatever you find to
+a value TYPE, not a fixed spelling:
+
+| Value type | Source spellings seen | Confidence accessor (by target lang) |
+|------------|----------------------|--------------------------------------|
+| boolean | `getBoolean/getBool/GetBool…`, `get_boolean_…` | JS/Java `getBooleanValue`, Go `BooleanValue` |
+| string | `getString/GetString…`, `get_string_…` | JS/Java `getStringValue`, Go `StringValue` |
+| integer | `getInteger/GetInteger/GetInt…`, `get_integer_…` | JS/Java `getIntegerValue`, Go `IntValue` |
+| numeric/float | `getNumeric/GetNumeric…`, **Java `getDoubleAssignment`** | JS `getNumberValue`, Java `getDoubleValue`, Go `FloatValue` |
+| JSON/object | `getJSON/getJson/GetJSON…`, **Java `getJSONStringAssignment`** | JS/Java `getObjectValue`, Go `ObjectValue` |
 
 **Legacy `get_assignment` API.** Older Eppo SDKs expose a single untyped
 `get_assignment(subjectKey, flagKey)` / `getAssignment(subjectKey, flagKey)`
@@ -1011,6 +1023,19 @@ Based on SDK guide from `confidence-docs` MCP:
 | `client.get_integer_assignment(k, sk, attrs, default)` | `client.getNumberValue("k.prop", default, { targetingKey: sk, ...attrs })` |
 | `client.get_json_assignment(k, sk, attrs, default)` | `client.getObjectValue("k.prop", default, { targetingKey: sk, ...attrs })` |
 
+The accessor name AND signature shape are language-specific (use the
+Step 2 SDK guide for the exact form):
+- **Go**: PascalCase, no `get` prefix, context-LAST, `ctx` first:
+  `client.BooleanValue(ctx, "k.enabled", default, evalCtx)` where
+  `evalCtx := openfeature.NewEvaluationContext(sk, attrsMap)`. Numeric →
+  `FloatValue`, integer → `IntValue`, JSON → `ObjectValue`.
+- **Java**: build a `MutableContext(sk)` + `ctx.add(...)` and pass it last:
+  `client.getDoubleValue("k.value", default, ctx)` (numeric),
+  `client.getObjectValue("k", default, ctx)` (JSON). Note Eppo's
+  `getJSONStringAssignment` returns a serialized **String** — Confidence
+  `getObjectValue` returns a structured value, so DROP any
+  `gson.fromJson(...)` re-parse the source did on the result.
+
 **Client-target mapping (ambient context):** the per-call site drops its
 `sk`/`attrs` arguments; emit a one-time context setup instead.
 
@@ -1050,9 +1075,18 @@ Notes:
   that read Eppo flags imperatively outside React needs a small
   restructure (lift to a hook, or resolve server-side via `getFlag`).
 
-**Remove Eppo-side readiness scaffolding.** Eppo client examples often
-gate the first evaluation behind a manual wait (e.g. Android
-`Handler.postDelayed(…, 1000)`, or polling an init flag). Confidence's
+**Bandits are BLOCKED.** Eppo contextual bandits
+(`getBanditAction`, `BanditResult`, `BanditActions`/`ContextAttributes`)
+have no Confidence equivalent. Do NOT attempt to map them — surface each
+bandit call site in the plan as BLOCKED with a note that the team must
+redesign it (e.g. as a standard flag/experiment) before migrating, and
+leave the code untouched.
+
+**Remove Eppo-side readiness scaffolding (server AND client).** Eppo
+examples gate the first evaluation behind a manual wait: clients use e.g.
+Android `Handler.postDelayed(…, 1000)`; servers use a readiness signal
+like Go's `<-client.Initialized()` channel wait or Java's blocking
+`buildAndInit()`. Confidence's
 `setProviderAndWait` / `fetchAndActivate` / `setEvaluationContextAndWait`
 already block until flags are ready, so delete the hand-rolled delay
 rather than porting it.
