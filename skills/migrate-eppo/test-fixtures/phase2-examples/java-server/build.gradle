@@ -1,0 +1,48 @@
+plugins {
+    id 'java'
+    id 'application'
+}
+
+group = 'cloud.eppo'
+version = '1.0.0'
+sourceCompatibility = '17'
+
+repositories {
+    mavenLocal()
+    mavenCentral()
+}
+
+dependencies {
+    // Confidence OpenFeature local-resolve provider
+    implementation 'com.spotify.confidence:openfeature-provider-local:0.15.0'
+
+    // OpenFeature SDK
+    implementation 'dev.openfeature:sdk:1.20.2'
+
+    // Spark Java for REST API
+    implementation 'com.sparkjava:spark-core:2.9.4'
+
+    // Gson for JSON serialization
+    implementation 'com.google.code.gson:gson:2.10.1'
+
+    // SLF4J for logging
+    implementation 'org.slf4j:slf4j-simple:2.0.9'
+}
+
+application {
+    mainClass = 'cloud.eppo.relay.RelayServer'
+}
+
+tasks.register('copyDependencies', Copy) {
+    from configurations.runtimeClasspath
+    into 'build/libs/dependencies'
+}
+
+jar {
+    manifest {
+        attributes(
+            'Main-Class': 'cloud.eppo.relay.RelayServer',
+            'Class-Path': configurations.runtimeClasspath.collect { 'dependencies/' + it.getName() }.join(' ')
+        )
+    }
+}
