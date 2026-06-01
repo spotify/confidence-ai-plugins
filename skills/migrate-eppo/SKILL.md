@@ -866,20 +866,28 @@ matches a later one — this verifies the waterfall order is preserved.
 
 ### Source resolve mode (Eppo) — feeds the core's Step 2b signal
 
-**Eppo evaluates locally, everywhere.** Both Eppo server and client SDKs
-download the flag configuration (Universal Flag Configuration) and compute
-assignments **in-process** — there is no per-assignment network call.
-Declare Eppo's source resolve mode as **local** when the core's Step 2b
-compares source vs target:
+**Eppo always evaluates locally — but "local" means different things on
+server vs client.** Every Eppo SDK downloads the flag configuration
+(Universal Flag Configuration) and computes assignments without a
+per-assignment network call. Map it to the core's two "local" source
+modes by surface:
 
-- Eppo (local) → Confidence **local resolve** (backend Java/Go/JS/Rust):
-  **unchanged** — in-process eval is preserved.
-- Eppo (local) → Confidence **remote resolve** (client SDKs, or backend
-  Python/Ruby/.NET): **⚠️ local → remote**. Surface the notice: each
-  resolve now relies on Confidence's fetched-and-cached values rather than
-  in-process evaluation, so call sites gain a freshness/offline story
-  (client SDKs serve cached values; first run may return defaults until
-  the initial fetch completes).
+- **Eppo backend SDK → source mode = in-process eval.**
+- **Eppo client SDK (Android/iOS/JS browser) → source mode = on-device
+  eval** (the device holds the full ruleset and evaluates it locally).
+
+Then the core's Step 2b transitions apply:
+
+- Eppo backend → Confidence **in-process** (Java/Go/JS/Rust): unchanged.
+- Eppo backend → Confidence **remote** (Python/Ruby/.NET): ⚠️ in-process
+  → remote — each resolve becomes a service call.
+- Eppo client → Confidence **cached client** (mobile/web): ⚠️ on-device →
+  cached client. Reads stay local/offline and fast (NOT per-call
+  network), but evaluation moves to the backend: the device caches
+  resolved values instead of the ruleset, targeting changes apply on the
+  next fetch, a cold first run may return defaults, and the full ruleset
+  is no longer shipped to the client (a security/payload win over Eppo's
+  on-device config).
 
 ### Plan-file path
 

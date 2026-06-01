@@ -798,54 +798,68 @@ names, function names, import lines).
 
 ### Step 2: Fetch SDK guide from `confidence-docs` MCP *(shared)*
 
-**Step 2a — decide the target resolve mode (honor the SDK Preference
-ladder).** The core policy is *prefer local resolve* (see "SDK
-Preference"). Local resolve is only available for **backend/server
-targets** in **Java, Go, JS (Node), or Rust**. Decide from the
-language/framework detected in Step 1:
+**Step 2a — pick the target resolve mode.** Confidence has THREE modes,
+not a local/remote binary. Pick from the language/framework detected in
+Step 1, honoring the "prefer local resolve" policy (see "SDK
+Preference"):
 
-- Target is a backend service **and** language ∈ {Java, Go, JS/Node, Rust}
-  → **local resolve**. Fetch the local-resolve guide:
+| Target mode | Confidence SDKs | How evaluation works | Network profile |
+|-------------|-----------------|----------------------|-----------------|
+| **In-process** (local resolve) | backend **Java, Go, JS/Node, Rust** | Periodically fetch the resolver **state** (full ruleset); evaluate locally via WASM | No per-eval network call; network only for state refresh + sticky/materialization |
+| **Cached client** | **Android, iOS, web/browser JS, React, React Native** | Backend resolves; device **prefetches and caches resolved VALUES** (not the ruleset). Reads are local + offline. Context change triggers a refetch | Network on init / context change / refresh — NOT per read |
+| **Remote** (per-call) | backend **Python, Ruby, .NET** | Each resolve is a service call to Confidence | One call per resolve (with default-value fallback on failure) |
+
+Routing:
+
+- Backend **and** language ∈ {Java, Go, JS/Node, Rust} → **in-process**.
+  Fetch the local-resolve guide (this is server-only; the JS WASM
+  provider is **not** for browsers — large bundle + it exposes all rules):
 
   ```
   mcp__confidence-docs__getLocalResolveIntegrationGuide
     sdk: "JAVA" | "GO" | "JS" | "RUST"
   ```
 
-- Anything else (client SDKs — Android, iOS, web/browser JS, React,
-  React Native — or backend languages without a local resolver, e.g.
-  Python, Ruby, .NET) → **remote resolve**. Fetch the standard guide:
+- Client app (mobile / browser / React Native) → **cached client**.
+  Backend **Python / Ruby / .NET** → **remote**. Either way fetch:
 
   ```
   mcp__confidence-docs__getCodeSnippetAndSdkIntegrationTips
     sdk: "<detected>"
   ```
 
-Optionally enrich either path:
-
-```
-mcp__confidence-docs__searchDocumentation
-  query: "OpenFeature local resolve <detected-language>"
-```
+Note JS is split: **Node server** can be in-process (WASM) **or** remote;
+**browser/web** JS is cached-client. Choose by where the code runs, not
+just the language.
 
 **Step 2b — signal any resolve-mode CHANGE.** The platform skill declares
-the *source* platform's resolve mode (local in-process eval vs remote
-service call). Compare it to the target mode chosen in 2a. If they
-differ, this is an architectural change the user MUST be told about — it
-shifts latency, availability, and failure modes:
+the *source* mode (per surface). Compare to the target mode from 2a and,
+if it shifts, tell the user precisely what changes — don't flatten it to
+"local → remote":
 
-- **local → remote** (e.g. an Eppo server SDK doing in-process eval →
-  Confidence remote resolve in Python/Ruby/.NET, or any client SDK):
-  warn that each resolve now depends on a network call / cached fetch
-  rather than in-process evaluation; flag values may be served from a
-  cache and have a freshness/offline story.
-- **remote → local** (rare): warn that evaluation now happens in-process
-  against a downloaded ruleset; deploys/config propagation differ.
+- **in-process → in-process** (e.g. an Eppo backend SDK → Confidence
+  Java/Go/JS/Rust): unchanged — evaluation stays in-process. Say so.
+- **in-process → remote** (e.g. an Eppo backend SDK → Confidence
+  Python/Ruby/.NET): genuine change — each resolve becomes a service
+  call. Warn about added per-call latency and dependence on Confidence
+  availability (mitigated by default-value fallback).
+- **on-device eval → cached client** (e.g. an Eppo mobile/browser SDK,
+  which downloads the ruleset and evaluates on-device → Confidence
+  mobile/web): the nuance the user must hear — reads stay **local, fast,
+  and offline-capable** (it is NOT a network hit per read), but
+  **evaluation moves to the backend**: the device caches resolved values
+  instead of the ruleset, so targeting-rule changes take effect on the
+  next fetch, a cold first run may return defaults until the initial
+  fetch completes, and the full ruleset is no longer shipped to the
+  client (usually a security/payload win).
+- **on-device eval → in-process** (e.g. an Eppo backend SDK → Confidence
+  Node/Java WASM): both evaluate locally; call out only that Confidence
+  refreshes state on an interval.
 
 Record the decision and any change notice in the plan's SDK Setup
 section (see template) and re-surface it at execute time before touching
-code. If the mode is unchanged (local → local or remote → remote), state
-that explicitly so the user knows it was considered.
+code. If the mode is genuinely unchanged, state that explicitly so the
+user knows it was considered.
 
 **CRITICAL:** Include the ACTUAL response in the plan, not a reference
 to fetch it. Plans are self-sufficient.
@@ -924,13 +938,14 @@ using the template below.
 
 | | |
 |---|---|
-| **Source mode** | <local in-process eval / remote service call — from platform skill> |
-| **Target mode** | <local resolve / remote resolve — from Step 2a> |
-| **Change** | <unchanged / ⚠️ local → remote / ⚠️ remote → local — see notice> |
+| **Source mode** | <in-process eval / on-device eval / remote — from platform skill, per surface> |
+| **Target mode** | <in-process / cached client / remote — from Step 2a> |
+| **Change** | <unchanged / ⚠️ in-process → remote / ⚠️ on-device → cached client / … — see notice> |
 
-<If changed: one-paragraph notice of what shifts for the user — latency,
-caching/freshness, offline behavior, deploy/propagation. If unchanged:
-"Resolve mode is preserved.">
+<If changed: one-paragraph notice of what actually shifts — where
+evaluation happens, per-read latency (cached client = local/offline, NOT
+per-call network), freshness/refetch behavior, cold-start defaults,
+ruleset exposure. If unchanged: "Resolve mode is preserved.">
 
 ### Install
 
