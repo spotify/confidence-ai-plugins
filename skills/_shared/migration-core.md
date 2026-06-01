@@ -836,6 +836,23 @@ written into the plan's "Transform Rules" section.
 `get_string_value` in Python, `getValue<String>` in Kotlin, etc. —
 based on the MCP-fetched SDK guide.)
 
+**Two Confidence-wide truths every code transform must honor** (the
+platform skill applies them to its own SDK's call shape):
+
+- **Flags are structs — read a property, not the bare key.** Confidence
+  flag values are always accessed by a dot-path `<flag>.<property>`. The
+  `createFlag` schema decides the property names; the default schema is a
+  single boolean property `enabled`. Phase 1 must record each flag's
+  resolve path so Phase 2 uses `<flag>.<property>` instead of `<flag>`.
+- **Client SDKs use ambient context; server SDKs pass it per call.**
+  Confidence client SDKs (Android, iOS, web/browser JS, React, React
+  Native) read a single evaluation context set via
+  `setEvaluationContext`/`setEvaluationContextAndWait` — `get<Type>Value`
+  takes NO context argument. Server SDKs accept context per resolve. When
+  the source SDK passes a randomization id / attributes on every call (as
+  Eppo and PostHog client SDKs do), a client-side target must hoist them
+  into a one-time context setup, not a per-call argument.
+
 ### Step 5: Generate plan *(shared template)*
 
 Save the plan to `.claude/plans/<platform>-code-migration-<date>.md`

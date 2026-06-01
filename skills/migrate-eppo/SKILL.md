@@ -766,6 +766,7 @@ by `execute` — no implicit defaults.
 **Description:** <from Eppo if available, otherwise empty>
 **Variation type:** <BOOLEAN / INTEGER / JSON / NUMERIC / STRING>
 **Variations:** <variant_key — value list, e.g. "control = false, treatment = true">
+**Confidence resolve path:** `<flag-key>.<property>` (Phase 2 reads this; e.g. `<flag-key>.enabled` for BOOLEAN, `<flag-key>.value` for other scalars — see "Variation type → Confidence schema")
 **Active in `<env>`:** <yes / no — if no, all rules will be added at 0% rollout and flag created in the OFF state>
 **Allocations (Eppo, in order):**
   1. `<allocation name>` (`<FEATURE_GATE | EXPERIMENT>`) — <plain-English rule>, exposure <X>%, splits <variant=X%, ...> <if audience-referencing: "via segment(s) segments/<id>">
@@ -821,10 +822,26 @@ false in the source Eppo environment, surface that during execute:
 > but keep the rules at 0% rollout so it stays off until you turn it on
 > intentionally. Continue?
 
-**Variation type → Confidence schema.** Use the Eppo `variation_type`
-(`BOOLEAN` / `INTEGER` / `JSON` / `NUMERIC` / `STRING`) as the
-Confidence schema type when calling `createFlag`. Include all Eppo
-variations (`variant_key` → `value`) as Confidence variants.
+**Variation type → Confidence schema (and the resolve-path handoff to
+Phase 2).** A Confidence flag is a struct, not a bare scalar, so each
+flag needs a named **property** that holds the migrated value. Use the
+Eppo `variation_type` to pick the property type, and a deterministic
+property name so Phase 2 can reconstruct the resolve path without
+guessing:
+
+| Eppo `variation_type` | Confidence schema (`schemaObject`) | Resolve path |
+|-----------------------|------------------------------------|--------------|
+| `BOOLEAN` | `{ "enabled": "boolean" }` (the `createFlag` default) | `<flag>.enabled` |
+| `STRING` | `{ "value": "string" }` | `<flag>.value` |
+| `INTEGER` | `{ "value": "integer" }` | `<flag>.value` |
+| `NUMERIC` | `{ "value": "double" }` | `<flag>.value` |
+| `JSON` | the variation object's own shape (nested struct) | `<flag>.<prop>` per field |
+
+Include all Eppo variations as Confidence variants, wrapping each Eppo
+`value` under the chosen property — e.g. a boolean flag's
+`control = false` becomes `{ "name": "control", "value": { "enabled": false } }`.
+Record the resolve path on the flag's plan entry (the **Confidence
+resolve path** line) — Phase 2's code transform reads it verbatim.
 
 **Default value → catch-all rule.** Take the variation referenced by
 the allocation with `is_default: true` (its
@@ -855,30 +872,51 @@ matches a later one — this verifies the waterfall order is preserved.
 
 ```
 Grep: pattern="eppo|Eppo|EppoClient" → Find Eppo imports
-Grep: pattern="get_(string|boolean|numeric|integer|json)_assignment|getStringAssignment|getBooleanAssignment|getNumericAssignment|getIntegerAssignment|getJSONAssignment" → Find evaluations
+Grep: pattern="get_(string|boolean|numeric|integer|json)_assignment|getStringAssignment|getBooleanAssignment|getNumericAssignment|getIntegerAssignment|getJSONAssignment" → Find typed evaluations
+Grep: pattern="get_assignment|getAssignment" → Find LEGACY untyped evaluations (older SDKs)
 ```
 
-Common Eppo package names:
-- JS/TS: `@eppo/js-client-sdk`, `@eppo/node-server-sdk`, `@eppo/react-native-sdk`
-- Python: `eppo-server-sdk`
-- Java/Kotlin: `cloud.eppo:eppo-server-sdk`
-- Go: `github.com/Eppo-exp/golang-sdk`
-- Ruby: `eppo-server-sdk`
-- Rust: `eppo_sdk`
-- iOS: `eppo-ios-sdk`
-- Android: `cloud.eppo:eppo-android-sdk`
-- .NET: `Eppo.Sdk`
+**Legacy `get_assignment` API.** Older Eppo SDKs expose a single untyped
+`get_assignment(subjectKey, flagKey)` / `getAssignment(subjectKey, flagKey)`
+instead of the typed `get_*_assignment` family. Two things differ and the
+transform MUST account for both:
+- **Argument order is INVERTED** — legacy is `(subjectKey, flagKey)`, typed
+  is `(flagKey, subjectKey, …)`. Read the flag key from the SECOND arg for
+  legacy calls.
+- **Return type is untyped** (string-ish). Infer the Confidence accessor
+  from how the result is used (compared to a bool, parsed as a number,
+  read as an object) or fall back to `getStringValue` and flag it for
+  human review in the plan.
 
-Group files by **flag key** they reference. The flag key is the first
-argument to every Eppo `get_*_assignment` call.
+**Classify the SDK as client-side or server-side** — this decides the
+evaluation-context model in Step 4. Determine it from the detected Eppo
+package:
+
+| Eppo package | Side |
+|--------------|------|
+| `@eppo/js-client-sdk`, `@eppo/react-native-sdk`, `cloud.eppo:android-sdk`, `eppo-ios-sdk` | **client** |
+| `@eppo/node-server-sdk`, `eppo-server-sdk` (Python/Ruby), `cloud.eppo:eppo-server-sdk` (Java), `github.com/Eppo-exp/golang-sdk`, `eppo_sdk` (Rust), `Eppo.Sdk` (.NET) | **server** |
+
+Group files by **flag key** they reference (the first arg for typed calls,
+the SECOND arg for legacy calls).
 
 For each evaluation site, record:
 - Flag key
-- Return type (inferred from which `get_*_assignment` variant is used)
+- **Client vs server side** (from the table above)
+- Return type (inferred from which `get_*_assignment` variant is used; for
+  legacy `get_assignment`, inferred from usage)
+- Whether it uses the **legacy** untyped API (inverted arg order)
 - The `subjectKey` argument (so the transform can map it to `targetingKey`)
 - The `subjectAttributes` argument (so the transform can carry them
   into the evaluation context)
 - The `defaultValue` argument (carried over to the Confidence call)
+- The **Confidence resolve path** (`<flag-key>.<property>`) — Confidence
+  flags are structs, so code reads a property, never the bare key. Take
+  the property from the Phase 1 plan's "Confidence resolve path" line for
+  that flag. If Phase 1 used the `createFlag` default schema, the property
+  is `enabled` for boolean flags and `value` for other scalar flags. If
+  the flag is NOT in the Phase 1 plan, flag it: the code references a flag
+  that was never migrated — surface it and do not invent a path.
 
 ### Step 4: Generate transform rules
 
@@ -888,17 +926,53 @@ Based on SDK guide from `confidence-docs` MCP:
 - Extract flag evaluation API
 - Generate find/replace rules
 
-**Typed assignment mapping (Eppo → OpenFeature / Confidence):**
+**Two things are NOT 1:1 line replacements — get them right first:**
+
+1. **Flag key → resolve path.** Confidence flags are structs; every read
+   uses a dot-path `<flag-key>.<property>` (see Step 3). Use the resolve
+   path from the Phase 1 plan everywhere the bare Eppo flag key appeared.
+2. **Evaluation-context model depends on client vs server** (from Step 3):
+   - **Server SDKs** pass context **per call** — fold `subjectKey` +
+     attributes into the evaluation-context argument of each resolve.
+   - **Client SDKs** use **ambient** context — there is no per-call
+     context argument. Hoist `subjectKey` + attributes ONCE into a
+     `setEvaluationContext`/`setEvaluationContextAndWait` call (at init, or
+     wherever the subject becomes known), and the per-call site becomes a
+     bare `get<Type>Value(path, default)`.
+
+**Server-target mapping (per-call context):**
 
 | Eppo call | OpenFeature call |
 |-----------|------------------|
-| `client.get_string_assignment(k, sk, attrs, default)` | `client.getStringValue(k, default, { targetingKey: sk, ...attrs })` |
-| `client.get_boolean_assignment(k, sk, attrs, default)` | `client.getBooleanValue(k, default, { targetingKey: sk, ...attrs })` |
-| `client.get_numeric_assignment(k, sk, attrs, default)` | `client.getNumberValue(k, default, { targetingKey: sk, ...attrs })` |
-| `client.get_integer_assignment(k, sk, attrs, default)` | `client.getNumberValue(k, default, { targetingKey: sk, ...attrs })` |
-| `client.get_json_assignment(k, sk, attrs, default)` | `client.getObjectValue(k, default, { targetingKey: sk, ...attrs })` |
+| `client.get_string_assignment(k, sk, attrs, default)` | `client.getStringValue("k.prop", default, { targetingKey: sk, ...attrs })` |
+| `client.get_boolean_assignment(k, sk, attrs, default)` | `client.getBooleanValue("k.prop", default, { targetingKey: sk, ...attrs })` |
+| `client.get_numeric_assignment(k, sk, attrs, default)` | `client.getNumberValue("k.prop", default, { targetingKey: sk, ...attrs })` |
+| `client.get_integer_assignment(k, sk, attrs, default)` | `client.getNumberValue("k.prop", default, { targetingKey: sk, ...attrs })` |
+| `client.get_json_assignment(k, sk, attrs, default)` | `client.getObjectValue("k.prop", default, { targetingKey: sk, ...attrs })` |
 
-Adjust method casing per language based on the MCP-fetched SDK guide.
+**Client-target mapping (ambient context):** the per-call site drops its
+`sk`/`attrs` arguments; emit a one-time context setup instead.
+
+| Eppo call | Confidence client call | Plus, once |
+|-----------|------------------------|------------|
+| `client.getBooleanAssignment(k, sk, attrs, default)` | `getBooleanValue("k.prop", default)` | `setEvaluationContext({ targetingKey: sk, ...attrs })` |
+| `client.getStringAssignment(k, sk, attrs, default)` | `getStringValue("k.prop", default)` | (same — set once) |
+| (numeric/integer → `getNumberValue`, json → `getObjectValue`) | | |
+
+**Legacy `get_assignment(sk, k)` (untyped, inverted args):** map to the
+typed accessor inferred in Step 3 (default `getStringValue`), reading the
+flag key from the second argument and the subject from the first. Apply
+the same client/server context rule as above.
+
+**Remove Eppo-side readiness scaffolding.** Eppo client examples often
+gate the first evaluation behind a manual wait (e.g. Android
+`Handler.postDelayed(…, 1000)`, or polling an init flag). Confidence's
+`setProviderAndWait` / `fetchAndActivate` / `setEvaluationContextAndWait`
+already block until flags are ready, so delete the hand-rolled delay
+rather than porting it.
+
+Adjust method casing per language based on the MCP-fetched SDK guide
+(`getBooleanValue` in JS/TS/Kotlin, `get_boolean_value` in Python, etc.).
 
 ---
 
