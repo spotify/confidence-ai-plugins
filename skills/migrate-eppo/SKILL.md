@@ -923,11 +923,11 @@ a value TYPE, not a fixed spelling:
 
 | Value type | Source spellings seen | Confidence accessor (by target lang) |
 |------------|----------------------|--------------------------------------|
-| boolean | `getBoolean/getBool/GetBool…`, `get_boolean_…` | JS/Java `getBooleanValue`, Go `BooleanValue` |
-| string | `getString/GetString…`, `get_string_…` | JS/Java `getStringValue`, Go `StringValue` |
-| integer | `getInteger/GetInteger/GetInt…`, `get_integer_…` | JS/Java `getIntegerValue`, Go `IntValue` |
-| numeric/float | `getNumeric/GetNumeric…`, **Java `getDoubleAssignment`** | JS `getNumberValue`, Java `getDoubleValue`, Go `FloatValue` |
-| JSON/object | `getJSON/getJson/GetJSON…`, **Java `getJSONStringAssignment`** | JS/Java `getObjectValue`, Go `ObjectValue` |
+| boolean | `getBoolean/getBool/GetBool…`, `get_boolean_…` | JS/Java `getBooleanValue`, Go `BooleanValue`, Python `get_boolean_value` |
+| string | `getString/GetString…`, `get_string_…` | JS/Java `getStringValue`, Go `StringValue`, Python `get_string_value` |
+| integer | `getInteger/GetInteger/GetInt…`, `get_integer_…` | JS/Java `getIntegerValue`, Go `IntValue`, Python `get_integer_value` |
+| numeric/float | `getNumeric/GetNumeric…`, **Java `getDoubleAssignment`** | JS `getNumberValue`, Java `getDoubleValue`, Go `FloatValue`, **Python `get_float_value`** |
+| JSON/object | `getJSON/getJson/GetJSON…`, **Java `getJSONStringAssignment`** | JS/Java `getObjectValue`, Go `ObjectValue`, Python `get_object_value` |
 
 **Legacy `get_assignment` API.** Older Eppo SDKs expose a single untyped
 `get_assignment(subjectKey, flagKey)` / `getAssignment(subjectKey, flagKey)`
@@ -1035,6 +1035,12 @@ Step 2 SDK guide for the exact form):
   `getJSONStringAssignment` returns a serialized **String** — Confidence
   `getObjectValue` returns a structured value, so DROP any
   `gson.fromJson(...)` re-parse the source did on the result.
+- **Python (REMOTE target)**: snake_case `get_<type>_value`, numeric →
+  `get_float_value`, JSON → `get_object_value`, context last:
+  `client.get_string_value("k.value", default, EvaluationContext(targeting_key=sk, attributes=attrs))`.
+  Init differs from local-resolve providers — there is no provider STATE to
+  await, so use `api.set_provider(ConfidenceOpenFeatureProvider(Confidence(client_secret=...)))`
+  (NOT `set_provider_and_wait`) and delete Eppo's `wait_for_initialization()`.
 
 **Client-target mapping (ambient context):** the per-call site drops its
 `sk`/`attrs` arguments; emit a one-time context setup instead.
