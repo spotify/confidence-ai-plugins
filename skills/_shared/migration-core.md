@@ -798,22 +798,87 @@ names, function names, import lines).
 
 ### Step 2: Fetch SDK guide from `confidence-docs` MCP *(shared)*
 
-Query the `confidence-docs` MCP based on detected language:
+**Step 2a — pick the target resolve mode.** Confidence has THREE modes,
+not a local/remote binary. Pick from the language/framework detected in
+Step 1, honoring the "prefer local resolve" policy (see "SDK
+Preference"):
 
-```
-mcp__confidence-docs__getCodeSnippetAndSdkIntegrationTips
-  sdk: "<detected>"
-```
+| Target mode | Confidence SDKs | How evaluation works | Network profile |
+|-------------|-----------------|----------------------|-----------------|
+| **In-process** (local resolve) | backend **Java, Go, JS/Node, Rust** | Periodically fetch the resolver **state** (full ruleset); evaluate locally via WASM | No per-eval network call; network only for state refresh + sticky/materialization |
+| **Cached client** | **Android, iOS, web/browser JS, React, React Native** | Backend resolves; device **prefetches and caches resolved VALUES** (not the ruleset). Reads are local + offline. Context change triggers a refetch | Network on init / context change / refresh — NOT per read |
+| **Remote** (per-call) | backend **Python, Ruby, .NET** | Each resolve is a service call to Confidence | One call per resolve (with default-value fallback on failure) |
 
-```
-mcp__confidence-docs__searchDocumentation
-  query: "OpenFeature local resolve <detected-language>"
-```
+Routing:
 
-```
-mcp__confidence-docs__getFullSource
-  source: "https://confidence.spotify.com/docs/sdks/server/<language>"
-```
+- Backend **and** language ∈ {Java, Go, JS/Node, Rust} → **in-process**.
+  Fetch the local-resolve guide (this is server-only; the JS WASM
+  provider is **not** for browsers — large bundle + it exposes all rules):
+
+  ```
+  mcp__confidence-docs__getLocalResolveIntegrationGuide
+    sdk: "JAVA" | "GO" | "JS" | "RUST"
+  ```
+
+- Client app (mobile / browser / React Native) → **cached client**.
+  Backend **Python / Ruby / .NET** → **remote**. Either way fetch:
+
+  ```
+  mcp__confidence-docs__getCodeSnippetAndSdkIntegrationTips
+    sdk: "<detected>"
+  ```
+
+Note JS is split: **Node server** can be in-process (WASM) **or** remote;
+**browser/web** JS is cached-client. Choose by where the code runs, not
+just the language.
+
+- **Server-rendered React / Next.js (RSC)** where the source platform
+  **precomputes assignments on the server** and the client reads them
+  offline → **server-precomputed** (a server-resolved + client-read
+  variant of in-process, distinct from cached client). Use Confidence's
+  React local-resolve provider (`<ConfidenceProvider>` + `useFlag`); the
+  platform skill provides the exact mapping. Fetch:
+
+  ```
+  mcp__confidence-docs__getLocalResolveIntegrationGuide
+    sdk: "JS"
+  ```
+
+  Do NOT bucket this as cached client — there is no per-device value cache
+  and no client-side ruleset; resolution stays on the server.
+
+**Step 2b — signal any resolve-mode CHANGE.** The platform skill declares
+the *source* mode (per surface). Compare to the target mode from 2a and,
+if it shifts, tell the user precisely what changes — don't flatten it to
+"local → remote":
+
+- **in-process → in-process** (e.g. an Eppo backend SDK → Confidence
+  Java/Go/JS/Rust): unchanged — evaluation stays in-process. Say so.
+- **in-process → remote** (e.g. an Eppo backend SDK → Confidence
+  Python/Ruby/.NET): genuine change — each resolve becomes a service
+  call. Warn about added per-call latency and dependence on Confidence
+  availability (mitigated by default-value fallback).
+- **on-device eval → cached client** (e.g. an Eppo mobile/browser SDK,
+  which downloads the ruleset and evaluates on-device → Confidence
+  mobile/web): the nuance the user must hear — reads stay **local, fast,
+  and offline-capable** (it is NOT a network hit per read), but
+  **evaluation moves to the backend**: the device caches resolved values
+  instead of the ruleset, so targeting-rule changes take effect on the
+  next fetch, a cold first run may return defaults until the initial
+  fetch completes, and the full ruleset is no longer shipped to the
+  client (usually a security/payload win).
+- **on-device eval → in-process** (e.g. an Eppo backend SDK → Confidence
+  Node/Java WASM): both evaluate locally; call out only that Confidence
+  refreshes state on an interval.
+- **server-precomputed → server-precomputed** (e.g. an Eppo precomputed
+  Next.js/React app → Confidence `<ConfidenceProvider>` + `useFlag`):
+  architecture PRESERVED — server resolves, client reads offline. State
+  that explicitly as "no resolve-mode change", not a warning.
+
+Record the decision and any change notice in the plan's SDK Setup
+section (see template) and re-surface it at execute time before touching
+code. If the mode is genuinely unchanged, state that explicitly so the
+user knows it was considered.
 
 **CRITICAL:** Include the ACTUAL response in the plan, not a reference
 to fetch it. Plans are self-sufficient.
@@ -835,6 +900,23 @@ written into the plan's "Transform Rules" section.
 (Adjust method casing per language — `getStringValue` in JS/TS,
 `get_string_value` in Python, `getValue<String>` in Kotlin, etc. —
 based on the MCP-fetched SDK guide.)
+
+**Two Confidence-wide truths every code transform must honor** (the
+platform skill applies them to its own SDK's call shape):
+
+- **Flags are structs — read a property, not the bare key.** Confidence
+  flag values are always accessed by a dot-path `<flag>.<property>`. The
+  `createFlag` schema decides the property names; the default schema is a
+  single boolean property `enabled`. Phase 1 must record each flag's
+  resolve path so Phase 2 uses `<flag>.<property>` instead of `<flag>`.
+- **Client SDKs use ambient context; server SDKs pass it per call.**
+  Confidence client SDKs (Android, iOS, web/browser JS, React, React
+  Native) read a single evaluation context set via
+  `setEvaluationContext`/`setEvaluationContextAndWait` — `get<Type>Value`
+  takes NO context argument. Server SDKs accept context per resolve. When
+  the source SDK passes a randomization id / attributes on every call (as
+  Eppo and PostHog client SDKs do), a client-side target must hoist them
+  into a one-time context setup, not a per-call argument.
 
 ### Step 5: Generate plan *(shared template)*
 
@@ -870,6 +952,19 @@ using the template below.
 ---
 
 ## 1. SDK Setup
+
+### Resolve mode
+
+| | |
+|---|---|
+| **Source mode** | <in-process eval / on-device eval / server-precomputed / remote — from platform skill, per surface> |
+| **Target mode** | <in-process / cached client / server-precomputed / remote — from Step 2a> |
+| **Change** | <unchanged / ⚠️ in-process → remote / ⚠️ on-device → cached client / … — see notice> |
+
+<If changed: one-paragraph notice of what actually shifts — where
+evaluation happens, per-read latency (cached client = local/offline, NOT
+per-call network), freshness/refetch behavior, cold-start defaults,
+ruleset exposure. If unchanged: "Resolve mode is preserved.">
 
 ### Install
 

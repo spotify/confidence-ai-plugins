@@ -766,6 +766,7 @@ by `execute` — no implicit defaults.
 **Description:** <from Eppo if available, otherwise empty>
 **Variation type:** <BOOLEAN / INTEGER / JSON / NUMERIC / STRING>
 **Variations:** <variant_key — value list, e.g. "control = false, treatment = true">
+**Confidence resolve path:** `<flag-key>.<property>` (Phase 2 reads this; e.g. `<flag-key>.enabled` for BOOLEAN, `<flag-key>.value` for other scalars — see "Variation type → Confidence schema")
 **Active in `<env>`:** <yes / no — if no, all rules will be added at 0% rollout and flag created in the OFF state>
 **Allocations (Eppo, in order):**
   1. `<allocation name>` (`<FEATURE_GATE | EXPERIMENT>`) — <plain-English rule>, exposure <X>%, splits <variant=X%, ...> <if audience-referencing: "via segment(s) segments/<id>">
@@ -821,10 +822,26 @@ false in the source Eppo environment, surface that during execute:
 > but keep the rules at 0% rollout so it stays off until you turn it on
 > intentionally. Continue?
 
-**Variation type → Confidence schema.** Use the Eppo `variation_type`
-(`BOOLEAN` / `INTEGER` / `JSON` / `NUMERIC` / `STRING`) as the
-Confidence schema type when calling `createFlag`. Include all Eppo
-variations (`variant_key` → `value`) as Confidence variants.
+**Variation type → Confidence schema (and the resolve-path handoff to
+Phase 2).** A Confidence flag is a struct, not a bare scalar, so each
+flag needs a named **property** that holds the migrated value. Use the
+Eppo `variation_type` to pick the property type, and a deterministic
+property name so Phase 2 can reconstruct the resolve path without
+guessing:
+
+| Eppo `variation_type` | Confidence schema (`schemaObject`) | Resolve path |
+|-----------------------|------------------------------------|--------------|
+| `BOOLEAN` | `{ "enabled": "boolean" }` (the `createFlag` default) | `<flag>.enabled` |
+| `STRING` | `{ "value": "string" }` | `<flag>.value` |
+| `INTEGER` | `{ "value": "integer" }` | `<flag>.value` |
+| `NUMERIC` | `{ "value": "double" }` | `<flag>.value` |
+| `JSON` | the variation object's own shape (nested struct) | `<flag>.<prop>` per field |
+
+Include all Eppo variations as Confidence variants, wrapping each Eppo
+`value` under the chosen property — e.g. a boolean flag's
+`control = false` becomes `{ "name": "control", "value": { "enabled": false } }`.
+Record the resolve path on the flag's plan entry (the **Confidence
+resolve path** line) — Phase 2's code transform reads it verbatim.
 
 **Default value → catch-all rule.** Take the variation referenced by
 the allocation with `is_default: true` (its
@@ -847,6 +864,40 @@ matches a later one — this verifies the waterfall order is preserved.
 
 (Core file defines Steps 1, 2, and 5. Eppo provides Steps 3 and 4.)
 
+### Source resolve mode (Eppo) — feeds the core's Step 2b signal
+
+**Eppo always evaluates locally — but "local" means different things on
+server vs client.** Every Eppo SDK downloads the flag configuration
+(Universal Flag Configuration) and computes assignments without a
+per-assignment network call. Map it to the core's two "local" source
+modes by surface:
+
+- **Eppo backend SDK → source mode = in-process eval.**
+- **Eppo client SDK (Android/iOS/JS browser) → source mode = on-device
+  eval** (the device holds the full ruleset and evaluates it locally).
+- **Eppo precomputed (server→client, Next.js/React) → source mode =
+  server-precomputed.** The server evaluates the ruleset locally for a
+  bound subject and ships only resolved values to the client, which reads
+  them offline — no client-side ruleset, no per-read network call.
+
+Then the core's Step 2b transitions apply:
+
+- Eppo backend → Confidence **in-process** (Java/Go/JS/Rust): unchanged.
+- Eppo backend → Confidence **remote** (Python/Ruby/.NET): ⚠️ in-process
+  → remote — each resolve becomes a service call.
+- Eppo client → Confidence **cached client** (mobile/web): ⚠️ on-device →
+  cached client. Reads stay local/offline and fast (NOT per-call
+  network), but evaluation moves to the backend: the device caches
+  resolved values instead of the ruleset, targeting changes apply on the
+  next fetch, a cold first run may return defaults, and the full ruleset
+  is no longer shipped to the client (a security/payload win over Eppo's
+  on-device config).
+- Eppo precomputed → Confidence React **local-resolve** provider
+  (`<ConfidenceProvider>` + `useFlag`): ✅ architecture PRESERVED —
+  server-side resolution with client-side offline reads is kept as-is, so
+  this is server-precomputed → server-precomputed, NOT a remote/local
+  change. Surface it as "no resolve-mode change" rather than a warning.
+
 ### Plan-file path
 
 `.claude/plans/eppo-code-migration-<date>.md`
@@ -855,30 +906,90 @@ matches a later one — this verifies the waterfall order is preserved.
 
 ```
 Grep: pattern="eppo|Eppo|EppoClient" → Find Eppo imports
-Grep: pattern="get_(string|boolean|numeric|integer|json)_assignment|getStringAssignment|getBooleanAssignment|getNumericAssignment|getIntegerAssignment|getJSONAssignment" → Find evaluations
+Grep: pattern="[Gg]et(String|Boolean|Bool|Numeric|Integer|Int|Double|Float|JSON|Json)(String)?Assignment|get_(string|boolean|numeric|integer|double|json)_assignment" → Find typed evaluations
+Grep: pattern="get_assignment|getAssignment|GetAssignment" → Find LEGACY untyped evaluations (older SDKs)
+Grep: pattern="getPrecomputedConfiguration|offlinePrecomputedInit|getPrecomputedInstance" → Find the PRECOMPUTED pattern (JS/React)
+Grep: pattern="getBanditAction|BanditResult|getBandit" → Find BANDITS (BLOCKED — no Confidence equivalent)
 ```
 
-Common Eppo package names:
-- JS/TS: `@eppo/js-client-sdk`, `@eppo/node-server-sdk`, `@eppo/react-native-sdk`
-- Python: `eppo-server-sdk`
-- Java/Kotlin: `cloud.eppo:eppo-server-sdk`
-- Go: `github.com/Eppo-exp/golang-sdk`
-- Ruby: `eppo-server-sdk`
-- Rust: `eppo_sdk`
-- iOS: `eppo-ios-sdk`
-- Android: `cloud.eppo:eppo-android-sdk`
-- .NET: `Eppo.Sdk`
+**Scan case-insensitively, and don't assume one spelling per type.** The
+assignment method name varies by language AND by value type. Go exports
+PascalCase (`GetBoolAssignment`); Java uses `getDoubleAssignment` for
+numeric and `getJSONStringAssignment` (returns a serialized string) for
+JSON; JS shortens boolean to `getBoolAssignment` and JSON to
+`getJsonAssignment`; Python is snake_case. The grep above is the union —
+run it case-insensitively (`rg -i` / `Grep -i`). Map whatever you find to
+a value TYPE, not a fixed spelling:
 
-Group files by **flag key** they reference. The flag key is the first
-argument to every Eppo `get_*_assignment` call.
+| Value type | Source spellings seen | Confidence accessor (by target lang) |
+|------------|----------------------|--------------------------------------|
+| boolean | `getBoolean/getBool/GetBool…`, `get_boolean_…` | JS/Java `getBooleanValue`, Go `BooleanValue`, Python `get_boolean_value` |
+| string | `getString/GetString…`, `get_string_…` | JS/Java `getStringValue`, Go `StringValue`, Python `get_string_value` |
+| integer | `getInteger/GetInteger/GetInt…`, `get_integer_…` | JS/Java `getIntegerValue`, Go `IntValue`, Python `get_integer_value` |
+| numeric/float | `getNumeric/GetNumeric…`, **Java `getDoubleAssignment`** | JS `getNumberValue`, Java `getDoubleValue`, Go `FloatValue`, **Python `get_float_value`** |
+| JSON/object | `getJSON/getJson/GetJSON…`, **Java `getJSONStringAssignment`** | JS/Java `getObjectValue`, Go `ObjectValue`, Python `get_object_value` |
+
+**Legacy `get_assignment` API.** Older Eppo SDKs expose a single untyped
+`get_assignment(subjectKey, flagKey)` / `getAssignment(subjectKey, flagKey)`
+instead of the typed `get_*_assignment` family. Two things differ and the
+transform MUST account for both:
+- **Argument order is INVERTED** — legacy is `(subjectKey, flagKey)`, typed
+  is `(flagKey, subjectKey, …)`. Read the flag key from the SECOND arg for
+  legacy calls.
+- **Return type is untyped** (string-ish). Infer the Confidence accessor
+  from how the result is used (compared to a bool, parsed as a number,
+  read as an object) or fall back to `getStringValue` and flag it for
+  human review in the plan.
+
+**Classify the SDK as client-side or server-side** — this decides the
+evaluation-context model in Step 4. Determine it from the detected Eppo
+package:
+
+| Eppo package | Side |
+|--------------|------|
+| `@eppo/js-client-sdk`, `@eppo/react-native-sdk`, `cloud.eppo:android-sdk`, `eppo-ios-sdk` | **client** |
+| `@eppo/node-server-sdk`, `eppo-server-sdk` (Python/Ruby), `cloud.eppo:eppo-server-sdk` (Java), `github.com/Eppo-exp/golang-sdk`, `eppo_sdk` (Rust), `Eppo.Sdk` (.NET) | **server** |
+
+**Detect the PRECOMPUTED (server→client) pattern** — common in Next.js /
+React. If the second grep above hit `getPrecomputedConfiguration`,
+`offlinePrecomputedInit`, or `getPrecomputedInstance`, this repo bakes
+assignments on the server and hydrates them on the client. It is NOT the
+plain client/server model and uses a DIFFERENT call shape:
+
+- **Server** binds the subject once: `node-server-sdk`
+  `getInstance().getPrecomputedConfiguration(subjectKey, attrs)` → a
+  serialized string (often inside a `'use server'` action / Server
+  Component).
+- **Client** hydrates from that string: `offlinePrecomputedInit({ precomputedConfiguration })`,
+  then reads with `getPrecomputedInstance().get<Type>Assignment(flagKey, default)`
+  — **2 args, NO subjectKey/attrs** (they were baked in server-side).
+
+When you see this pattern, record the **subject + attrs from the SERVER
+`getPrecomputedConfiguration` call** (not the client reads), tag the file
+as server/client/RSC-boundary, and use the **React mapping in Step 4** —
+not the plain client/server tables.
+
+Group files by **flag key** they reference (the first arg for typed calls,
+the SECOND arg for legacy calls; for precomputed client reads the flag key
+is the first — and only non-default — arg).
 
 For each evaluation site, record:
 - Flag key
-- Return type (inferred from which `get_*_assignment` variant is used)
+- **Client vs server side** (from the table above)
+- Return type (inferred from which `get_*_assignment` variant is used; for
+  legacy `get_assignment`, inferred from usage)
+- Whether it uses the **legacy** untyped API (inverted arg order)
 - The `subjectKey` argument (so the transform can map it to `targetingKey`)
 - The `subjectAttributes` argument (so the transform can carry them
   into the evaluation context)
 - The `defaultValue` argument (carried over to the Confidence call)
+- The **Confidence resolve path** (`<flag-key>.<property>`) — Confidence
+  flags are structs, so code reads a property, never the bare key. Take
+  the property from the Phase 1 plan's "Confidence resolve path" line for
+  that flag. If Phase 1 used the `createFlag` default schema, the property
+  is `enabled` for boolean flags and `value` for other scalar flags. If
+  the flag is NOT in the Phase 1 plan, flag it: the code references a flag
+  that was never migrated — surface it and do not invent a path.
 
 ### Step 4: Generate transform rules
 
@@ -888,17 +999,106 @@ Based on SDK guide from `confidence-docs` MCP:
 - Extract flag evaluation API
 - Generate find/replace rules
 
-**Typed assignment mapping (Eppo → OpenFeature / Confidence):**
+**Two things are NOT 1:1 line replacements — get them right first:**
+
+1. **Flag key → resolve path.** Confidence flags are structs; every read
+   uses a dot-path `<flag-key>.<property>` (see Step 3). Use the resolve
+   path from the Phase 1 plan everywhere the bare Eppo flag key appeared.
+2. **Evaluation-context model depends on client vs server** (from Step 3):
+   - **Server SDKs** pass context **per call** — fold `subjectKey` +
+     attributes into the evaluation-context argument of each resolve.
+   - **Client SDKs** use **ambient** context — there is no per-call
+     context argument. Hoist `subjectKey` + attributes ONCE into a
+     `setEvaluationContext`/`setEvaluationContextAndWait` call (at init, or
+     wherever the subject becomes known), and the per-call site becomes a
+     bare `get<Type>Value(path, default)`.
+
+**Server-target mapping (per-call context):**
 
 | Eppo call | OpenFeature call |
 |-----------|------------------|
-| `client.get_string_assignment(k, sk, attrs, default)` | `client.getStringValue(k, default, { targetingKey: sk, ...attrs })` |
-| `client.get_boolean_assignment(k, sk, attrs, default)` | `client.getBooleanValue(k, default, { targetingKey: sk, ...attrs })` |
-| `client.get_numeric_assignment(k, sk, attrs, default)` | `client.getNumberValue(k, default, { targetingKey: sk, ...attrs })` |
-| `client.get_integer_assignment(k, sk, attrs, default)` | `client.getNumberValue(k, default, { targetingKey: sk, ...attrs })` |
-| `client.get_json_assignment(k, sk, attrs, default)` | `client.getObjectValue(k, default, { targetingKey: sk, ...attrs })` |
+| `client.get_string_assignment(k, sk, attrs, default)` | `client.getStringValue("k.prop", default, { targetingKey: sk, ...attrs })` |
+| `client.get_boolean_assignment(k, sk, attrs, default)` | `client.getBooleanValue("k.prop", default, { targetingKey: sk, ...attrs })` |
+| `client.get_numeric_assignment(k, sk, attrs, default)` | `client.getNumberValue("k.prop", default, { targetingKey: sk, ...attrs })` |
+| `client.get_integer_assignment(k, sk, attrs, default)` | `client.getNumberValue("k.prop", default, { targetingKey: sk, ...attrs })` |
+| `client.get_json_assignment(k, sk, attrs, default)` | `client.getObjectValue("k.prop", default, { targetingKey: sk, ...attrs })` |
 
-Adjust method casing per language based on the MCP-fetched SDK guide.
+The accessor name AND signature shape are language-specific (use the
+Step 2 SDK guide for the exact form):
+- **Go**: PascalCase, no `get` prefix, context-LAST, `ctx` first:
+  `client.BooleanValue(ctx, "k.enabled", default, evalCtx)` where
+  `evalCtx := openfeature.NewEvaluationContext(sk, attrsMap)`. Numeric →
+  `FloatValue`, integer → `IntValue`, JSON → `ObjectValue`.
+- **Java**: build a `MutableContext(sk)` + `ctx.add(...)` and pass it last:
+  `client.getDoubleValue("k.value", default, ctx)` (numeric),
+  `client.getObjectValue("k", default, ctx)` (JSON). Note Eppo's
+  `getJSONStringAssignment` returns a serialized **String** — Confidence
+  `getObjectValue` returns a structured value, so DROP any
+  `gson.fromJson(...)` re-parse the source did on the result.
+- **Python (REMOTE target)**: snake_case `get_<type>_value`, numeric →
+  `get_float_value`, JSON → `get_object_value`, context last:
+  `client.get_string_value("k.value", default, EvaluationContext(targeting_key=sk, attributes=attrs))`.
+  Init differs from local-resolve providers — there is no provider STATE to
+  await, so use `api.set_provider(ConfidenceOpenFeatureProvider(Confidence(client_secret=...)))`
+  (NOT `set_provider_and_wait`) and delete Eppo's `wait_for_initialization()`.
+
+**Client-target mapping (ambient context):** the per-call site drops its
+`sk`/`attrs` arguments; emit a one-time context setup instead.
+
+| Eppo call | Confidence client call | Plus, once |
+|-----------|------------------------|------------|
+| `client.getBooleanAssignment(k, sk, attrs, default)` | `getBooleanValue("k.prop", default)` | `setEvaluationContext({ targetingKey: sk, ...attrs })` |
+| `client.getStringAssignment(k, sk, attrs, default)` | `getStringValue("k.prop", default)` | (same — set once) |
+| (numeric/integer → `getNumberValue`, json → `getObjectValue`) | | |
+
+**Legacy `get_assignment(sk, k)` (untyped, inverted args):** map to the
+typed accessor inferred in Step 3 (default `getStringValue`), reading the
+flag key from the second argument and the subject from the first. Apply
+the same client/server context rule as above.
+
+**Precomputed (server→client) target — React/Next.js.** When Step 3
+flagged the precomputed pattern, do NOT use the client ambient mapping.
+Confidence's JS local-resolve provider ships a Next.js/RSC integration
+that is the direct analogue (fetch the `JS` local-resolve guide in Step 2;
+imports from `@spotify-confidence/openfeature-server-provider-local/react-server`
+and `/react-client`). Map the three layers:
+
+| Eppo (precomputed) | Confidence (React local-resolve) |
+|--------------------|----------------------------------|
+| Server: `EppoSDK.init({apiKey, assignmentLogger})` + `getInstance()` | Server: `createConfidenceServerProvider({ flagClientSecret })` + `OpenFeature.setProviderAndWait(provider)` |
+| Server: `getPrecomputedConfiguration(subjectKey, attrs)` → string passed to the client provider | Wrap the subtree in `<ConfidenceProvider>` (from `/react-server`) with the evaluation context `{ targetingKey: subjectKey, ...attrs }`; resolution happens on the server |
+| Client: `offlinePrecomputedInit({ precomputedConfiguration })` | (no client init — the `<ConfidenceProvider>` boundary replaces it; delete `EppoRandomizationProvider`/`offlinePrecomputedInit`) |
+| Client: `getPrecomputedInstance().get<Type>Assignment(k, default)` | Client: `useFlag("k.prop", default)` (hook from `/react-client`) |
+
+Notes:
+- The subject/attrs move from the Eppo `getPrecomputedConfiguration` call
+  to the `<ConfidenceProvider>` context — they are NOT re-passed at each
+  `useFlag` site.
+- `assignmentLogger` and any custom exposure plumbing (e.g. a
+  `window.dispatchEvent('eppo-assignment', …)` bridge) have no Confidence
+  equivalent — Confidence logs exposure automatically. Delete them.
+- `useFlag` is a React hook: reads must be inside a component render. Code
+  that read Eppo flags imperatively outside React needs a small
+  restructure (lift to a hook, or resolve server-side via `getFlag`).
+
+**Bandits are BLOCKED.** Eppo contextual bandits
+(`getBanditAction`, `BanditResult`, `BanditActions`/`ContextAttributes`)
+have no Confidence equivalent. Do NOT attempt to map them — surface each
+bandit call site in the plan as BLOCKED with a note that the team must
+redesign it (e.g. as a standard flag/experiment) before migrating, and
+leave the code untouched.
+
+**Remove Eppo-side readiness scaffolding (server AND client).** Eppo
+examples gate the first evaluation behind a manual wait: clients use e.g.
+Android `Handler.postDelayed(…, 1000)`; servers use a readiness signal
+like Go's `<-client.Initialized()` channel wait or Java's blocking
+`buildAndInit()`. Confidence's
+`setProviderAndWait` / `fetchAndActivate` / `setEvaluationContextAndWait`
+already block until flags are ready, so delete the hand-rolled delay
+rather than porting it.
+
+Adjust method casing per language based on the MCP-fetched SDK guide
+(`getBooleanValue` in JS/TS/Kotlin, `get_boolean_value` in Python, etc.).
 
 ---
 
