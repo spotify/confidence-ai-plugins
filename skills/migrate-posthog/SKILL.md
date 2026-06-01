@@ -345,9 +345,11 @@ always sees the same variant.
 
 ### Per-user flags (PostHog `distinct_id`)
 
-PostHog's `distinct_id` (per-user identifier) is mapped to: **`<selected-entity>`**
+PostHog's `distinct_id` (per-user identifier) maps to one Confidence entity field.
 
 **Available Entity Fields:** <entity fields from MCP>
+
+**Selected:** `<selected-entity>`
 
 ### Per-group flags
 

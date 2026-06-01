@@ -697,12 +697,14 @@ identifier Confidence uses for consistent assignment: the same subject
 always sees the same variant.
 
 Eppo's `subjectKey` (the second argument to every `get_*_assignment`
-call) is mapped to: **`<selected-entity>`**
+call) maps to one Confidence entity field.
+
+**Available Entity Fields:** <entity fields from MCP>
+
+**Selected:** `<selected-entity>`
 
 Any Eppo rules that targeted the special `id` attribute (subject-key
 targeting) are rewritten to target `<selected-entity>`.
-
-**Available Entity Fields:** <entity fields from MCP>
 
 ---
 
