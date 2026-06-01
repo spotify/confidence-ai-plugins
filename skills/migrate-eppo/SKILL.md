@@ -875,6 +875,10 @@ modes by surface:
 - **Eppo backend SDK → source mode = in-process eval.**
 - **Eppo client SDK (Android/iOS/JS browser) → source mode = on-device
   eval** (the device holds the full ruleset and evaluates it locally).
+- **Eppo precomputed (server→client, Next.js/React) → source mode =
+  server-precomputed.** The server evaluates the ruleset locally for a
+  bound subject and ships only resolved values to the client, which reads
+  them offline — no client-side ruleset, no per-read network call.
 
 Then the core's Step 2b transitions apply:
 
@@ -888,6 +892,11 @@ Then the core's Step 2b transitions apply:
   next fetch, a cold first run may return defaults, and the full ruleset
   is no longer shipped to the client (a security/payload win over Eppo's
   on-device config).
+- Eppo precomputed → Confidence React **local-resolve** provider
+  (`<ConfidenceProvider>` + `useFlag`): ✅ architecture PRESERVED —
+  server-side resolution with client-side offline reads is kept as-is, so
+  this is server-precomputed → server-precomputed, NOT a remote/local
+  change. Surface it as "no resolve-mode change" rather than a warning.
 
 ### Plan-file path
 
@@ -897,9 +906,16 @@ Then the core's Step 2b transitions apply:
 
 ```
 Grep: pattern="eppo|Eppo|EppoClient" → Find Eppo imports
-Grep: pattern="get_(string|boolean|numeric|integer|json)_assignment|getStringAssignment|getBooleanAssignment|getNumericAssignment|getIntegerAssignment|getJSONAssignment" → Find typed evaluations
+Grep: pattern="get_(string|boolean|numeric|integer|json)_assignment|get(String|Boolean|Bool|Numeric|Integer|JSON|Json)Assignment" → Find typed evaluations
 Grep: pattern="get_assignment|getAssignment" → Find LEGACY untyped evaluations (older SDKs)
+Grep: pattern="getPrecomputedConfiguration|offlinePrecomputedInit|getPrecomputedInstance" → Find the PRECOMPUTED pattern (JS/React)
 ```
+
+**JS method-name variants.** The JS SDKs shorten boolean to
+**`getBoolAssignment`** (e.g. `@eppo/js-client-sdk-common`) while others
+use `getBooleanAssignment` (e.g. `@eppo/js-client-sdk@3.x`); JSON appears
+as both `getJSONAssignment` and `getJsonAssignment`. The grep above covers
+all spellings — don't assume the underscore/`Boolean` forms.
 
 **Legacy `get_assignment` API.** Older Eppo SDKs expose a single untyped
 `get_assignment(subjectKey, flagKey)` / `getAssignment(subjectKey, flagKey)`
@@ -922,8 +938,28 @@ package:
 | `@eppo/js-client-sdk`, `@eppo/react-native-sdk`, `cloud.eppo:android-sdk`, `eppo-ios-sdk` | **client** |
 | `@eppo/node-server-sdk`, `eppo-server-sdk` (Python/Ruby), `cloud.eppo:eppo-server-sdk` (Java), `github.com/Eppo-exp/golang-sdk`, `eppo_sdk` (Rust), `Eppo.Sdk` (.NET) | **server** |
 
+**Detect the PRECOMPUTED (server→client) pattern** — common in Next.js /
+React. If the second grep above hit `getPrecomputedConfiguration`,
+`offlinePrecomputedInit`, or `getPrecomputedInstance`, this repo bakes
+assignments on the server and hydrates them on the client. It is NOT the
+plain client/server model and uses a DIFFERENT call shape:
+
+- **Server** binds the subject once: `node-server-sdk`
+  `getInstance().getPrecomputedConfiguration(subjectKey, attrs)` → a
+  serialized string (often inside a `'use server'` action / Server
+  Component).
+- **Client** hydrates from that string: `offlinePrecomputedInit({ precomputedConfiguration })`,
+  then reads with `getPrecomputedInstance().get<Type>Assignment(flagKey, default)`
+  — **2 args, NO subjectKey/attrs** (they were baked in server-side).
+
+When you see this pattern, record the **subject + attrs from the SERVER
+`getPrecomputedConfiguration` call** (not the client reads), tag the file
+as server/client/RSC-boundary, and use the **React mapping in Step 4** —
+not the plain client/server tables.
+
 Group files by **flag key** they reference (the first arg for typed calls,
-the SECOND arg for legacy calls).
+the SECOND arg for legacy calls; for precomputed client reads the flag key
+is the first — and only non-default — arg).
 
 For each evaluation site, record:
 - Flag key
@@ -988,6 +1024,31 @@ Based on SDK guide from `confidence-docs` MCP:
 typed accessor inferred in Step 3 (default `getStringValue`), reading the
 flag key from the second argument and the subject from the first. Apply
 the same client/server context rule as above.
+
+**Precomputed (server→client) target — React/Next.js.** When Step 3
+flagged the precomputed pattern, do NOT use the client ambient mapping.
+Confidence's JS local-resolve provider ships a Next.js/RSC integration
+that is the direct analogue (fetch the `JS` local-resolve guide in Step 2;
+imports from `@spotify-confidence/openfeature-server-provider-local/react-server`
+and `/react-client`). Map the three layers:
+
+| Eppo (precomputed) | Confidence (React local-resolve) |
+|--------------------|----------------------------------|
+| Server: `EppoSDK.init({apiKey, assignmentLogger})` + `getInstance()` | Server: `createConfidenceServerProvider({ flagClientSecret })` + `OpenFeature.setProviderAndWait(provider)` |
+| Server: `getPrecomputedConfiguration(subjectKey, attrs)` → string passed to the client provider | Wrap the subtree in `<ConfidenceProvider>` (from `/react-server`) with the evaluation context `{ targetingKey: subjectKey, ...attrs }`; resolution happens on the server |
+| Client: `offlinePrecomputedInit({ precomputedConfiguration })` | (no client init — the `<ConfidenceProvider>` boundary replaces it; delete `EppoRandomizationProvider`/`offlinePrecomputedInit`) |
+| Client: `getPrecomputedInstance().get<Type>Assignment(k, default)` | Client: `useFlag("k.prop", default)` (hook from `/react-client`) |
+
+Notes:
+- The subject/attrs move from the Eppo `getPrecomputedConfiguration` call
+  to the `<ConfidenceProvider>` context — they are NOT re-passed at each
+  `useFlag` site.
+- `assignmentLogger` and any custom exposure plumbing (e.g. a
+  `window.dispatchEvent('eppo-assignment', …)` bridge) have no Confidence
+  equivalent — Confidence logs exposure automatically. Delete them.
+- `useFlag` is a React hook: reads must be inside a component render. Code
+  that read Eppo flags imperatively outside React needs a small
+  restructure (lift to a hook, or resolve server-side via `getFlag`).
 
 **Remove Eppo-side readiness scaffolding.** Eppo client examples often
 gate the first evaluation behind a manual wait (e.g. Android

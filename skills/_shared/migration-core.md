@@ -832,6 +832,21 @@ Note JS is split: **Node server** can be in-process (WASM) **or** remote;
 **browser/web** JS is cached-client. Choose by where the code runs, not
 just the language.
 
+- **Server-rendered React / Next.js (RSC)** where the source platform
+  **precomputes assignments on the server** and the client reads them
+  offline → **server-precomputed** (a server-resolved + client-read
+  variant of in-process, distinct from cached client). Use Confidence's
+  React local-resolve provider (`<ConfidenceProvider>` + `useFlag`); the
+  platform skill provides the exact mapping. Fetch:
+
+  ```
+  mcp__confidence-docs__getLocalResolveIntegrationGuide
+    sdk: "JS"
+  ```
+
+  Do NOT bucket this as cached client — there is no per-device value cache
+  and no client-side ruleset; resolution stays on the server.
+
 **Step 2b — signal any resolve-mode CHANGE.** The platform skill declares
 the *source* mode (per surface). Compare to the target mode from 2a and,
 if it shifts, tell the user precisely what changes — don't flatten it to
@@ -855,6 +870,10 @@ if it shifts, tell the user precisely what changes — don't flatten it to
 - **on-device eval → in-process** (e.g. an Eppo backend SDK → Confidence
   Node/Java WASM): both evaluate locally; call out only that Confidence
   refreshes state on an interval.
+- **server-precomputed → server-precomputed** (e.g. an Eppo precomputed
+  Next.js/React app → Confidence `<ConfidenceProvider>` + `useFlag`):
+  architecture PRESERVED — server resolves, client reads offline. State
+  that explicitly as "no resolve-mode change", not a warning.
 
 Record the decision and any change notice in the plan's SDK Setup
 section (see template) and re-surface it at execute time before touching
@@ -938,8 +957,8 @@ using the template below.
 
 | | |
 |---|---|
-| **Source mode** | <in-process eval / on-device eval / remote — from platform skill, per surface> |
-| **Target mode** | <in-process / cached client / remote — from Step 2a> |
+| **Source mode** | <in-process eval / on-device eval / server-precomputed / remote — from platform skill, per surface> |
+| **Target mode** | <in-process / cached client / server-precomputed / remote — from Step 2a> |
 | **Change** | <unchanged / ⚠️ in-process → remote / ⚠️ on-device → cached client / … — see notice> |
 
 <If changed: one-paragraph notice of what actually shifts — where
