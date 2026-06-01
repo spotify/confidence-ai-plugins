@@ -864,6 +864,23 @@ matches a later one — this verifies the waterfall order is preserved.
 
 (Core file defines Steps 1, 2, and 5. Eppo provides Steps 3 and 4.)
 
+### Source resolve mode (Eppo) — feeds the core's Step 2b signal
+
+**Eppo evaluates locally, everywhere.** Both Eppo server and client SDKs
+download the flag configuration (Universal Flag Configuration) and compute
+assignments **in-process** — there is no per-assignment network call.
+Declare Eppo's source resolve mode as **local** when the core's Step 2b
+compares source vs target:
+
+- Eppo (local) → Confidence **local resolve** (backend Java/Go/JS/Rust):
+  **unchanged** — in-process eval is preserved.
+- Eppo (local) → Confidence **remote resolve** (client SDKs, or backend
+  Python/Ruby/.NET): **⚠️ local → remote**. Surface the notice: each
+  resolve now relies on Confidence's fetched-and-cached values rather than
+  in-process evaluation, so call sites gain a freshness/offline story
+  (client SDKs serve cached values; first run may return defaults until
+  the initial fetch completes).
+
 ### Plan-file path
 
 `.claude/plans/eppo-code-migration-<date>.md`

@@ -798,22 +798,54 @@ names, function names, import lines).
 
 ### Step 2: Fetch SDK guide from `confidence-docs` MCP *(shared)*
 
-Query the `confidence-docs` MCP based on detected language:
+**Step 2a — decide the target resolve mode (honor the SDK Preference
+ladder).** The core policy is *prefer local resolve* (see "SDK
+Preference"). Local resolve is only available for **backend/server
+targets** in **Java, Go, JS (Node), or Rust**. Decide from the
+language/framework detected in Step 1:
 
-```
-mcp__confidence-docs__getCodeSnippetAndSdkIntegrationTips
-  sdk: "<detected>"
-```
+- Target is a backend service **and** language ∈ {Java, Go, JS/Node, Rust}
+  → **local resolve**. Fetch the local-resolve guide:
+
+  ```
+  mcp__confidence-docs__getLocalResolveIntegrationGuide
+    sdk: "JAVA" | "GO" | "JS" | "RUST"
+  ```
+
+- Anything else (client SDKs — Android, iOS, web/browser JS, React,
+  React Native — or backend languages without a local resolver, e.g.
+  Python, Ruby, .NET) → **remote resolve**. Fetch the standard guide:
+
+  ```
+  mcp__confidence-docs__getCodeSnippetAndSdkIntegrationTips
+    sdk: "<detected>"
+  ```
+
+Optionally enrich either path:
 
 ```
 mcp__confidence-docs__searchDocumentation
   query: "OpenFeature local resolve <detected-language>"
 ```
 
-```
-mcp__confidence-docs__getFullSource
-  source: "https://confidence.spotify.com/docs/sdks/server/<language>"
-```
+**Step 2b — signal any resolve-mode CHANGE.** The platform skill declares
+the *source* platform's resolve mode (local in-process eval vs remote
+service call). Compare it to the target mode chosen in 2a. If they
+differ, this is an architectural change the user MUST be told about — it
+shifts latency, availability, and failure modes:
+
+- **local → remote** (e.g. an Eppo server SDK doing in-process eval →
+  Confidence remote resolve in Python/Ruby/.NET, or any client SDK):
+  warn that each resolve now depends on a network call / cached fetch
+  rather than in-process evaluation; flag values may be served from a
+  cache and have a freshness/offline story.
+- **remote → local** (rare): warn that evaluation now happens in-process
+  against a downloaded ruleset; deploys/config propagation differ.
+
+Record the decision and any change notice in the plan's SDK Setup
+section (see template) and re-surface it at execute time before touching
+code. If the mode is unchanged (local → local or remote → remote), state
+that explicitly so the user knows it was considered.
 
 **CRITICAL:** Include the ACTUAL response in the plan, not a reference
 to fetch it. Plans are self-sufficient.
@@ -887,6 +919,18 @@ using the template below.
 ---
 
 ## 1. SDK Setup
+
+### Resolve mode
+
+| | |
+|---|---|
+| **Source mode** | <local in-process eval / remote service call — from platform skill> |
+| **Target mode** | <local resolve / remote resolve — from Step 2a> |
+| **Change** | <unchanged / ⚠️ local → remote / ⚠️ remote → local — see notice> |
+
+<If changed: one-paragraph notice of what shifts for the user — latency,
+caching/freshness, offline behavior, deploy/propagation. If unchanged:
+"Resolve mode is preserved.">
 
 ### Install
 
