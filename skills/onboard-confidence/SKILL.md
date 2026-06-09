@@ -867,8 +867,93 @@ Explain why this is needed:
 >
 > You'll need an AWS account for this, even if your Databricks runs on GCP or Azure.
 
+Ask the user:
+> Do you have the `aws` CLI set up, or would you prefer manual steps?
+> 1. Set it up for me (requires `aws` CLI)
+> 2. Show me the steps
+
+**If the user picks 1 (aws CLI):**
+
+First check: `which aws`. If not found, offer to install: `brew install awscli` (macOS) or guide them to https://aws.amazon.com/cli/.
+
+Then check they're logged in: `aws sts get-caller-identity`. If not, tell them:
+> Run `aws configure` or `aws sso login` to log into your AWS account first.
+
+Extract the Confidence service account from the token:
+```bash
+ACCOUNT_ID=$(echo "$TOKEN" | cut -d. -f2 | python3 -c "
+import sys, json, base64
+p = sys.stdin.read().strip()
+p += '=' * (4 - len(p) % 4) if len(p) % 4 else ''
+d = json.loads(base64.b64decode(p))
+print(d['https://confidence.dev/account_name'].split('/')[-1])
+")
+CONFIDENCE_SA="account-${ACCOUNT_ID}@spotify-confidence.iam.gserviceaccount.com"
+```
+
+Ask the user for a bucket name (suggest `confidence-staging-<account_id>`) and region (suggest `eu-west-1`).
+
+Then run these commands, confirming each step:
+
+```bash
+# 1. Create S3 bucket
+aws s3api create-bucket --bucket ${BUCKET_NAME} --region ${AWS_REGION} \
+  --create-bucket-configuration LocationConstraint=${AWS_REGION}
+
+# 2. Create the trust policy file
+cat > $TMPDIR/trust-policy.json << EOF
+{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Effect": "Allow",
+    "Principal": {"Federated": "accounts.google.com"},
+    "Action": "sts:AssumeRoleWithWebIdentity",
+    "Condition": {
+      "StringEquals": {
+        "accounts.google.com:email": "${CONFIDENCE_SA}"
+      }
+    }
+  }]
+}
+EOF
+
+# 3. Create IAM role
+aws iam create-role --role-name confidence-databricks-staging \
+  --assume-role-policy-document file://$TMPDIR/trust-policy.json
+
+# 4. Create and attach S3 access policy
+cat > $TMPDIR/s3-policy.json << EOF
+{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Effect": "Allow",
+    "Action": ["s3:PutObject", "s3:GetObject", "s3:DeleteObject", "s3:ListBucket"],
+    "Resource": [
+      "arn:aws:s3:::${BUCKET_NAME}",
+      "arn:aws:s3:::${BUCKET_NAME}/*"
+    ]
+  }]
+}
+EOF
+aws iam put-role-policy --role-name confidence-databricks-staging \
+  --policy-name S3Access --policy-document file://$TMPDIR/s3-policy.json
+
+# 5. Get the role ARN
+ROLE_ARN=$(aws iam get-role --role-name confidence-databricks-staging --query 'Role.Arn' --output text)
+echo "ROLE_ARN: $ROLE_ARN"
+```
+
+After completion, show the user:
+> AWS setup complete!
+> - Bucket: `<BUCKET_NAME>` in `<REGION>`
+> - Role: `<ROLE_ARN>`
+>
+> Continuing with connector setup...
+
+**If the user picks 2 (manual steps):**
+
 4. **S3 bucket name** — the staging bucket.
-   > Go to **AWS Console → S3 → Create bucket**.
+   > Go to **AWS Console** (https://console.aws.amazon.com) → **S3 → Create bucket**.
    > - Name: something like `confidence-staging-<your-company>` (must be globally unique)
    > - Region: pick the same region as your Databricks workspace (e.g., `eu-west-1` for EU)
    > - Leave all other settings as default → **Create bucket**
@@ -880,13 +965,24 @@ Explain why this is needed:
 6. **IAM Role ARN** — an AWS role that grants Confidence permission to write to the bucket.
    > Go to **AWS Console → IAM → Roles → Create role**.
    > - Trusted entity: **Web identity**
-   > - Identity provider: add `accounts.google.com`
-   > - Audience: the Confidence service account for your account (`account-<YOUR_ACCOUNT_ID>@spotify-confidence.iam.gserviceaccount.com` — the skill should compute this from the JWT token claim `https://confidence.dev/account_name`)
-   > - Click **Next** → attach the policy **AmazonS3FullAccess** (or a custom policy scoped to your bucket)
-   > - Name the role (e.g., `confidence-databricks-staging`) → **Create role**
+   > - Identity provider: select **accounts.google.com** (add it first if not listed under Identity providers)
+   > - Audience: `account-<YOUR_ACCOUNT_ID>@spotify-confidence.iam.gserviceaccount.com`
+   >   (the skill should compute the account ID from the JWT token and fill this in for the user)
+   > - Click **Next** → **Create policy** → JSON tab → paste this:
+   > ```json
+   > {
+   >   "Version": "2012-10-17",
+   >   "Statement": [{
+   >     "Effect": "Allow",
+   >     "Action": ["s3:PutObject", "s3:GetObject", "s3:DeleteObject", "s3:ListBucket"],
+   >     "Resource": ["arn:aws:s3:::<BUCKET_NAME>", "arn:aws:s3:::<BUCKET_NAME>/*"]
+   >   }]
+   > }
+   > ```
+   > - Attach the policy → name the role (e.g., `confidence-databricks-staging`) → **Create role**
    > - Copy the **Role ARN** (looks like `arn:aws:iam::123456789012:role/confidence-databricks-staging`)
    >
-   > **Important:** The role's trust policy must allow the Confidence service account to assume it via web identity federation. If Confidence gets "Not authorized to perform sts:AssumeRoleWithWebIdentity", the trust policy is wrong — check that the Confidence service account is listed as a trusted principal.
+   > **If you get "Not authorized to perform sts:AssumeRoleWithWebIdentity" later:** the trust policy is wrong — the Confidence service account email must exactly match what's in the role's trust policy.
 
 **Part 3: Databricks schema**
 
