@@ -872,8 +872,8 @@ Guide the user through each field with plain-language explanations and where to 
 
 ### Step 3: Validate configuration
 
-**NOTE:** The validate endpoint only supports BigQuery and Snowflake. For Databricks and Redshift, skip validation and proceed directly to Step 4 (Create warehouse). Inform the user:
-> Validation isn't available for Databricks/Redshift — I'll create the warehouse and we'll verify the connection when testing the pipeline.
+**NOTE:** The validate endpoint only supports BigQuery (`bigQueryConfig`) and Snowflake (`snowflakeConfig`). The Confidence backend does not recognize Databricks or Redshift configs for validation (returns "configuration must be set" for any field name variant). For Databricks and Redshift, skip validation and proceed directly to Step 4 (Create warehouse). Tell the user honestly:
+> Pre-validation isn't available yet for Databricks/Redshift. I'll create the warehouse now and we'll verify the connection works end-to-end in the pipeline test step.
 
 For BigQuery/Snowflake:
 ```bash
