@@ -837,7 +837,9 @@ Before collecting details, explain what's needed upfront so the user knows the f
 >
 > If you don't have an AWS account, you'll need to create one (free tier works) or ask your infrastructure team for an S3 bucket and IAM role.
 >
-> Here's how data flows: **Confidence → S3 staging bucket → Databricks tables**
+> Here's how data flows: **Confidence → GCS staging → Databricks tables** (the S3 bucket is used as a fallback/alternative staging path, but GCS is the primary path for EU accounts).
+>
+> Data is batched and delivered every ~5 minutes. After creating the connectors, you'll need to wait for the first batch before data appears in Databricks.
 
 Then collect the details step by step. Ask one at a time, explain each field, and tell the user exactly where to find it:
 
@@ -1474,16 +1476,27 @@ If neither available, show the queries for the Snowflake worksheet (https://app.
 
 **Databricks:**
 
-Show queries for the Databricks SQL editor:
-> ```sql
-> SELECT targeting_key, rule, assignment_id, assignment_time
-> FROM <SCHEMA>.assignments
-> ORDER BY assignment_time DESC LIMIT 5;
->
-> SHOW TABLES IN <SCHEMA> LIKE 'events_*';
-> SELECT * FROM <SCHEMA>.<EVENT_TABLE>
-> ORDER BY _event_time DESC LIMIT 5;
-> ```
+Use the Databricks SQL Statement API to query directly (the skill already has the service principal credentials):
+```bash
+DB_TOKEN=$(curl -s -X POST "https://${DATABRICKS_HOST}/oidc/v1/token" \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "grant_type=client_credentials&client_id=${CLIENT_ID}&client_secret=${CLIENT_SECRET}&scope=all-apis" \
+  | python3 -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
+
+curl -s -X POST "https://${DATABRICKS_HOST}/api/2.0/sql/statements" \
+  -H "Authorization: Bearer $DB_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "warehouse_id": "'${WAREHOUSE_ID}'",
+    "statement": "SELECT targeting_key, rule, assignment_id, assignment_time FROM '${SCHEMA}'.assignments ORDER BY assignment_time DESC LIMIT 5",
+    "wait_timeout": "30s"
+  }'
+```
+
+**IMPORTANT:** Data is batched every ~5 minutes. If the table doesn't exist yet, wait and retry. Tell the user:
+> Data delivery takes about 5 minutes. Let me check again...
+
+If `TABLE_OR_VIEW_NOT_FOUND` after 10 minutes, check the connector logs for errors.
 
 **Redshift:**
 
