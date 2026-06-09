@@ -813,12 +813,28 @@ curl -s -w "\n%{http_code}" -X POST "https://metrics.confidence.dev/v1/dataWareh
 }
 ```
 
-If `successful` is false, explain each failure in plain English and **ask the user how they want to proceed:**
+If the response is an error (HTTP 400/500) or `successful` is false:
+
+**IMPORTANT: Never assume partial success from an ambiguous error.** If the API returns an error like "X does not exist or not authorized", report the exact error message — do NOT split it into "connection works but X is missing". The error may indicate an auth failure, a missing resource, or both. Show the user the exact error and let them determine the cause.
+
+For each validation failure, show:
+> Validation failed: `<exact error message from API>`
+
+Then offer remediation based on warehouse type.
+
+**For BigQuery failures**, ask the user how they want to proceed:
 
 > Some permissions need to be configured on your GCP project. I can fix this automatically if you have `gcloud` set up, or I can show you the exact commands to run yourself.
 >
 > 1. Fix it for me (requires gcloud CLI)
 > 2. Show me the commands
+
+**For Snowflake failures**, show the SQL commands needed:
+- Auth failures → the crypto key's public key needs to be registered with the Snowflake user via `ALTER USER ... SET RSA_PUBLIC_KEY='...'`
+- Database/schema missing → `CREATE DATABASE` / `CREATE SCHEMA` commands
+- Permission errors → `GRANT` commands
+
+**For Databricks/Redshift failures**, show the relevant remediation steps for that platform.
 
 **If the user chooses 1 (fix it for me):**
 
