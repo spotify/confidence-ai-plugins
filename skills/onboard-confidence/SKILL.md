@@ -1073,7 +1073,7 @@ curl -s -w "\n%{http_code}" -X POST "https://connectors.${REGION}.confidence.dev
 Adapt the destination field per warehouse type:
 - **BigQuery:** `"bigQuery": { "bigQueryConfig": {...}, "table": "assignments" }`
 - **Snowflake:** `"snowflake": { "snowflakeConfig": {..., "database": "...", "schema": "..."}, "table": "ASSIGNMENTS" }` — Snowflake requires `database` and `schema` fields in snowflakeConfig for connectors
-- **Databricks:** Databricks connectors use a nested `connectionConfig` for auth and require `batchFileConfig`:
+- **Databricks:** Databricks connectors use a nested `connectionConfig` for auth and require `batchFileConfig`. **Known issue:** the connector backend may return 500 even with valid credentials — if this happens, inform the user and suggest contacting Confidence support.
   ```json
   "databricks": {
     "databricksConfig": {
@@ -1083,11 +1083,9 @@ Adapt the destination field per warehouse type:
         "clientId": "...",
         "clientSecret": "..."
       },
-      "schema": "<catalog>.<schema>",
+      "schema": "<schema_name>",
       "batchFileConfig": {
-        "maxEventsPerFile": 10000,
-        "maxFileAge": "300s",
-        "maxFileSize": 104857600
+        "maxFileAge": "300s"
       }
     },
     "table": "assignments"
