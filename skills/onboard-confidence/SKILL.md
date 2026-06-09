@@ -879,7 +879,7 @@ First check: `which aws`. If not found, offer to install: `brew install awscli` 
 Then check they're logged in: `aws sts get-caller-identity`. If not, tell them:
 > Run `aws configure` or `aws sso login` to log into your AWS account first.
 
-Extract the Confidence service account from the token:
+Extract the Confidence service account and its numeric unique ID (required for AWS trust policy):
 ```bash
 ACCOUNT_ID=$(echo "$TOKEN" | cut -d. -f2 | python3 -c "
 import sys, json, base64
@@ -889,9 +889,23 @@ d = json.loads(base64.b64decode(p))
 print(d['https://confidence.dev/account_name'].split('/')[-1])
 ")
 CONFIDENCE_SA="account-${ACCOUNT_ID}@spotify-confidence.iam.gserviceaccount.com"
+
+# CRITICAL: AWS trust policy needs the NUMERIC unique ID, not the email.
+# The email won't work — AWS requires accounts.google.com:sub which is the numeric ID.
+SA_UNIQUE_ID=$(gcloud iam service-accounts describe ${CONFIDENCE_SA} \
+  --project=spotify-confidence --format="value(uniqueId)")
 ```
 
+If `gcloud` can't access `spotify-confidence` project, the user needs to contact Confidence support to get the numeric service account ID.
+
 Ask the user for a bucket name (suggest `confidence-staging-<account_id>`) and region (suggest `eu-west-1`).
+
+If `aws` CLI is not installed, install it: `brew install awscli` (macOS).
+
+If `aws` CLI is not configured, the skill should:
+1. Open the AWS console login: `open "https://console.aws.amazon.com"`
+2. Guide user to create access key: **click your name top right → Security credentials → Access keys → Create access key**
+3. Write the credentials directly to `~/.aws/credentials` and `~/.aws/config` (don't use interactive `aws configure`)
 
 Then run these commands, confirming each step:
 
@@ -901,6 +915,9 @@ aws s3api create-bucket --bucket ${BUCKET_NAME} --region ${AWS_REGION} \
   --create-bucket-configuration LocationConstraint=${AWS_REGION}
 
 # 2. Create the trust policy file
+# IMPORTANT: Use accounts.google.com:sub with the NUMERIC service account ID.
+# Using :email will fail with "MalformedPolicyDocument".
+# Using the email string as :sub will fail at runtime with "Not authorized to perform sts:AssumeRoleWithWebIdentity".
 cat > $TMPDIR/trust-policy.json << EOF
 {
   "Version": "2012-10-17",
@@ -910,7 +927,7 @@ cat > $TMPDIR/trust-policy.json << EOF
     "Action": "sts:AssumeRoleWithWebIdentity",
     "Condition": {
       "StringEquals": {
-        "accounts.google.com:email": "${CONFIDENCE_SA}"
+        "accounts.google.com:sub": "${SA_UNIQUE_ID}"
       }
     }
   }]
