@@ -998,7 +998,11 @@ curl -s -w "\n%{http_code}" -X POST "https://metrics.confidence.dev/v1/assignmen
   }'
 ```
 
-Adapt the SQL query per warehouse type — BigQuery uses backtick-qualified tables, Snowflake uses `database.schema.table`, etc.
+Adapt the SQL query per warehouse type:
+- **BigQuery:** `` SELECT targeting_key, rule, assignment_id, assignment_time FROM `<PROJECT>.<DATASET>.assignments` ``
+- **Snowflake:** `SELECT targeting_key, rule, assignment_id, assignment_time FROM <DATABASE>.<SCHEMA>.ASSIGNMENTS`
+- **Databricks:** `SELECT targeting_key, rule, assignment_id, assignment_time FROM <SCHEMA>.assignments`
+- **Redshift:** `SELECT targeting_key, rule, assignment_id, assignment_time FROM <SCHEMA>.assignments`
 
 ### Step 7: Verify data pipeline
 
@@ -1067,9 +1071,11 @@ Check response: `{"errors": []}` means success. If `EVENT_DEFINITION_NOT_FOUND`,
 
 **7c. Check data in warehouse**
 
-Ask the user: "Want me to check the data (needs `bq` CLI), or show you the queries?"
+Verification approach depends on warehouse type. Ask the user: "Want me to check the data, or show you the queries?"
 
-If user has `bq`:
+**BigQuery:**
+
+If user has `bq` CLI:
 ```bash
 echo "=== ASSIGNMENTS ===" && \
 bq query --project_id=${PROJECT} --use_legacy_sql=false \
@@ -1082,20 +1088,76 @@ bq query --project_id=${PROJECT} --use_legacy_sql=false \
    ORDER BY _event_time DESC LIMIT 5'
 ```
 
-If user doesn't have `bq`, show the queries:
-> Run these in the BigQuery console (https://console.cloud.google.com/bigquery):
+If no `bq`, show queries for BigQuery console.
+
+**Snowflake:**
+
+If user has `snowsql` CLI:
+```bash
+snowsql -a ${SNOWFLAKE_ACCOUNT} -u ${SNOWFLAKE_USER} -r ${SNOWFLAKE_ROLE} -w ${SNOWFLAKE_WAREHOUSE} -d ${SNOWFLAKE_DATABASE} -s ${SNOWFLAKE_SCHEMA} -q "
+SELECT targeting_key, rule, assignment_id, assignment_time
+FROM ${SNOWFLAKE_DATABASE}.${SNOWFLAKE_SCHEMA}.ASSIGNMENTS
+ORDER BY assignment_time DESC LIMIT 5;
+"
+```
+
+If no `snowsql`, use the Snowflake SQL REST API:
+```bash
+# Get a JWT token for Snowflake (using keypair auth) or prompt user for password
+# Then query via the SQL API:
+curl -s -X POST "https://${SNOWFLAKE_ACCOUNT}.snowflakecomputing.com/api/v2/statements" \
+  -H "Authorization: Bearer ${SNOWFLAKE_JWT}" \
+  -H "Content-Type: application/json" \
+  -H "X-Snowflake-Authorization-Token-Type: KEYPAIR_JWT" \
+  -d '{
+    "statement": "SELECT targeting_key, rule, assignment_id, assignment_time FROM '${SNOWFLAKE_DATABASE}'.'${SNOWFLAKE_SCHEMA}'.ASSIGNMENTS ORDER BY assignment_time DESC LIMIT 5",
+    "warehouse": "'${SNOWFLAKE_WAREHOUSE}'",
+    "database": "'${SNOWFLAKE_DATABASE}'",
+    "schema": "'${SNOWFLAKE_SCHEMA}'",
+    "role": "'${SNOWFLAKE_ROLE}'"
+  }'
+```
+
+If neither available, show the queries for the Snowflake worksheet (https://app.snowflake.com):
 > ```sql
 > -- Assignments
 > SELECT targeting_key, rule, assignment_id, assignment_time
-> FROM `<PROJECT>.<DATASET>.assignments`
+> FROM <DATABASE>.<SCHEMA>.ASSIGNMENTS
 > ORDER BY assignment_time DESC LIMIT 5;
 >
-> -- Events
-> SELECT * FROM `<PROJECT>.<DATASET>.events_*`
+> -- Events (list event tables first, then query)
+> SHOW TABLES LIKE 'EVENTS_%' IN <DATABASE>.<SCHEMA>;
+> SELECT * FROM <DATABASE>.<SCHEMA>.<EVENT_TABLE>
 > ORDER BY _event_time DESC LIMIT 5;
 > ```
 
-**Show results:**
+**Databricks:**
+
+Show queries for the Databricks SQL editor:
+> ```sql
+> SELECT targeting_key, rule, assignment_id, assignment_time
+> FROM <SCHEMA>.assignments
+> ORDER BY assignment_time DESC LIMIT 5;
+>
+> SHOW TABLES IN <SCHEMA> LIKE 'events_*';
+> SELECT * FROM <SCHEMA>.<EVENT_TABLE>
+> ORDER BY _event_time DESC LIMIT 5;
+> ```
+
+**Redshift:**
+
+If user has `psql` or `aws redshift-data`:
+```bash
+aws redshift-data execute-statement \
+  --cluster-identifier ${CLUSTER} \
+  --database ${DATABASE} \
+  --db-user ${DB_USER} \
+  --sql "SELECT targeting_key, rule, assignment_id, assignment_time FROM ${SCHEMA}.assignments ORDER BY assignment_time DESC LIMIT 5"
+```
+
+Otherwise, show queries for the Redshift query editor.
+
+**Show results (all warehouse types):**
 ```
   ● Assignments: <N> rows — data flowing
     <targeting_key> → <assignment_id> (<timestamp>)
@@ -1104,7 +1166,7 @@ If user doesn't have `bq`, show the queries:
 ```
 
 **If no rows after a few seconds**, tell the user:
-> Streaming can take up to a minute. Check again shortly, or verify in the BigQuery console.
+> Data delivery can take up to a few minutes depending on your warehouse. Check again shortly, or verify in your warehouse console.
 
 ### Step 8: Done
 
