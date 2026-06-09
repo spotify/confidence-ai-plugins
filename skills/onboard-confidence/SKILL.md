@@ -872,12 +872,16 @@ Guide the user through each field with plain-language explanations and where to 
 
 ### Step 3: Validate configuration
 
+**NOTE:** The validate endpoint only supports BigQuery and Snowflake. For Databricks and Redshift, skip validation and proceed directly to Step 4 (Create warehouse). Inform the user:
+> Validation isn't available for Databricks/Redshift — I'll create the warehouse and we'll verify the connection when testing the pipeline.
+
+For BigQuery/Snowflake:
 ```bash
-curl -s -w "\n%{http_code}" -X POST "https://metrics.confidence.dev/v1/dataWarehouseConfig:validate" \
+curl -s -w "\n%{http_code}" -X POST "https://metrics.${REGION}.confidence.dev/v1/dataWarehouseConfig:validate" \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
-    "<warehouse_type>Config": { <COLLECTED_CONFIG> }
+    "<bigQueryConfig|snowflakeConfig>": { <COLLECTED_CONFIG> }
   }'
 ```
 
@@ -1067,10 +1071,29 @@ curl -s -w "\n%{http_code}" -X POST "https://connectors.${REGION}.confidence.dev
 ```
 
 Adapt the destination field per warehouse type:
-- BigQuery: `"bigQuery": { "bigQueryConfig": {...}, "table": "assignments" }`
-- Snowflake: `"snowflake": { "snowflakeConfig": {..., "database": "...", "schema": "..."}, "table": "ASSIGNMENTS" }` — **Snowflake requires `database` and `schema` fields in snowflakeConfig for connectors**
-- Databricks: `"databricks": { "databricksConfig": {...}, "table": "assignments" }`
-- Redshift: `"redshift": { "redshiftConfig": {...}, "s3Config": {...}, "batchFileConfig": {...}, "table": "assignments" }`
+- **BigQuery:** `"bigQuery": { "bigQueryConfig": {...}, "table": "assignments" }`
+- **Snowflake:** `"snowflake": { "snowflakeConfig": {..., "database": "...", "schema": "..."}, "table": "ASSIGNMENTS" }` — Snowflake requires `database` and `schema` fields in snowflakeConfig for connectors
+- **Databricks:** Databricks connectors use a nested `connectionConfig` for auth and require `batchFileConfig`:
+  ```json
+  "databricks": {
+    "databricksConfig": {
+      "connectionConfig": {
+        "host": "...",
+        "warehouseId": "...",
+        "clientId": "...",
+        "clientSecret": "..."
+      },
+      "schema": "<catalog>.<schema>",
+      "batchFileConfig": {
+        "maxEventsPerFile": 10000,
+        "maxFileAge": "300s",
+        "maxFileSize": 104857600
+      }
+    },
+    "table": "assignments"
+  }
+  ```
+- **Redshift:** `"redshift": { "redshiftConfig": {...}, "s3Config": {...}, "batchFileConfig": {...}, "table": "assignments" }`
 
 **Event Connection** (events → warehouse).
 
