@@ -771,13 +771,51 @@ Collect configuration based on type. Explain each field briefly.
 - Service account email — must have BigQuery permissions
 
 **Snowflake:**
-- Account — your Snowflake account identifier
-- User — Snowflake user for Confidence to use
-- Authentication key — crypto key reference for JWT signing
-- Role — Snowflake role with necessary permissions
-- Warehouse — SQL warehouse for query execution
-- Exposure database — database for exposure tables
-- Exposure schema — schema for exposure tables
+
+Ask the user for these fields (explain each briefly):
+- Account — Snowflake account identifier (e.g., `zlvpqre-wr49874`)
+- User — Snowflake user for Confidence to connect as
+- Role — Snowflake role (default: `ACCOUNTADMIN`)
+- Warehouse — SQL warehouse for query execution (default: `COMPUTE_WH`)
+- Exposure database — database for exposure tables (default: `CONFIDENCE`)
+- Exposure schema — schema for exposure tables (default: `EXPOSURE`)
+
+**Then create a crypto key automatically** — the user does NOT provide this. The skill creates it via the IAM API:
+
+```bash
+curl -s -w "\n%{http_code}" -X POST "https://iam.${REGION}.confidence.dev/v1/cryptoKeys?crypto_key_id=snowflake-key" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"kind": "SNOWFLAKE"}'
+```
+
+If the key already exists (HTTP 409), fetch it instead:
+```bash
+curl -s "https://iam.${REGION}.confidence.dev/v1/cryptoKeys/snowflake-key" \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+Extract the `publicKey` from the response, strip PEM headers and newlines to get raw base64. Then generate the Snowflake SQL to register the key, **copy it to clipboard**, and tell the user:
+
+> I've created an authentication key for Snowflake. You need to register it with your Snowflake user.
+> The SQL has been copied to your clipboard — paste it in the Snowflake worksheet and run it.
+
+The SQL should be:
+```sql
+ALTER USER <USER> SET RSA_PUBLIC_KEY='<PUBLIC_KEY_BASE64>';
+```
+
+If the user says other Confidence accounts share this Snowflake user, use `RSA_PUBLIC_KEY_2` instead.
+
+Also generate SQL for creating the database/schema if the user says they don't exist yet:
+```sql
+CREATE DATABASE IF NOT EXISTS <DATABASE>;
+CREATE SCHEMA IF NOT EXISTS <DATABASE>.<SCHEMA>;
+GRANT USAGE ON DATABASE <DATABASE> TO ROLE <ROLE>;
+GRANT ALL ON SCHEMA <DATABASE>.<SCHEMA> TO ROLE <ROLE>;
+```
+
+Save the crypto key name (e.g., `cryptoKeys/snowflake-key`) for use in the warehouse config.
 
 **Databricks:**
 - Host — Databricks workspace URL
