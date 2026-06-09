@@ -827,34 +827,83 @@ Save the crypto key name (e.g., `cryptoKeys/snowflake-key`) for use in the wareh
 
 **Databricks:**
 
-Guide the user through each field with plain-language explanations and where to find the value:
+Before collecting details, explain what's needed upfront so the user knows the full picture:
+
+> Setting up Databricks with Confidence requires three things:
+>
+> 1. **A Databricks workspace** with admin access (to create a service principal)
+> 2. **An AWS account** with an S3 bucket (Confidence stages data in S3 before loading into Databricks — this is required even if Databricks runs on GCP or Azure)
+> 3. **A schema in Databricks** where Confidence will create tables
+>
+> If you don't have an AWS account, you'll need to create one (free tier works) or ask your infrastructure team for an S3 bucket and IAM role.
+>
+> Here's how data flows: **Confidence → S3 staging bucket → Databricks tables**
+
+Then collect the details step by step. Ask one at a time, explain each field, and tell the user exactly where to find it:
+
+**Part 1: Databricks connection**
 
 1. **Host** — your Databricks workspace URL.
-   > This is the URL you see in your browser when you open Databricks. It looks like `https://dbc-xxxxx.cloud.databricks.com`. You can find it in **Databricks → Settings → Workspace URL**, or just copy it from your browser address bar.
+   > This is the URL in your browser when you open Databricks. It looks like `https://dbc-xxxxx.cloud.databricks.com` or `https://1234567890.7.gcp.databricks.com`. Just copy it from your address bar — I only need the hostname, not the full URL.
 
 2. **SQL Warehouse ID** — the compute resource Confidence uses to run queries.
-   > Go to **Databricks → SQL → SQL Warehouses**. Pick a warehouse (or create one) and copy its ID from the **Connection details** tab. It looks like a hex string, e.g., `1a2b3c4d5e6f7890`.
-   > If you don't have a SQL Warehouse yet, guide the user: **SQL → SQL Warehouses → Create SQL Warehouse** → pick "Serverless" (simplest), size Small.
+   > Go to **Databricks → SQL Warehouses** in the left sidebar. Click on a warehouse, then open the **Connection details** tab. Copy the ID — it's a hex string like `ccf7028466008a3c`.
+   > If you don't have a SQL Warehouse: click **Create SQL Warehouse** → name it anything → pick **Serverless** type, **Small** size → **Create**. Then copy the ID from Connection details.
 
-3. **Service principal client ID** — how Confidence authenticates to Databricks.
-   > A service principal is like a robot account. Go to **Databricks → Settings → Identity and access → Service principals → Add service principal → Add new**. Give it a name like "Confidence". After creation, copy the **Application (client) ID**.
-   > Then create a secret: click the service principal → **Secrets → Generate secret**. Copy the **Secret** value (shown only once).
+3. **Service principal** — a robot account that Confidence uses to authenticate.
+   > You need **workspace admin access** for this step. Go to **Databricks → Settings** (gear icon top right) → **Identity and access** → **Service principals**.
+   > - Click **Add service principal → Add new**
+   > - Name it "Confidence"
+   > - After creation, copy the **Application (client) ID** (a UUID like `85cc292a-c1d2-453f-85ec-f4230e99238f`)
+   > - Click into the service principal → **Secrets → Generate secret**
+   > - Copy the **Secret** value — it's shown only once
+   >
+   > If you see "Access denied" or can't find Identity and access, you don't have admin access. Ask your Databricks workspace admin to create the service principal for you.
 
-4. **Service principal client secret** — the secret you just generated above.
+**Part 2: S3 staging bucket (requires AWS)**
 
-5. **Catalog** — the Databricks Unity Catalog where Confidence stores its tables (default: `confidence`).
-   > A catalog is like a top-level folder for your data. If you don't have one, guide the user: **Databricks → Catalog → Create Catalog** → name it `confidence`.
-   > Grant the service principal access: `GRANT USE CATALOG ON CATALOG confidence TO \`<service-principal-app-id>\``
+Explain why this is needed:
+> Confidence doesn't write directly to Databricks tables. Instead, it writes data files to an S3 bucket, then tells Databricks to load them. This is how most tools integrate with Databricks at scale — it's faster and more reliable than row-by-row inserts.
+>
+> You'll need an AWS account for this, even if your Databricks runs on GCP or Azure.
 
-6. **Schema** — the schema inside the catalog for Confidence tables (default: `exposure`).
-   > A schema is a subfolder inside the catalog. If it doesn't exist, guide the user to create it:
-   > `CREATE SCHEMA IF NOT EXISTS confidence.exposure`
-   > Grant access: `GRANT USE SCHEMA, CREATE TABLE ON SCHEMA confidence.exposure TO \`<service-principal-app-id>\``
+4. **S3 bucket name** — the staging bucket.
+   > Go to **AWS Console → S3 → Create bucket**.
+   > - Name: something like `confidence-staging-<your-company>` (must be globally unique)
+   > - Region: pick the same region as your Databricks workspace (e.g., `eu-west-1` for EU)
+   > - Leave all other settings as default → **Create bucket**
+   >
+   > If you already have a bucket you want to reuse, that works too — just give me the name.
 
-7. **S3 staging bucket** — Confidence writes data to S3 first, then loads into Databricks.
-   > You need an S3 bucket for Confidence to use as a staging area. Go to **AWS Console → S3 → Create bucket**. Name it something like `confidence-databricks-staging`.
-   > Then create an IAM role with write access to the bucket and provide the **Role ARN** (e.g., `arn:aws:iam::123456789012:role/ConfidenceDatabricksStaging`).
-   > This is required even if your Databricks runs on GCP or Azure — the connector uses S3 for staging.
+5. **AWS Region** — where the S3 bucket lives (e.g., `eu-west-1`, `us-east-1`).
+
+6. **IAM Role ARN** — an AWS role that grants Confidence permission to write to the bucket.
+   > Go to **AWS Console → IAM → Roles → Create role**.
+   > - Trusted entity: **Web identity**
+   > - Identity provider: add `accounts.google.com`
+   > - Audience: the Confidence service account for your account (`account-<YOUR_ACCOUNT_ID>@spotify-confidence.iam.gserviceaccount.com` — the skill should compute this from the JWT token claim `https://confidence.dev/account_name`)
+   > - Click **Next** → attach the policy **AmazonS3FullAccess** (or a custom policy scoped to your bucket)
+   > - Name the role (e.g., `confidence-databricks-staging`) → **Create role**
+   > - Copy the **Role ARN** (looks like `arn:aws:iam::123456789012:role/confidence-databricks-staging`)
+   >
+   > **Important:** The role's trust policy must allow the Confidence service account to assume it via web identity federation. If Confidence gets "Not authorized to perform sts:AssumeRoleWithWebIdentity", the trust policy is wrong — check that the Confidence service account is listed as a trusted principal.
+
+**Part 3: Databricks schema**
+
+7. **Schema** — where Confidence creates its tables (default: `confidence`).
+   > In Databricks SQL editor, run:
+   > ```sql
+   > CREATE SCHEMA IF NOT EXISTS confidence;
+   > GRANT USE SCHEMA, CREATE TABLE ON SCHEMA confidence TO `<service-principal-client-id>`;
+   > ```
+   > If your workspace uses Unity Catalog, you may need to specify a catalog too:
+   > ```sql
+   > CREATE CATALOG IF NOT EXISTS confidence;
+   > CREATE SCHEMA IF NOT EXISTS confidence.confidence;
+   > GRANT USE CATALOG ON CATALOG confidence TO `<service-principal-client-id>`;
+   > GRANT USE SCHEMA, CREATE TABLE ON SCHEMA confidence.confidence TO `<service-principal-client-id>`;
+   > ```
+   > Copy the SQL to clipboard for the user.
 
 **Redshift:**
 
