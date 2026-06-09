@@ -836,7 +836,11 @@ Before collecting details, explain the full picture so the user knows what they 
 > 3. **A schema in Databricks** — a place for Confidence to create tables (e.g., `confidence`)
 >
 > **How data flows:**
-> Your flag assignments and events are collected by Confidence, staged in a cloud bucket, then batch-loaded into your Databricks tables every ~5 minutes. After setup, you'll need to wait a few minutes before data appears.
+> Confidence collects your flag assignments and events internally, then writes parquet files to an S3 bucket you provide, and finally loads them into Databricks tables. This happens in batches every ~5 minutes.
+>
+> ```
+> Confidence (collects data) → S3 bucket (staging) → Databricks (tables)
+> ```
 >
 > **Don't have an AWS account?** You'll need one for the S3 staging bucket. AWS free tier works fine. I can set it up for you if you have the `aws` CLI, or walk you through the AWS Console.
 
@@ -893,7 +897,7 @@ Then collect the details **one at a time**. After each answer, confirm it before
 **Part 2: S3 staging bucket** (requires AWS account)
 
 Explain why:
-> Confidence loads data into Databricks in batches via a staging bucket. The Confidence connector API requires an S3 bucket configuration, even when your Databricks runs on GCP or Azure. Think of it as a mailbox — Confidence drops files there, and Databricks picks them up.
+> Confidence writes parquet files to an S3 bucket, then Databricks loads them via COPY INTO. Think of it as a mailbox — Confidence drops files there, and Databricks picks them up. **This is required even if your Databricks runs on GCP or Azure.**
 >
 > You need an AWS account for this. If you don't have one, I can help you set one up.
 
