@@ -851,6 +851,11 @@ Guide the user through each field with plain-language explanations and where to 
    > `CREATE SCHEMA IF NOT EXISTS confidence.exposure`
    > Grant access: `GRANT USE SCHEMA, CREATE TABLE ON SCHEMA confidence.exposure TO \`<service-principal-app-id>\``
 
+7. **S3 staging bucket** — Confidence writes data to S3 first, then loads into Databricks.
+   > You need an S3 bucket for Confidence to use as a staging area. Go to **AWS Console → S3 → Create bucket**. Name it something like `confidence-databricks-staging`.
+   > Then create an IAM role with write access to the bucket and provide the **Role ARN** (e.g., `arn:aws:iam::123456789012:role/ConfidenceDatabricksStaging`).
+   > This is required even if your Databricks runs on GCP or Azure — the connector uses S3 for staging.
+
 **Redshift:**
 
 Guide the user through each field with plain-language explanations and where to find the value:
@@ -1073,7 +1078,7 @@ curl -s -w "\n%{http_code}" -X POST "https://connectors.${REGION}.confidence.dev
 Adapt the destination field per warehouse type:
 - **BigQuery:** `"bigQuery": { "bigQueryConfig": {...}, "table": "assignments" }`
 - **Snowflake:** `"snowflake": { "snowflakeConfig": {..., "database": "...", "schema": "..."}, "table": "ASSIGNMENTS" }` — Snowflake requires `database` and `schema` fields in snowflakeConfig for connectors
-- **Databricks:** Databricks connectors use a nested `connectionConfig` for auth and require `batchFileConfig`. **Known issue:** the connector backend may return 500 even with valid credentials — if this happens, inform the user and suggest contacting Confidence support.
+- **Databricks:** Databricks connectors use a nested `connectionConfig` for auth, require an **S3 staging bucket** for batch writes, and `batchFileConfig`:
   ```json
   "databricks": {
     "databricksConfig": {
@@ -1084,6 +1089,11 @@ Adapt the destination field per warehouse type:
         "clientSecret": "..."
       },
       "schema": "<schema_name>",
+      "s3BucketConfig": {
+        "bucket": "<s3-bucket-name>",
+        "region": "<aws-region>",
+        "roleArn": "<arn:aws:iam::...:role/...>"
+      },
       "batchFileConfig": {
         "maxFileAge": "300s"
       }
@@ -1091,6 +1101,8 @@ Adapt the destination field per warehouse type:
     "table": "assignments"
   }
   ```
+  **IMPORTANT:** Databricks connectors require an S3 staging bucket — Confidence writes data in batches to S3, then loads into Databricks. The user needs to provide an S3 bucket, AWS region, and IAM role ARN with write access to the bucket. Explain this to the user:
+  > Confidence writes data to a staging bucket first, then loads it into Databricks. You'll need an S3 bucket and an IAM role that allows Confidence to write to it.
 - **Redshift:** `"redshift": { "redshiftConfig": {...}, "s3Config": {...}, "batchFileConfig": {...}, "table": "assignments" }`
 
 **Event Connection** (events → warehouse).
