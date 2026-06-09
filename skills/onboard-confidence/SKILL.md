@@ -829,10 +829,39 @@ Then offer remediation based on warehouse type.
 > 1. Fix it for me (requires gcloud CLI)
 > 2. Show me the commands
 
-**For Snowflake failures**, show the SQL commands needed:
-- Auth failures → the crypto key's public key needs to be registered with the Snowflake user via `ALTER USER ... SET RSA_PUBLIC_KEY='...'`
-- Database/schema missing → `CREATE DATABASE` / `CREATE SCHEMA` commands
-- Permission errors → `GRANT` commands
+**For Snowflake failures**, generate the full remediation SQL, **copy it to clipboard via `pbcopy`**, and tell the user to paste it in the Snowflake worksheet (https://app.snowflake.com):
+
+1. **Fetch the crypto key's public key** from the IAM API:
+   ```bash
+   curl -s "https://iam.${REGION}.confidence.dev/v1/cryptoKeys/<KEY_NAME>" -H "Authorization: Bearer $TOKEN"
+   ```
+   Strip the PEM headers (`-----BEGIN/END PUBLIC KEY-----`) and newlines to get the raw base64 string for Snowflake.
+
+2. **Generate SQL based on the error:**
+
+   Auth failures → register the public key:
+   ```sql
+   -- If this is the only Confidence account using this Snowflake user:
+   ALTER USER <USER> SET RSA_PUBLIC_KEY='<PUBLIC_KEY_BASE64>';
+   -- If another Confidence account already uses RSA_PUBLIC_KEY, use key 2:
+   ALTER USER <USER> SET RSA_PUBLIC_KEY_2='<PUBLIC_KEY_BASE64>';
+   ```
+   **IMPORTANT:** Always ask the user if other Confidence accounts share this Snowflake user. If yes, use `RSA_PUBLIC_KEY_2` to avoid breaking existing connections. Snowflake accepts auth from either key.
+
+   Database/schema missing:
+   ```sql
+   CREATE DATABASE IF NOT EXISTS <DATABASE>;
+   CREATE SCHEMA IF NOT EXISTS <DATABASE>.<SCHEMA>;
+   GRANT USAGE ON DATABASE <DATABASE> TO ROLE <ROLE>;
+   GRANT USAGE ON SCHEMA <DATABASE>.<SCHEMA> TO ROLE <ROLE>;
+   GRANT ALL ON SCHEMA <DATABASE>.<SCHEMA> TO ROLE <ROLE>;
+   ```
+
+3. **Copy to clipboard and tell the user:**
+   ```bash
+   echo "<GENERATED_SQL>" | pbcopy
+   ```
+   > The SQL commands have been copied to your clipboard. Paste them in the Snowflake worksheet at https://app.snowflake.com and run them. Let me know when done and I'll retry validation.
 
 **For Databricks/Redshift failures**, show the relevant remediation steps for that platform.
 
@@ -925,15 +954,15 @@ If `configurationResponse` contains available options (schemas, roles) — prese
 
 ### Step 4: Create warehouse
 
+**IMPORTANT:** The body is the data warehouse object directly (gRPC transcoding `body: "data_warehouse"`), NOT wrapped in a `dataWarehouse` key.
+
 ```bash
-curl -s -w "\n%{http_code}" -X POST "https://metrics.confidence.dev/v1/dataWarehouses" \
+curl -s -w "\n%{http_code}" -X POST "https://metrics.${REGION}.confidence.dev/v1/dataWarehouses" \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
-    "dataWarehouse": {
-      "config": {
-        "<bigQueryConfig|snowflakeConfig|dataBricksConfig|redshiftConfig>": { <CONFIG> }
-      }
+    "config": {
+      "<bigQueryConfig|snowflakeConfig|dataBricksConfig|redshiftConfig>": { <CONFIG> }
     }
   }'
 ```
@@ -944,38 +973,40 @@ Save the returned `name` (e.g., `dataWarehouses/...`) for reference.
 
 Create both connectors:
 
-**Flag Applied Connection** (assignment data → warehouse):
+**Flag Applied Connection** (assignment data → warehouse).
+
+**IMPORTANT:** The body is the connection object directly (gRPC transcoding `body: "flag_applied_connection"`), NOT wrapped.
+
 ```bash
-curl -s -w "\n%{http_code}" -X POST "https://connectors.confidence.dev/v1/flagAppliedConnections" \
+curl -s -w "\n%{http_code}" -X POST "https://connectors.${REGION}.confidence.dev/v1/flagAppliedConnections" \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
-    "flagAppliedConnection": {
-      "bigQuery": {
-        "bigQueryConfig": { "serviceAccount": "...", "project": "...", "dataset": "..." },
-        "table": "assignments"
-      }
+    "bigQuery": {
+      "bigQueryConfig": { "serviceAccount": "...", "project": "...", "dataset": "..." },
+      "table": "assignments"
     }
   }'
 ```
 
 Adapt the destination field per warehouse type:
 - BigQuery: `"bigQuery": { "bigQueryConfig": {...}, "table": "assignments" }`
-- Snowflake: `"snowflake": { "snowflakeConfig": {...}, "table": "assignments" }`
+- Snowflake: `"snowflake": { "snowflakeConfig": {..., "database": "...", "schema": "..."}, "table": "ASSIGNMENTS" }` — **Snowflake requires `database` and `schema` fields in snowflakeConfig for connectors**
 - Databricks: `"databricks": { "databricksConfig": {...}, "table": "assignments" }`
 - Redshift: `"redshift": { "redshiftConfig": {...}, "s3Config": {...}, "batchFileConfig": {...}, "table": "assignments" }`
 
-**Event Connection** (events → warehouse):
+**Event Connection** (events → warehouse).
+
+**IMPORTANT:** The body is the connection object directly (gRPC transcoding `body: "event_connection"`), NOT wrapped.
+
 ```bash
-curl -s -w "\n%{http_code}" -X POST "https://connectors.confidence.dev/v1/eventConnections" \
+curl -s -w "\n%{http_code}" -X POST "https://connectors.${REGION}.confidence.dev/v1/eventConnections" \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
-    "eventConnection": {
-      "bigQuery": {
-        "bigQueryConfig": { "serviceAccount": "...", "project": "...", "dataset": "..." },
-        "tablePrefix": "events_"
-      }
+    "bigQuery": {
+      "bigQueryConfig": { "serviceAccount": "...", "project": "...", "dataset": "..." },
+      "tablePrefix": "events_"
     }
   }'
 ```
@@ -990,25 +1021,25 @@ Collect these if the user chose Redshift or Databricks.
 
 ### Step 6: Assignment table
 
-Create an assignment table so Confidence can analyze experiment assignments:
+Create an assignment table so Confidence can analyze experiment assignments.
+
+**IMPORTANT:** The body is the assignment table object directly (gRPC transcoding `body: "assignment_table"`), NOT wrapped in an `assignmentTable` key.
 
 ```bash
-curl -s -w "\n%{http_code}" -X POST "https://metrics.confidence.dev/v1/assignmentTables" \
+curl -s -w "\n%{http_code}" -X POST "https://metrics.${REGION}.confidence.dev/v1/assignmentTables" \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
-    "assignmentTable": {
-      "displayName": "Assignments",
-      "sql": "SELECT targeting_key, rule, assignment_id, assignment_time FROM `<PROJECT>.<DATASET>.assignments`",
-      "entityColumn": { "name": "targeting_key" },
-      "timestampColumn": { "name": "assignment_time" },
-      "exposureKeyColumn": { "name": "rule" },
-      "variantKeyColumn": { "name": "assignment_id" },
-      "dataDeliveredUntilUpdateStrategyConfig": {
-        "strategy": "AUTOMATIC",
-        "automaticUpdateConfig": {
-          "commitDelay": "300s"
-        }
+    "displayName": "Assignments",
+    "sql": "<SQL_QUERY>",
+    "entityColumn": { "name": "targeting_key" },
+    "timestampColumn": { "name": "assignment_time" },
+    "exposureKeyColumn": { "name": "rule" },
+    "variantKeyColumn": { "name": "assignment_id" },
+    "dataDeliveredUntilUpdateStrategyConfig": {
+      "strategy": "AUTOMATIC",
+      "automaticUpdateConfig": {
+        "commitDelay": "300s"
       }
     }
   }'
@@ -1024,7 +1055,29 @@ Adapt the SQL query per warehouse type:
 
 Verify both connectors by generating test data and checking it lands in the warehouse.
 
-**7a. Verify flag assignments**
+**7a. Get a client secret for testing**
+
+The resolver and events APIs require a **client secret** (not a Bearer token).
+
+1. **List the user's clients** and show them:
+   ```bash
+   curl -s "https://iam.${REGION}.confidence.dev/v1/clients" -H "Authorization: Bearer $TOKEN"
+   ```
+   Display each client with its name and last-seen time. If only one client exists, confirm it with the user. If multiple, let them pick.
+
+2. **Ask the user** if they have a client secret or want a new one:
+   > I'll use **<client name>** for the pipeline test. Do you have the client secret, or should I create a new credential?
+
+3. If the user wants a new credential, create one on the chosen client:
+   ```bash
+   curl -s -X POST "https://iam.${REGION}.confidence.dev/v1/<CLIENT_NAME>/credentials" \
+     -H "Authorization: Bearer $TOKEN" \
+     -H "Content-Type: application/json" \
+     -d '{"display_name": "Pipeline Test"}'
+   ```
+   Save the secret to a temp file for pipeline use. **Never print the secret to the user's terminal.**
+
+**7b. Verify flag assignments**
 
 Resolve a flag to generate assignment data (use an existing flag + client secret):
 ```bash
