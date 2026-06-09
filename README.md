@@ -83,12 +83,11 @@ This plugin provides access to Confidence tools across these categories:
 
 - **Feature flags** — Create, list, update, archive, resolve, and target feature flags
 - **Documentation** — Search Confidence docs and SDK integration guides
-- **Migration** — Migrate feature flags from PostHog or Optimizely to Confidence
+- **Migration** — Migrate feature flags from PostHog to Confidence
 
 ## Slash Commands
 
 - `/confidence:migrate-posthog` — Migrate feature flags from PostHog to Confidence SDK
-- `/confidence:migrate-optimizely` — Migrate feature flags from Optimizely to Confidence SDK
 - `/confidence:onboard-confidence` — Create Confidence accounts and onboard users
 
 ## Example Usage
@@ -98,7 +97,6 @@ This plugin provides access to Confidence tools across these categories:
 > Create a flag called new-checkout with a boolean schema
 > /confidence:migrate-posthog plan flag
 > /confidence:migrate-posthog plan code
-> /confidence:migrate-optimizely
 ```
 
 ## MCP Servers
