@@ -766,9 +766,17 @@ Requires an authenticated token. If none saved, run the Auth0 login flow first.
 Collect configuration based on type. Explain each field briefly.
 
 **BigQuery:**
-- GCP project ID — the project where BigQuery datasets live
-- Dataset name (default: `confidence`)
-- Service account email — must have BigQuery permissions
+
+Guide the user through each field with plain-language explanations and where to find the value:
+
+1. **GCP Project ID** — the Google Cloud project where your data lives.
+   > Go to **Google Cloud Console** (console.cloud.google.com). Your project ID is shown in the top bar next to "Google Cloud". It looks like `my-company-prod` or `project-12345`.
+
+2. **Dataset name** — where Confidence stores its tables (default: `confidence`).
+   > A dataset is like a folder in BigQuery. If you don't have one yet, the skill can create it for you via `bq mk`.
+
+3. **Service account email** — a robot account that Confidence uses to write data.
+   > Go to **Google Cloud Console → IAM & Admin → Service Accounts**. Create one (e.g., `confidence-connector@<project>.iam.gserviceaccount.com`) or pick an existing one. It needs BigQuery Data Editor and BigQuery Job User roles.
 
 **Snowflake:**
 
@@ -818,18 +826,49 @@ GRANT ALL ON SCHEMA <DATABASE>.<SCHEMA> TO ROLE <ROLE>;
 Save the crypto key name (e.g., `cryptoKeys/snowflake-key`) for use in the warehouse config.
 
 **Databricks:**
-- Host — Databricks workspace URL
-- SQL warehouse ID
-- Service principal client ID + secret
-- Exposure schema — schema for exposure tables
+
+Guide the user through each field with plain-language explanations and where to find the value:
+
+1. **Host** — your Databricks workspace URL.
+   > This is the URL you see in your browser when you open Databricks. It looks like `https://dbc-xxxxx.cloud.databricks.com`. You can find it in **Databricks → Settings → Workspace URL**, or just copy it from your browser address bar.
+
+2. **SQL Warehouse ID** — the compute resource Confidence uses to run queries.
+   > Go to **Databricks → SQL → SQL Warehouses**. Pick a warehouse (or create one) and copy its ID from the **Connection details** tab. It looks like a hex string, e.g., `1a2b3c4d5e6f7890`.
+   > If you don't have a SQL Warehouse yet, guide the user: **SQL → SQL Warehouses → Create SQL Warehouse** → pick "Serverless" (simplest), size Small.
+
+3. **Service principal client ID** — how Confidence authenticates to Databricks.
+   > A service principal is like a robot account. Go to **Databricks → Settings → Identity and access → Service principals → Add service principal → Add new**. Give it a name like "Confidence". After creation, copy the **Application (client) ID**.
+   > Then create a secret: click the service principal → **Secrets → Generate secret**. Copy the **Secret** value (shown only once).
+
+4. **Service principal client secret** — the secret you just generated above.
+
+5. **Catalog** — the Databricks Unity Catalog where Confidence stores its tables (default: `confidence`).
+   > A catalog is like a top-level folder for your data. If you don't have one, guide the user: **Databricks → Catalog → Create Catalog** → name it `confidence`.
+   > Grant the service principal access: `GRANT USE CATALOG ON CATALOG confidence TO \`<service-principal-app-id>\``
+
+6. **Schema** — the schema inside the catalog for Confidence tables (default: `exposure`).
+   > A schema is a subfolder inside the catalog. If it doesn't exist, guide the user to create it:
+   > `CREATE SCHEMA IF NOT EXISTS confidence.exposure`
+   > Grant access: `GRANT USE SCHEMA, CREATE TABLE ON SCHEMA confidence.exposure TO \`<service-principal-app-id>\``
 
 **Redshift:**
-- Cluster — Redshift cluster identifier
-- AWS region — select from available regions
-- IAM role ARN — role Confidence assumes
-- Database name
-- Schema name
-- Authentication — AWS access key + secret, or web identity
+
+Guide the user through each field with plain-language explanations and where to find the value:
+
+1. **Cluster** — your Redshift cluster identifier.
+   > Go to **AWS Console → Amazon Redshift → Clusters**. The cluster name is in the list (e.g., `my-analytics-cluster`).
+
+2. **AWS Region** — where your cluster runs (e.g., `us-east-1`, `eu-west-1`).
+   > Shown in the top-right corner of your AWS Console, or in the cluster details page.
+
+3. **IAM Role ARN** — the role Confidence assumes to access Redshift.
+   > Go to **AWS Console → IAM → Roles**. Create or pick a role with Redshift access. The ARN looks like `arn:aws:iam::123456789012:role/ConfidenceRedshift`.
+
+4. **Database name** — the Redshift database (default: `dev` or your main database).
+
+5. **Schema name** — where Confidence stores its tables (default: `confidence`).
+
+6. **Authentication** — AWS access key + secret, or web identity federation.
 
 ### Step 3: Validate configuration
 
