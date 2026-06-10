@@ -1,0 +1,19 @@
+{
+  "name": "confidence",
+  "displayName": "Confidence",
+  "version": "0.2.3",
+  "description": "Access Confidence feature flags, experiments, and migration tools directly from Cursor.",
+  "author": {
+    "name": "Spotify Confidence",
+    "url": "https://confidence.spotify.com"
+  },
+  "license": "Apache-2.0",
+  "keywords": [
+    "feature-flags",
+    "experiments",
+    "a/b-testing",
+    "migration",
+    "openfeature"
+  ],
+  "logo": "assets/logo.svg"
+}
