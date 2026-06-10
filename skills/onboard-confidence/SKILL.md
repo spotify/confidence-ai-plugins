@@ -1065,27 +1065,121 @@ After the user runs it, confirm: "Schema ready. Moving on to create the warehous
 
 **Redshift:**
 
-Guide the user through each field with plain-language explanations and where to find the value:
+Before collecting details, explain the full picture:
 
-1. **Cluster** — your Redshift cluster identifier.
-   > Go to **AWS Console → Amazon Redshift → Clusters**. The cluster name is in the list (e.g., `my-analytics-cluster`).
+> Setting up Redshift with Confidence requires:
+>
+> 1. **A Redshift cluster** (provisioned, not Serverless — Confidence uses the Redshift Data API with cluster identifiers)
+> 2. **An S3 bucket** — same staging pattern as Databricks: Confidence writes data to S3, then Redshift loads it via COPY
+> 3. **One IAM role** that serves double duty — both Confidence (via Google OIDC) and Redshift (for COPY) need to assume it
+> 4. **A schema** with public grants so Confidence can see it
+>
+> **How data flows:**
+> ```
+> Confidence → S3 bucket (staging) → Redshift COPY INTO → tables
+> ```
+>
+> If you already have a Redshift cluster, I just need the details. If not, I can create one via the `aws` CLI.
 
-2. **AWS Region** — where your cluster runs (e.g., `us-east-1`, `eu-west-1`).
-   > Shown in the top-right corner of your AWS Console, or in the cluster details page.
+Then collect step by step, one at a time:
 
-3. **IAM Role ARN** — the role Confidence assumes to access Redshift.
-   > Go to **AWS Console → IAM → Roles**. Create or pick a role with Redshift access. The ARN looks like `arn:aws:iam::123456789012:role/ConfidenceRedshift`.
+**Part 1: Redshift cluster**
 
-4. **Database name** — the Redshift database (default: `dev` or your main database).
+1. **Cluster identifier** — ask the user:
+   > What's your Redshift cluster name? Go to **AWS Console → Amazon Redshift → Clusters**. The name is in the list.
+   >
+   > **Don't have one?** I can create a single-node `ra3.large` cluster for you (cheapest option, ~$0.25/hr). Note: Redshift Serverless won't work — Confidence needs a provisioned cluster identifier.
 
-5. **Schema name** — where Confidence stores its tables (default: `confidence`).
+2. **AWS Region** — e.g., `eu-west-1`. Usually same region as the cluster.
 
-6. **Authentication** — AWS access key + secret, or web identity federation.
+3. **Database name** — default is `dev`.
+
+**Part 2: IAM role (one role for both Confidence and Redshift)**
+
+4. **IAM Role** — this single role must be trusted by both Google OIDC (so Confidence can write to S3 and call Redshift Data API) AND the Redshift service (so COPY can read from S3).
+
+   If using `aws` CLI, create it automatically:
+   ```bash
+   # Get the Confidence SA numeric ID
+   SA_UNIQUE_ID=$(gcloud iam service-accounts describe ${CONFIDENCE_SA} \
+     --project=spotify-confidence --format="value(uniqueId)")
+
+   # Create role with dual trust policy
+   cat > $TMPDIR/redshift-trust.json << EOF
+   {
+     "Version": "2012-10-17",
+     "Statement": [
+       {
+         "Effect": "Allow",
+         "Principal": {"Federated": "accounts.google.com"},
+         "Action": "sts:AssumeRoleWithWebIdentity",
+         "Condition": {
+           "StringEquals": {
+             "accounts.google.com:sub": "${SA_UNIQUE_ID}"
+           }
+         }
+       },
+       {
+         "Effect": "Allow",
+         "Principal": {"Service": "redshift.amazonaws.com"},
+         "Action": "sts:AssumeRole"
+       }
+     ]
+   }
+   EOF
+   aws iam create-role --role-name confidence-redshift \
+     --assume-role-policy-document file://$TMPDIR/redshift-trust.json
+   ```
+
+   Then attach permissions (S3 access + Redshift Data API):
+   ```bash
+   # S3 access
+   aws iam put-role-policy --role-name confidence-redshift \
+     --policy-name S3Access --policy-document file://$TMPDIR/s3-policy.json
+
+   # Redshift Data API access
+   cat > $TMPDIR/redshift-data-policy.json << EOF
+   {
+     "Version": "2012-10-17",
+     "Statement": [{
+       "Effect": "Allow",
+       "Action": ["redshift-data:*", "redshift:GetClusterCredentials",
+         "redshift:GetClusterCredentialsWithIAM", "redshift:DescribeClusters"],
+       "Resource": "*"
+     }]
+   }
+   EOF
+   aws iam put-role-policy --role-name confidence-redshift \
+     --policy-name RedshiftAccess --policy-document file://$TMPDIR/redshift-data-policy.json
+   ```
+
+   **CRITICAL:** Attach the role to the Redshift cluster (required for COPY command):
+   ```bash
+   aws redshift modify-cluster-iam-roles \
+     --cluster-identifier ${CLUSTER} \
+     --add-iam-roles ${ROLE_ARN} --region ${AWS_REGION}
+   ```
+   Wait for status `in-sync` before proceeding.
+
+**Part 3: S3 staging bucket**
+
+5. Same as Databricks — create an S3 bucket for staging. Can reuse the same bucket if user already set one up for Databricks.
+
+**Part 4: Schema**
+
+6. **Schema** — default `confidence`. Create it and grant public access:
+   ```bash
+   aws redshift-data execute-statement \
+     --cluster-identifier ${CLUSTER} --database ${DATABASE} --db-user admin \
+     --sql "CREATE SCHEMA IF NOT EXISTS confidence; GRANT USAGE ON SCHEMA confidence TO PUBLIC; GRANT CREATE ON SCHEMA confidence TO PUBLIC;" \
+     --region ${AWS_REGION}
+   ```
+   **IMPORTANT:** `GRANT USAGE ON SCHEMA ... TO PUBLIC` is required — without it, Confidence's validation returns "Schema not found" even though the schema exists.
 
 ### Step 3: Validate configuration
 
-**NOTE:** The validate endpoint only supports BigQuery (`bigQueryConfig`) and Snowflake (`snowflakeConfig`). The Confidence backend does not recognize Databricks or Redshift configs for validation (returns "configuration must be set" for any field name variant). For Databricks and Redshift, skip validation and proceed directly to Step 4 (Create warehouse). Tell the user honestly:
-> Pre-validation isn't available yet for Databricks/Redshift. I'll create the warehouse now and we'll verify the connection works end-to-end in the pipeline test step.
+**NOTE:** The validate endpoint supports BigQuery (`bigQueryConfig`), Snowflake (`snowflakeConfig`), and Redshift (`redshiftConfig`). It does NOT support Databricks (returns "configuration must be set" for any field name variant). For Databricks, skip validation and proceed directly to Step 4 (Create warehouse). Tell the user:
+> Pre-validation isn't available yet for Databricks. I'll create the warehouse now and we'll verify the connection works end-to-end in the pipeline test step.
 
 For BigQuery/Snowflake:
 ```bash
