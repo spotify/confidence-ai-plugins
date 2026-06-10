@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.0](https://github.com/spotify/confidence-ai-plugins/compare/v0.2.3...v0.3.0) (2026-06-10)
+
+
+### Features
+
+* add multi-client plugin support for Cursor, Codex, and Gemini CLI ([#20](https://github.com/spotify/confidence-ai-plugins/issues/20)) ([c7d291c](https://github.com/spotify/confidence-ai-plugins/commit/c7d291cd86f36eee81c25c27afa9e17af6bf1db1))
+
 ## [0.2.3](https://github.com/spotify/confidence-ai-plugins/compare/v0.2.2...v0.2.3) (2026-05-25)
 
 
