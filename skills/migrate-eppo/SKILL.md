@@ -914,10 +914,10 @@ Grep: pattern="getBanditAction|BanditResult|getBandit" → Find BANDITS (BLOCKED
 
 **Scan case-insensitively, and don't assume one spelling per type.** The
 assignment method name varies by language AND by value type. Go exports
-PascalCase (`GetBoolAssignment`); Java uses `getDoubleAssignment` for
+PascalCase (`GetBooleanAssignment`); Java uses `getDoubleAssignment` for
 numeric and `getJSONStringAssignment` (returns a serialized string) for
-JSON; JS shortens boolean to `getBoolAssignment` and JSON to
-`getJsonAssignment`; Python is snake_case. The grep above is the union —
+JSON; JS shortens boolean to `getBooleanAssignment` and JSON to
+`getJSONAssignment`; Python is snake_case. The grep above is the union —
 run it case-insensitively (`rg -i` / `Grep -i`). Map whatever you find to
 a value TYPE, not a fixed spelling:
 

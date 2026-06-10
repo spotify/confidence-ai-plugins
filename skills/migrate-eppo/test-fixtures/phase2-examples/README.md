@@ -31,9 +31,9 @@ Android SDK to build.
 
 ## Notable transform points exercised here
 
-- JS method-name variants (`getBoolAssignment`) and the precomputed
+- JS method-name variants (`getBooleanAssignment`) and the precomputed
   `getPrecomputedConfiguration` / `offlinePrecomputedInit` flow → `ConfidenceProvider` + `useFlag`
-- Go PascalCase (`GetBoolAssignment`) and ctx-first accessor signature
+- Go PascalCase (`GetBooleanAssignment`) and ctx-first accessor signature
 - Java `getDoubleAssignment` (numeric) / `getJSONStringAssignment` (JSON-as-string) → `getDoubleValue` / `getObjectValue`
 - Python `get_float_value` (numeric) and remote init (`api.set_provider`, no `set_provider_and_wait`)
 - Bandits (`getBanditAction`) dropped as BLOCKED — no Confidence equivalent
