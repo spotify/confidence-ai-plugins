@@ -1,6 +1,6 @@
 # Confidence AI Plugin
 
-Official Confidence plugin for AI coding tools. Access feature flags, experiments, and migration tools directly from Claude Code, Cursor, Codex, and Gemini CLI.
+Official Confidence plugin for AI clients. Access feature flags, experiments, and migration tools directly from your AI coding tool.
 
 ## Installation
 
@@ -24,50 +24,10 @@ Official Confidence plugin for AI coding tools. Access feature flags, experiment
     ```
     Follow the browser prompts to log in.
 
-#### Updating
+### Updating
 
 ```bash
 claude plugin update confidence:confidence
-```
-
-### Cursor
-
-#### From the Marketplace
-
-1. Open **Cursor Settings** > **Plugins**
-2. Search for **Confidence**
-3. Click **Install**
-
-#### Manual setup
-
-Add the MCP servers to `.cursor/mcp.json` in your project (or `~/.cursor/mcp.json` globally):
-
-```json
-{
-  "mcpServers": {
-    "confidence-flags": {
-      "url": "https://mcp.confidence.dev/mcp/flags"
-    },
-    "confidence-docs": {
-      "url": "https://mcp.confidence.dev/mcp/docs"
-    }
-  }
-}
-```
-
-### Codex
-
-```bash
-codex plugin marketplace add spotify/confidence-ai-plugins
-codex
-/plugins
-# Select Confidence and install
-```
-
-### Gemini CLI
-
-```bash
-gemini extensions install https://github.com/spotify/confidence-ai-plugins
 ```
 
 ### Local Development
@@ -81,22 +41,20 @@ claude --plugin-dir ./confidence-ai-plugins
 
 This plugin provides access to Confidence tools across these categories:
 
-- **Feature flags** — Create, list, update, archive, resolve, and target feature flags
-- **Documentation** — Search Confidence docs and SDK integration guides
-- **Migration** — Migrate feature flags from PostHog to Confidence
+- **Feature flags** - Create, list, update, archive, and resolve feature flags
+- **Migration** - Migrate feature flags from PostHog to Confidence
 
 ## Slash Commands
 
-- `/confidence:migrate-posthog` — Migrate feature flags from PostHog to Confidence SDK
-- `/confidence:onboard-confidence` — Create Confidence accounts and onboard users
+- `/confidence:migrate-posthog` - Migrate feature flags from PostHog to Confidence SDK
 
 ## Example Usage
 
 ```
 > List my feature flags
 > Create a flag called new-checkout with a boolean schema
-> /confidence:migrate-posthog plan flag
-> /confidence:migrate-posthog plan code
+> /migrate-posthog plan flag
+> /migrate-posthog plan code
 ```
 
 ## MCP Servers
@@ -105,15 +63,6 @@ This plugin provides access to Confidence tools across these categories:
 |--------|----------|-------------|
 | `confidence-flags` | `https://mcp.confidence.spotify.com/mcp/flags` | Feature flag management |
 | `confidence-docs` | `https://mcp.confidence.spotify.com/mcp/docs` | Confidence documentation |
-
-## Supported Clients
-
-| Client | Config | Marketplace |
-|--------|--------|-------------|
-| Claude Code | `.claude-plugin/` | Community marketplace |
-| Cursor | `.cursor-plugin/` | Cursor Marketplace |
-| Codex | `.codex-plugin/` | Via marketplace command |
-| Gemini CLI | `gemini-extension.json` | Direct from repo |
 
 ## Documentation
 

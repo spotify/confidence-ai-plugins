@@ -2,17 +2,11 @@
   "mcpServers": {
     "confidence-flags": {
       "type": "http",
-      "url": "https://mcp.confidence.dev/mcp/flags",
-      "headers": {
-        "x-confidence-mcp-consumer": "plugin"
-      }
+      "url": "https://mcp.confidence.dev/mcp/flags"
     },
     "confidence-docs": {
       "type": "http",
-      "url": "https://mcp.confidence.dev/mcp/docs",
-      "headers": {
-        "x-confidence-mcp-consumer": "plugin"
-      }
+      "url": "https://mcp.confidence.dev/mcp/docs"
     }
   }
 }
