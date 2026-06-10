@@ -88,7 +88,6 @@ This plugin provides access to Confidence tools across these categories:
 ## Slash Commands
 
 - `/confidence:migrate-posthog` — Migrate feature flags from PostHog to Confidence SDK
-- `/confidence:onboard-confidence` — Create Confidence accounts and onboard users
 
 ## Example Usage
 
