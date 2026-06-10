@@ -740,18 +740,88 @@ Requires an authenticated token. If none saved, run the Auth0 login flow first.
 
 ### Step Tracker
 
+Show the initial tracker at start. After the user picks a warehouse type in Step 1, **replace it** with the warehouse-specific tracker that shows the actual sub-steps. Update and re-display after each step.
+
+**Initial (before warehouse choice):**
 ```
 ───── Setup Warehouse ─────────────────────────────────────
-  [1] Choose warehouse     ○ pending
-  [2] Configure            ○ pending
-  [3] Validate             ○ pending
-  [4] Create warehouse     ○ pending
-  [5] Create connectors    ○ pending
-  [6] Assignment table     ○ pending
-  [7] Verify pipeline      ○ pending
-  [8] Done                 ○ pending
+  [1] Choose warehouse     ▶ in-progress
 ────────────────────────────────────────────────────────────
 ```
+
+**BigQuery tracker (after choosing BigQuery):**
+```
+───── Setup Warehouse (BigQuery) ──────────────────────────
+  [1] Choose warehouse     ● done
+  [2] GCP project ID       ○ pending
+  [3] Dataset name         ○ pending
+  [4] Service account      ○ pending
+  [5] Validate & fix       ○ pending
+  [6] Create warehouse     ○ pending
+  [7] Create connectors    ○ pending
+  [8] Assignment table     ○ pending
+  [9] Verify pipeline      ○ pending
+  [10] Done                ○ pending
+────────────────────────────────────────────────────────────
+```
+
+**Snowflake tracker (after choosing Snowflake):**
+```
+───── Setup Warehouse (Snowflake) ─────────────────────────
+  [1] Choose warehouse     ● done
+  [2] Account & user       ○ pending
+  [3] Role & warehouse     ○ pending
+  [4] Database & schema    ○ pending
+  [5] Create crypto key    ○ pending
+  [6] Register key in SF   ○ pending
+  [7] Validate             ○ pending
+  [8] Create warehouse     ○ pending
+  [9] Create connectors    ○ pending
+  [10] Assignment table    ○ pending
+  [11] Verify pipeline     ○ pending
+  [12] Done                ○ pending
+────────────────────────────────────────────────────────────
+```
+
+**Databricks tracker (after choosing Databricks):**
+```
+───── Setup Warehouse (Databricks) ────────────────────────
+  [1] Choose warehouse     ● done
+  [2] Workspace URL        ○ pending
+  [3] SQL Warehouse ID     ○ pending
+  [4] Service principal    ○ pending
+  [5] AWS account & CLI    ○ pending
+  [6] S3 bucket            ○ pending
+  [7] IAM role             ○ pending
+  [8] Databricks schema    ○ pending
+  [9] Create warehouse     ○ pending
+  [10] Create connectors   ○ pending
+  [11] Assignment table    ○ pending
+  [12] Verify pipeline     ○ pending
+  [13] Done                ○ pending
+────────────────────────────────────────────────────────────
+```
+
+**Redshift tracker (after choosing Redshift):**
+```
+───── Setup Warehouse (Redshift) ──────────────────────────
+  [1] Choose warehouse     ● done
+  [2] AWS account & CLI    ○ pending
+  [3] Redshift cluster     ○ pending
+  [4] S3 bucket            ○ pending
+  [5] IAM role             ○ pending
+  [6] Attach role          ○ pending
+  [7] Schema & grants      ○ pending
+  [8] Validate             ○ pending
+  [9] Create warehouse     ○ pending
+  [10] Create connectors   ○ pending
+  [11] Assignment table    ○ pending
+  [12] Verify pipeline     ○ pending
+  [13] Done                ○ pending
+────────────────────────────────────────────────────────────
+```
+
+Use `●` for completed, `▶` for in-progress, `○` for pending. Re-display the full tracker after every step transition so the user always sees their progress.
 
 ### Step 1: Choose warehouse type
 
@@ -1065,46 +1135,89 @@ After the user runs it, confirm: "Schema ready. Moving on to create the warehous
 
 **Redshift:**
 
-Before collecting details, explain the full picture:
+Before collecting details, explain the full picture so the user knows what they're signing up for:
 
-> Setting up Redshift with Confidence requires:
+> Setting up Redshift with Confidence requires an **AWS account**. Here's what we'll set up:
 >
-> 1. **A Redshift cluster** (provisioned, not Serverless — Confidence uses the Redshift Data API with cluster identifiers)
-> 2. **An S3 bucket** — same staging pattern as Databricks: Confidence writes data to S3, then Redshift loads it via COPY
-> 3. **One IAM role** that serves double duty — both Confidence (via Google OIDC) and Redshift (for COPY) need to assume it
-> 4. **A schema** with public grants so Confidence can see it
+> 1. **A Redshift cluster** — a data warehouse that stores your experiment data
+> 2. **An S3 bucket** — a staging area where Confidence drops data files before loading them into Redshift
+> 3. **An IAM role** — permissions that let Confidence write to S3 and load into Redshift
+> 4. **A schema** — a folder inside Redshift where Confidence creates its tables
 >
 > **How data flows:**
 > ```
-> Confidence → S3 bucket (staging) → Redshift COPY INTO → tables
+> Confidence → S3 bucket (staging) → Redshift COPY → your tables
 > ```
 >
-> If you already have a Redshift cluster, I just need the details. If not, I can create one via the `aws` CLI.
+> I can set up everything automatically if you have the `aws` CLI, or walk you through the AWS Console step by step.
+>
+> **Don't have an AWS account?** You'll need one. I can open the signup page for you. AWS free tier covers S3, but Redshift clusters cost ~$0.25/hr while running. You can delete it after testing.
 
-Then collect step by step, one at a time:
+Ask the user:
+> Do you have the `aws` CLI set up, or would you prefer manual steps?
+> 1. Set it up for me (requires `aws` CLI)
+> 2. Show me the steps
+
+**If the user picks 1 (aws CLI):**
+
+Check `which aws`. If not found: `brew install awscli` (macOS).
+Check `aws sts get-caller-identity`. If not logged in, open the AWS console login (`open "https://console.aws.amazon.com"`), guide them to create access keys (**click name top right → Security credentials → Access keys → Create**), then write the credentials to `~/.aws/credentials` and `~/.aws/config`.
+
+Then ask one question at a time:
 
 **Part 1: Redshift cluster**
 
-1. **Cluster identifier** — ask the user:
-   > What's your Redshift cluster name? Go to **AWS Console → Amazon Redshift → Clusters**. The name is in the list.
+1. Ask the user:
+   > Do you already have a Redshift cluster, or should I create one?
+
+   If they have one:
+   > What's the cluster name? Go to **AWS Console → Amazon Redshift → Clusters**. The name is in the first column.
+
+   If they need one, explain:
+   > I'll create a single-node Redshift cluster. This is a data warehouse — like a powerful database optimized for analytics.
+   > - **Cost:** ~$0.25/hour while running. Delete it when you're done testing.
+   > - **Type:** `ra3.large` (cheapest option that supports single-node)
+   > - **Region:** `eu-west-1` (Europe) — should match where your Confidence account is
    >
-   > **Don't have one?** I can create a single-node `ra3.large` cluster for you (cheapest option, ~$0.25/hr). Note: Redshift Serverless won't work — Confidence needs a provisioned cluster identifier.
+   > **Important:** Redshift Serverless won't work — Confidence needs a provisioned cluster. I'll create the right type.
 
-2. **AWS Region** — e.g., `eu-west-1`. Usually same region as the cluster.
-
-3. **Database name** — default is `dev`.
-
-**Part 2: IAM role (one role for both Confidence and Redshift)**
-
-4. **IAM Role** — this single role must be trusted by both Google OIDC (so Confidence can write to S3 and call Redshift Data API) AND the Redshift service (so COPY can read from S3).
-
-   If using `aws` CLI, create it automatically:
+   Create it:
    ```bash
-   # Get the Confidence SA numeric ID
+   aws redshift create-cluster \
+     --cluster-identifier confidence-redshift-${ACCOUNT_ID} \
+     --cluster-type single-node \
+     --node-type ra3.large \
+     --master-username admin \
+     --master-user-password '<GENERATE_RANDOM_PASSWORD>' \
+     --db-name dev \
+     --region eu-west-1 \
+     --publicly-accessible
+   ```
+
+   Wait for status `available` (takes ~1–2 minutes):
+   ```bash
+   aws redshift wait cluster-available --cluster-identifier ${CLUSTER} --region ${AWS_REGION}
+   ```
+
+   Confirm: "Redshift cluster `<name>` is running."
+
+**Part 2: IAM role**
+
+2. Explain:
+   > Now I need to set up permissions. Confidence needs a single IAM role that does two things:
+   > - Lets Confidence write data files to S3 and query Redshift
+   > - Lets Redshift read those files from S3 (via the COPY command)
+   >
+   > I'll create this role automatically.
+
+   Get the Confidence service account numeric ID:
+   ```bash
    SA_UNIQUE_ID=$(gcloud iam service-accounts describe ${CONFIDENCE_SA} \
      --project=spotify-confidence --format="value(uniqueId)")
+   ```
 
-   # Create role with dual trust policy
+   Create the role with dual trust (Google OIDC + Redshift):
+   ```bash
    cat > $TMPDIR/redshift-trust.json << EOF
    {
      "Version": "2012-10-17",
@@ -1131,50 +1244,93 @@ Then collect step by step, one at a time:
      --assume-role-policy-document file://$TMPDIR/redshift-trust.json
    ```
 
-   Then attach permissions (S3 access + Redshift Data API):
+   Attach S3 + Redshift Data API permissions:
    ```bash
-   # S3 access
+   # S3 write access
+   cat > $TMPDIR/s3-policy.json << EOF
+   {"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:PutObject","s3:GetObject","s3:DeleteObject","s3:ListBucket"],"Resource":["arn:aws:s3:::${BUCKET_NAME}","arn:aws:s3:::${BUCKET_NAME}/*"]}]}
+   EOF
    aws iam put-role-policy --role-name confidence-redshift \
      --policy-name S3Access --policy-document file://$TMPDIR/s3-policy.json
 
    # Redshift Data API access
    cat > $TMPDIR/redshift-data-policy.json << EOF
-   {
-     "Version": "2012-10-17",
-     "Statement": [{
-       "Effect": "Allow",
-       "Action": ["redshift-data:*", "redshift:GetClusterCredentials",
-         "redshift:GetClusterCredentialsWithIAM", "redshift:DescribeClusters"],
-       "Resource": "*"
-     }]
-   }
+   {"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["redshift-data:*","redshift:GetClusterCredentials","redshift:GetClusterCredentialsWithIAM","redshift:DescribeClusters"],"Resource":"*"}]}
    EOF
    aws iam put-role-policy --role-name confidence-redshift \
      --policy-name RedshiftAccess --policy-document file://$TMPDIR/redshift-data-policy.json
    ```
 
-   **CRITICAL:** Attach the role to the Redshift cluster (required for COPY command):
+   **CRITICAL:** Attach the role to the Redshift cluster — without this, the COPY command can't read from S3:
    ```bash
    aws redshift modify-cluster-iam-roles \
      --cluster-identifier ${CLUSTER} \
      --add-iam-roles ${ROLE_ARN} --region ${AWS_REGION}
    ```
-   Wait for status `in-sync` before proceeding.
+   Wait for `in-sync`:
+   ```bash
+   aws redshift describe-clusters --cluster-identifier ${CLUSTER} --region ${AWS_REGION} \
+     --query "Clusters[0].IamRoles[*].{Role:IamRoleArn,Status:ApplyStatus}" --output table
+   ```
+
+   Confirm: "IAM role created and attached to cluster."
 
 **Part 3: S3 staging bucket**
 
-5. Same as Databricks — create an S3 bucket for staging. Can reuse the same bucket if user already set one up for Databricks.
+3. Ask the user:
+   > Do you have an S3 bucket I should use, or should I create one?
+
+   If they already did Databricks setup:
+   > You already have `<bucket_name>` from the Databricks setup. Want to reuse it?
+
+   Otherwise, create one:
+   ```bash
+   aws s3api create-bucket --bucket confidence-redshift-${ACCOUNT_ID} \
+     --region ${AWS_REGION} \
+     --create-bucket-configuration LocationConstraint=${AWS_REGION}
+   ```
+
+   Confirm: "S3 bucket `<name>` created in `<region>`."
 
 **Part 4: Schema**
 
-6. **Schema** — default `confidence`. Create it and grant public access:
+4. Ask the user:
+   > What should the schema be called? The default is `confidence`.
+
+   Create the schema and grant permissions so Confidence can see it:
    ```bash
    aws redshift-data execute-statement \
      --cluster-identifier ${CLUSTER} --database ${DATABASE} --db-user admin \
-     --sql "CREATE SCHEMA IF NOT EXISTS confidence; GRANT USAGE ON SCHEMA confidence TO PUBLIC; GRANT CREATE ON SCHEMA confidence TO PUBLIC;" \
+     --sql "CREATE SCHEMA IF NOT EXISTS ${SCHEMA}; GRANT USAGE ON SCHEMA ${SCHEMA} TO PUBLIC; GRANT CREATE ON SCHEMA ${SCHEMA} TO PUBLIC;" \
      --region ${AWS_REGION}
    ```
-   **IMPORTANT:** `GRANT USAGE ON SCHEMA ... TO PUBLIC` is required — without it, Confidence's validation returns "Schema not found" even though the schema exists.
+
+   **IMPORTANT:** `GRANT USAGE ON SCHEMA ... TO PUBLIC` is required — without it, Confidence's validation returns "Schema not found" even though the schema exists. This is because Confidence connects via IAM, not as the `admin` user.
+
+   Confirm: "Schema `<name>` created with permissions."
+
+**If the user picks 2 (manual steps):**
+
+Walk them through the AWS Console for each step:
+
+1. **Redshift cluster:** Go to **AWS Console → Amazon Redshift → Create cluster** → single-node, ra3.large, database `dev`, publicly accessible.
+
+2. **S3 bucket:** Go to **AWS Console → S3 → Create bucket** → name it, pick same region as cluster.
+
+3. **IAM role:** Go to **AWS Console → IAM → Roles → Create role** → two trust steps:
+   - Add **Web identity** trust with `accounts.google.com`, sub = `<SA_UNIQUE_ID>` (compute and display for the user)
+   - Add **AWS service** trust for `redshift.amazonaws.com`
+   - Attach policies: custom S3 policy scoped to bucket + `AmazonRedshiftDataFullAccess`
+   - Copy the **Role ARN**
+   - Go back to **Redshift → Clusters → your cluster → Properties → Manage IAM roles → Add the new role**
+
+4. **Schema:** Go to **Redshift → Query editor v2** → connect to cluster → run:
+   ```sql
+   CREATE SCHEMA IF NOT EXISTS confidence;
+   GRANT USAGE ON SCHEMA confidence TO PUBLIC;
+   GRANT CREATE ON SCHEMA confidence TO PUBLIC;
+   ```
+   Copy the SQL to clipboard for the user.
 
 ### Step 3: Validate configuration
 
