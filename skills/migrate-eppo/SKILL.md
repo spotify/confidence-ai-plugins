@@ -4,14 +4,32 @@ description: Migrate feature flags from Eppo to Confidence SDK. Use when the use
 
 # Eppo to Confidence Migration
 
-> **Read the shared core first.** Before doing anything else, use the
-> Read tool to read `skills/_shared/migration-core.md`. That file
-> defines all Confidence-side conventions every migration follows —
-> payload formats, the flag setup sequence, naming rules, the execute
-> flow, etc. THIS file only covers what's specific to Eppo. Apply
-> both together.
+REST-driven, self-sufficient migration from Eppo to Confidence. This
+skill is fully self-contained: it defines both the Eppo-specific
+migration logic AND all the Confidence-side conventions it relies on
+(payload formats, naming rules, the flag setup sequence, the execute
+flow, etc.).
 
-REST-driven, self-sufficient migration from Eppo to Confidence.
+## SDK Preference
+
+**ALWAYS prefer OpenFeature with local resolve.**
+
+| Priority | Approach | When to use |
+|----------|----------|-------------|
+| 1st | Local resolve | Default for all new integrations |
+| 2nd | Remote resolve | Only if local resolve not supported for platform |
+| Avoid | Direct SDK | Being phased out |
+
+## Plan Philosophy
+
+**Plans must be self-sufficient and agent-agnostic.**
+
+| Principle | Meaning |
+|-----------|---------|
+| **Source-boxed** | Every external data fetch uses one explicit channel (the Eppo REST API with curl, the Confidence MCP) — no ad-hoc browsing |
+| **Self-sufficient** | Plan contains ALL information needed — no "query the source for X" at execute time |
+| **Agent-agnostic** | Any agent with the prerequisites can execute the plan without prior context |
+| **Language-agnostic** | Detect framework, fetch SDK guide from `confidence-docs` MCP dynamically |
 
 ## Commands
 
@@ -88,10 +106,48 @@ Then proceed with the normal workflow for that phase.
 
 ---
 
-## Prerequisites: Eppo Side
+## Prerequisites: Confidence Side
 
-(The core file documents the Confidence-side prerequisites — install
-`confidence` and `confidence-docs` MCP servers.)
+### Confidence MCP
+
+Test: `mcp__confidence__listClients`
+
+If not available, install it:
+```
+claude mcp add confidence --transport http --url https://mcp.confidence.dev/mcp/flags
+```
+
+The user will be prompted to authenticate via OAuth in their browser.
+
+### Confidence Docs MCP (required for `plan code` only)
+
+Test: `mcp__confidence-docs__searchDocumentation`
+
+If not available, install it:
+```
+claude mcp add confidence-docs --transport http --url https://mcp.confidence.dev/mcp/docs
+```
+
+The user will be prompted to authenticate via OAuth in their browser.
+
+## User-Facing Communication Rules
+
+**NEVER expose internal technical details to the user.** The user should
+see human-readable descriptions of what's happening, not internal
+implementation details like targeting payload formats, rule types, or
+operator names.
+
+- Do NOT say "creating plan based on eqRule / rangeRule / setRule" etc.
+- Do NOT show raw targeting payloads or JSON structures in conversation
+- Do NOT echo any user-provided secret (API keys, tokens) back into the
+  conversation or write them to the plan file — store them only as
+  environment variables for the session
+- DO say things like: "Creating flag with rule: plan equals 'pro' AND country is US or UK"
+- DO describe rules in plain English: "age between 18 and 65", "plan is not free"
+- The plan FILE may contain MCP command payloads (for machine execution),
+  but conversation output must be human-friendly
+
+## Prerequisites: Eppo Side
 
 Eppo does not currently publish a Claude MCP server, so the migration
 talks to Eppo's REST API directly using `curl` from the Bash tool.
@@ -126,8 +182,8 @@ and reference it via `$EPPO_API_KEY` in every `curl` call — never
 hardcode the key into the plan file, the conversation output, or any
 committed file. If the user pastes a key inline, scrub it from the plan
 file and only keep a placeholder like `<your-eppo-api-key>`. (See also
-the "never echo secrets" rule in the core file's user-facing
-communication rules.)
+the "never echo secrets" rule in the User-Facing Communication Rules
+above.)
 
 ### Smoke test before scanning
 
@@ -232,8 +288,56 @@ The list endpoint returns a **bare JSON array**, no wrapper object.
 
 ## Step Trackers
 
-(The core file defines the marker legend, progress-bar conventions, and
-final-summary format. This section just declares the layouts.)
+### Status markers
+
+- `○ pending` — not started yet
+- `◉ in progress` — currently running
+- `⏸ awaiting user` — blocked on user input (e.g. picking a client or entity)
+- `✓ done` — completed (add brief user-facing result)
+- `⊘ skipped` — skipped by user
+
+Use `⏸ awaiting user` whenever the workflow has asked a question and is
+waiting for an explicit reply. This makes "I'm blocked on you" visible
+to both agent and user, and prevents drifting into auto-progression
+while a question is open.
+
+**Never expose internal/technical details in the tracker.** No
+pagination info, no API page counts, no internal field names. Show only
+what matters to the user. **Update and re-display the tracker** at the
+start and after each step completes.
+
+### Execute progress bar
+
+The execute step tracker includes a progress bar. Use `█` for completed
+and `░` for remaining, 20 characters wide.
+
+```
+  Progress: [██████░░░░░░░░░░░░░░] 5/15 (1 skipped)
+  Current:  complex-deployment-and-version
+```
+
+After each flag completes, show one of:
+
+```
+  ✓ flag-key — MATCH (variant-name)
+  ⊘ flag-key — skipped
+```
+
+### Final summary (Execute)
+
+At the end of execution, show a complete summary:
+
+```
+───── Migration Complete ──────────────────────────────────
+  Progress: [████████████████████] 15/15 done
+  Migrated: 14  |  Skipped: 1  |  Failed: 0
+
+  ✓ flag-key-1                100%   user_id
+  ✓ flag-key-2                50/50  user_id
+  ⊘ flag-key-3                —      skipped
+  ...
+────────────────────────────────────────────────────────────
+```
 
 ### Plan Flags step tracker
 
@@ -267,12 +371,60 @@ Example after Step 1 completes:
 
 ---
 
-## Plan Flag: Eppo-Specific Steps
+## Confidence Naming Rules
 
-The core file defines the workflow shape (Step 1 scan, Step 2 client
-selection, Step 3 randomization mapping, Step 4 generate). This
-section provides the Eppo-specific implementations of steps 1 and 3,
-and the operator mapping table needed by step 4.
+- **Flag names:** lowercase letters, digits, and hyphens only (`[a-z0-9-]`).
+  Eppo flag keys often already follow this convention; if not, normalize
+  (e.g. `Checkout_Redesign` → `checkout-redesign`) and record the mapping
+  in the plan so the code phase can find the right replacement.
+- **Entity references:** Confidence entity names do NOT support underscores.
+  The entity reference (e.g. `entities/company`) is separate from the context
+  field name (e.g. `company_id`). When creating entity fields with
+  `addContextField`, always provide an explicit `entityReference` with a
+  clean name (no underscores). If omitted, the tool auto-generates one from
+  the field name which will fail.
+
+  | Field name | Entity reference | Works? |
+  |------------|-----------------|--------|
+  | `user_id` | `entities/user` | Yes |
+  | `company_id` | `entities/company` | Yes |
+  | `visitor_id` | `entities/visitor` | Yes |
+  | `company_id` | *(omitted — auto: `entities/company_id`)* | **No** |
+
+## Plan Files: Resume Check & Progressive Updates
+
+Both plan flags and plan code use a progressive plan file. Created at
+Step 1, updated after each step, so a closed session can resume.
+
+### Resume check (MUST do first)
+
+Before starting any plan workflow, check for an existing in-progress
+plan:
+
+- `plan flags` → `.claude/plans/eppo-flag-migration-*.md`
+- `plan code`  → `.claude/plans/eppo-code-migration-*.md`
+
+If a plan file exists, read its `## Generation Status` section:
+
+- If status is `complete` → tell user a plan already exists, ask if
+  they want to start fresh or use the existing one
+- If status is NOT `complete` → **resume from the last incomplete step**.
+  Tell the user: "Found an in-progress plan. Resuming from step <N>."
+- If no plan file exists → start fresh
+
+### Generation Status table
+
+Every plan file MUST include a `## Generation Status` section at the
+top that tracks which steps are done. Status values: `✓ complete`,
+`◉ in progress`, `○ not started`. **After each step completes**, update
+the status table AND write that step's data to the plan file. Do NOT
+wait until the end to write.
+
+## Plan Flag: Steps
+
+The migration follows a 4-step plan flow: Step 1 scan Eppo, Step 2
+choose a Confidence client, Step 3 map the randomization unit, Step 4
+generate the MCP commands.
 
 ### Plan-file path
 
@@ -382,11 +534,51 @@ Record each audience's `name` and `targeting_rules[]` in the plan so
 `execute` can create one Confidence segment per audience and reuse it
 across every flag that references it.
 
-**Randomization unit.** Eppo always uses `subjectKey`. Unlike PostHog
-there's no per-group bucketing concept built into the flag — group-level
+**Randomization unit.** Eppo always uses `subjectKey`. There's no
+per-group bucketing concept built into the flag — group-level
 experiments are handled by passing a `companyId` as the `subjectKey`.
 For the migration, treat every flag as per-subject; the user picks which
 Confidence entity field represents that subject in Step 3.
+
+**After scan completes:** Update Generation Status step 1 to `✓ complete`.
+
+### Step 2: Select Confidence client
+
+```
+mcp__confidence__listClients
+```
+
+**EDUCATE then ASK the user:**
+
+> **What is a client?**
+> A client represents the application that resolves flags — your website,
+> backend service, or mobile app. Each client has its own secret for
+> authentication and can be scoped to environments (dev, staging, prod).
+> Flags are associated with one or more clients, so Confidence knows which
+> application should receive which flags.
+>
+> Think of it like: "Where will these flags be evaluated?"
+>
+> Your existing clients:
+> 1. <client-1>
+> 2. <client-2>
+> ...
+> N. Create a new client
+>
+> Which client should I use as the default for all flags?
+> You can always rearrange them later in the Confidence UI.
+
+**Wait for an explicit pick.** Set the step to `⏸ awaiting user` and
+stop. A re-run of the migration command, an empty message, or any reply
+that is not a number from the list / `new <name>` is **not** consent —
+NEVER infer the recommendation from silence. If the reply is ambiguous,
+re-ask, listing the choices again.
+
+- If user picks existing → use it
+- If user wants new → ASK for name → `mcp__confidence__createClient`
+
+**After client selected:** Write the "Default Client" section to the
+plan file and update Generation Status step 2 to `✓ complete`.
 
 ### Step 3: Map Subject Key (Eppo-specific)
 
@@ -420,13 +612,13 @@ This step maps Eppo's `subjectKey` to a Confidence entity field.
 >
 > Which Confidence field represents the same identifier as `subjectKey`?
 
-Same wait-for-explicit-pick rule as Step 2 in the core file. Silence is
-not consent.
+Same wait-for-explicit-pick rule as Step 2 above. Silence is not
+consent.
 
 - If user picks existing → use it as `targetingKey`
 - If user wants new → ASK for name + type → `mcp__confidence__addContextField`
   (always provide an explicit `entityReference` — see Confidence Naming
-  Rules in the core file)
+  Rules above)
 
 **Eppo subject targeting (`id` attribute).** Eppo lets rules target the
 subject directly via the special attribute `id`. When a rule references
@@ -434,11 +626,36 @@ subject directly via the special attribute `id`. When a rule references
 context key for `targetingKey`). Record this substitution in Section 2
 of the plan.
 
-### Step 4 confirmation gate (Eppo-specific summary)
+### Step 4: Generate MCP commands
 
-Summarize chosen client + entity + Eppo source environment and ask the
-standard confirm question from the core file. Eppo adds one extra item
-to summarize: the source environment chosen in Step 1a.
+**Confirmation gate (MUST pass before generating).** Before writing the
+Flags to Migrate section, summarize the choices made in earlier steps
+(client, randomization entity, AND the Eppo source environment chosen in
+Step 1a) and ask:
+
+> Plan will assume client `<client>` with randomization entity
+> `<entity>`, migrating from Eppo environment `<env>`. All flags will be
+> defaulted to `[ ] Migrate  [ ] Skip` (neither pre-checked) — you'll opt
+> each one in during review. Confirm or change?
+
+Set the step to `⏸ awaiting user` and stop. Only proceed on an explicit
+`yes` / `confirm` / equivalent. A re-run or ambiguous reply is **not**
+confirmation.
+
+For each flag, generate the MCP command payloads (`createFlag`,
+`addFlagToClient`, `addTargetingRule`, `resolveFlag`) using the Operator
+Mapping table together with the Confidence Targeting Payload Format
+(below). Write them into each flag's section in the plan.
+
+**After all commands generated:** Update Generation Status step 4 to
+`✓ complete`, set the overall status to `complete`, and tell the user:
+
+> Plan generated! Review it at `.claude/plans/eppo-flag-migration-<date>.md`
+>
+> Migration is **opt-in**: every flag starts with both checkboxes empty.
+> Tick `[x] Migrate` or `[x] Skip` for each flag — `execute` will refuse
+> any flag with neither box set. When ready, run:
+> `/migrate-eppo execute <plan-file>`
 
 **Allocation → targeting-rule order.** Eppo allocations form a
 waterfall — the first matching allocation wins. Confidence evaluates
@@ -447,12 +664,271 @@ call per Eppo allocation, in the same order.
 
 ---
 
+## Confidence Targeting Payload Format
+
+This is how Confidence targeting rules are structured. Use this when
+generating `addTargetingRule` payloads.
+
+**CRITICAL:** The payload uses a `criteria` + `expression` pattern.
+Criteria are named references (`ref-0`, `ref-1`, ...) that define
+individual conditions. The `expression` combines them with boolean
+logic (`and`, `or`, `not`, `ref`).
+
+```json
+{
+  "criteria": {
+    "ref-0": {
+      "attribute": {
+        "attributeName": "<field>",
+        "<rule>": { ... }
+      }
+    }
+  },
+  "expression": { "ref": "ref-0" }
+}
+```
+
+**DO NOT use nested rule objects like `{"or": {"operands": [{"eqRule": ...}]}}`
+at the top level.** That format is silently parsed as empty targeting
+(matching ALL contexts) due to `ignoringUnknownFields()` in the proto
+parser.
+
+### Criterion rules
+
+These mirror the canonical `Targeting` proto in the open-source
+resolver (`spotify/confidence-resolver`,
+`protos/confidence/flags/types/v1/target.proto`). The JSON wire form is
+proto3 → JSON (camelCase keys).
+
+| Match | Form |
+|---|---|
+| String eq | `"eqRule": { "value": { "stringValue": "X" } }` |
+| Number eq | `"eqRule": { "value": { "numberValue": N } }` |
+| Bool eq | `"eqRule": { "value": { "boolValue": true } }` |
+| Version eq | `"eqRule": { "value": { "versionValue": { "version": "1.2.3" } } }` |
+| String set (in) | `"setRule": { "values": [{ "stringValue": "A" }, { "stringValue": "B" }] }` |
+| `>=` | `"rangeRule": { "startInclusive": { "numberValue": N } }` |
+| `>` | `"rangeRule": { "startExclusive": { "numberValue": N } }` |
+| `<` | `"rangeRule": { "endExclusive": { "numberValue": N } }` |
+| `<=` | `"rangeRule": { "endInclusive": { "numberValue": N } }` |
+| Version `>=` | `"rangeRule": { "startInclusive": { "versionValue": { "version": "2.0.0" } } }` |
+| Version `<` | `"rangeRule": { "endExclusive": { "versionValue": { "version": "3.0.0" } } }` |
+| Timestamp `>=` | `"rangeRule": { "startInclusive": { "timestampValue": "2022-11-17T15:16:17Z" } }` |
+| starts with | `"startsWithRule": { "value": "prefix" }` |
+| ends with | `"endsWithRule": { "value": "suffix" }` |
+| attribute is set (exists) | `{ "attribute": { "attributeName": "X" } }` (attribute criterion with **no** inner rule) |
+| segment membership | `{ "segment": { "segment": "segments/<id>" } }` (a whole criterion, not an `attribute` rule) |
+
+**Value types.** A `Value` is a oneof: `boolValue`, `numberValue`,
+`stringValue`, `timestampValue` (RFC-3339 string), `versionValue`
+(`{ "version": "X.Y.Z" }`), or `listValue`. Equality (`==`, `!=`, set
+membership) is defined for all types; comparison (`<`, `<=`, `>`, `>=`
+via `rangeRule`) is defined for **number, timestamp, and version**.
+
+**Version semantics.** The resolver parses version strings with 2–4
+numeric segments (`1.2`, `1.2.3`, `1.2.3.4`), strips any pre-release
+suffix after `-` (`1.2.3-beta` compares as `1.2.3`), and rejects
+non-numeric or `v`-prefixed strings (`v1.0.0` → does not parse).
+Send the version in the evaluation context as a plain string; the
+`versionValue` criterion makes Confidence compare it as a version
+rather than lexically.
+
+**Set rule vs OR-of-eq.** `setRule` with multiple values is the native
+"is one of" and is preferred over an `or` of `eqRule`s when realizing
+list membership. Both resolve identically.
+
+**Existence / null checks.** An attribute criterion with **no inner
+rule** — just `{ "attribute": { "attributeName": "X" } }` — is a
+presence check: it matches when attribute `X` is set. The resolver
+compiles a ruleless attribute criterion to an existence test
+(`spotify/confidence-resolver`, `ir_builder.rs`: the `_ =>` arm emits
+`I64Neqz`), and the resolver's own spec fixtures include a bare
+`{ "attributeName": "country" }` criterion. The admin API accepts it on
+create (`epx-flags-admin` `TargetingValidator` does no structural
+validation for `ATTRIBUTE` criteria). To express **"attribute is
+null/absent"**, reference that criterion under `not`:
+
+```json
+{
+  "criteria": {
+    "ref-0": { "attribute": { "attributeName": "country" } }
+  },
+  "expression": { "not": { "ref": "ref-0" } }
+}
+```
+
+Because it composes like any other criterion, "X is null AND Y = foo"
+is expressible: `and(not(ref-x), ref-y)`. Note: the web segment editor
+may not render a control for a ruleless criterion, so a null rule can
+look empty in the UI even though it resolves correctly — call this out
+in the plan when you emit one.
+
+### Segment criteria
+
+A criterion can reference a reusable **segment** instead of an inline
+attribute rule. This is how you map an Eppo audience onto Confidence:
+create the segment once with `createSegment`, then reference it from
+each flag's targeting via a segment criterion.
+
+```json
+{
+  "criteria": {
+    "ref-0": { "segment": { "segment": "segments/eu-power-users" } }
+  },
+  "expression": { "ref": "ref-0" }
+}
+```
+
+A segment criterion composes in the `expression` exactly like an
+attribute criterion: wrap it in `not` to invert (membership exclusion),
+or combine several with `and` / `or`.
+
+### Default value (no server-side default → emit a catch-all rule)
+
+Confidence has **no server-side flag default**. The `Flag` resource
+carries variants and an ordered list of rules but no default-value
+field (`createFlag` accepts none), and the resolver's contract is
+explicit: *"each rule is tried in order; the first match assigns a
+variant; if no rule matches, no variant is assigned."* When no rule
+matches, the SDK returns **the default the caller passed at the call
+site** (`getBoolValue(flag, false)`) — a `ClientDefaultAssignment`.
+
+So Eppo's configured default variation (the value served when nothing
+else matches) does **not** map to any flag-level field. To preserve it
+faithfully, emit it as an explicit **catch-all final rule**:
+
+- `addTargetingRule` with `variantAllocations` = `{ "<defaultVariant>": 100 }`
+  and **no `payload`** (an omitted/empty payload targets all contexts).
+- Add it **last**, after every specific rule, so it only catches
+  subjects that matched nothing above it.
+
+Without this rule, every no-match subject falls back to whatever default
+the application code happens to pass — which the migration cannot
+control — instead of Eppo's configured default.
+
+### Expression combinators
+
+| Pattern | Expression |
+|---------|-----------|
+| Single condition | `{ "ref": "ref-0" }` |
+| AND | `{ "and": { "operands": [{ "ref": "ref-0" }, { "ref": "ref-1" }] } }` |
+| OR | `{ "or": { "operands": [{ "ref": "ref-0" }, { "ref": "ref-1" }] } }` |
+| NOT | `{ "not": { "ref": "ref-0" } }` |
+| NOT IN (list) | Prefer one `setRule` criterion wrapped in `not`: `{ "not": { "ref": "ref-0" } }`. |
+| attribute IS null | `not`-wrap a ruleless presence criterion: `{ "not": { "ref": "ref-0" } }` where `ref-0` is `{ "attribute": { "attributeName": "X" } }` |
+
+### Worked examples
+
+**Single equality (country = "US"):**
+```json
+{
+  "criteria": {
+    "ref-0": { "attribute": { "attributeName": "country", "eqRule": { "value": { "stringValue": "US" } } } }
+  },
+  "expression": { "ref": "ref-0" }
+}
+```
+
+**IS null combined (country is not set AND plan = "free"):**
+```json
+{
+  "criteria": {
+    "ref-0": { "attribute": { "attributeName": "country" } },
+    "ref-1": { "attribute": { "attributeName": "plan", "eqRule": { "value": { "stringValue": "free" } } } }
+  },
+  "expression": { "and": { "operands": [{ "not": { "ref": "ref-0" } }, { "ref": "ref-1" }] } }
+}
+```
+
+**Version range (appVersion >= 2.0.0):**
+```json
+{
+  "criteria": {
+    "ref-0": { "attribute": { "attributeName": "appVersion", "rangeRule": { "startInclusive": { "versionValue": { "version": "2.0.0" } } } } }
+  },
+  "expression": { "ref": "ref-0" }
+}
+```
+
+**Set membership (country in [US, UK, SE]):**
+```json
+{
+  "criteria": {
+    "ref-0": { "attribute": { "attributeName": "country", "setRule": { "values": [{ "stringValue": "US" }, { "stringValue": "UK" }, { "stringValue": "SE" }] } } }
+  },
+  "expression": { "ref": "ref-0" }
+}
+```
+
+**Segment membership (in segment, AND country = US):**
+```json
+{
+  "criteria": {
+    "ref-0": { "segment": { "segment": "segments/beta-testers" } },
+    "ref-1": { "attribute": { "attributeName": "country", "eqRule": { "value": { "stringValue": "US" } } } }
+  },
+  "expression": { "and": { "operands": [{ "ref": "ref-0" }, { "ref": "ref-1" }] } }
+}
+```
+
+## Reusable Segments (createSegment)
+
+When an Eppo audience is referenced by multiple flags, map it to a
+Confidence **segment** rather than inlining its conditions into every
+flag. A segment is created once and referenced from many flags' targeting
+via a segment criterion (see "Segment criteria" above).
+
+```
+mcp__confidence__createSegment
+  segmentId: "<clean-id>"            ← [a-z0-9-], 4–63 chars
+  displayName: "<human name>"
+  targeting: { "criteria": { ... }, "expression": { ... } }
+```
+
+This yields a segment named `segments/<clean-id>`, which you then
+reference from each flag via `{ "segment": { "segment": "segments/<clean-id>" } }`.
+
+**De-duplicate.** If several flags reference the same audience, create
+the segment **once** and reuse its name everywhere. Maintain an
+`audience_id → segments/<clean-id>` map in the plan file so `execute`
+reuses the segment instead of recreating it. Before creating, check
+whether the segment already exists (`listSegments` / `getSegment` if
+available) and skip creation if so.
+
+**Allocation/proportion.** A segment created for targeting reuse should
+be allocated at 100% (it defines *who is eligible*, not a rollout
+percentage). Rollout percentages belong on the flag's targeting rule.
+
+## Multivariant A/B Split Handling
+
+**CRITICAL:** A single Confidence targeting rule CAN assign multiple
+variants at different split percentages. Use ONE rule per Eppo
+allocation, listing all variants and their shares in that rule.
+
+- Single-variant assignment (feature gate, kill switch): ONE rule with
+  one variant at 100%.
+- 2-variant flag (control 50% / treatment 50%): ONE rule with two
+  variant assignments.
+- 3+ variant flag (control 34% / A 33% / B 33%): ONE rule with three
+  variant assignments.
+
+**Do NOT create separate rules per variant.** One targeting rule = one
+set of targeting conditions, with the variant split defined inside that
+rule. The `rolloutPercentage` on the rule controls what fraction of
+subjects who match the targeting conditions enter the rule at all (use
+100% unless you want a partial rollout on top of the targeting). The
+variant percentages within the rule control the split among those who
+enter.
+
+Eppo's `percent_exposure` maps to the rule's `rolloutPercentage`.
+Subjects who match the targeting conditions but fall outside that
+percentage continue down the waterfall to the next rule.
+
 ## Operator Mapping (Eppo → Confidence)
 
-This is how Eppo operators map to Confidence targeting payloads. The
-core file defines the Confidence payload format (criteria + expression,
-criterion rules, combinators, examples). This table is the Eppo-side
-half.
+This is how Eppo operators map to the Confidence targeting payloads
+defined above (criteria + expression, criterion rules, combinators,
+examples). This table is the Eppo-side half.
 
 Within a single Eppo rule, all `conditions` are ANDed. Across multiple
 rules in the same allocation, conditions are ORed (any rule satisfying
@@ -460,8 +936,8 @@ means the allocation matches). Across allocations, each non-default
 Eppo allocation becomes a **separate Confidence targeting rule** — see
 the waterfall ordering note in Step 4 above. The `is_default`
 allocation becomes the **catch-all final rule**: Confidence has no
-server-side flag default (see "Default value" in the core file), so
-its variation must be emitted as a last `addTargetingRule` with
+server-side flag default (see "Default value" above), so its variation
+must be emitted as a last `addTargetingRule` with
 `variantAllocations { <defaultVariant>: 100 }` and no payload, placed
 after every specific rule.
 
@@ -544,7 +1020,7 @@ branch, OR'd together. Anything else is BLOCKED (see below).
 Confidence **does** have a null/existence check. An attribute criterion
 with no inner rule — `{ "attribute": { "attributeName": "X" } }` — is a
 presence test ("X is set"); wrap it in `not` for "X is null/absent". See
-"Existence / null checks" in the core file for the proof (resolver
+"Existence / null checks" above for the proof (resolver
 `ir_builder.rs` existence arm, resolver spec fixtures, and
 `epx-flags-admin` `TargetingValidator` accepting ruleless attribute
 criteria on create).
@@ -566,7 +1042,7 @@ it resolves correctly. Note this in the plan whenever you emit one.
 
 An allocation's `audiences[]` reference reusable Eppo audiences. These
 map directly onto Confidence **segments** (see "Reusable Segments" and
-"Segment criteria" in the core file). For each referenced audience:
+"Segment criteria" above). For each referenced audience:
 
 1. Fetch `GET /audiences/{audience_id}` (once per unique id; cache it).
 2. Translate the audience's `targeting_rules[]` using **this same
@@ -646,7 +1122,7 @@ If an allocation referenced an audience instead (e.g. `IS_IN` the
 allocation's rule would use a segment criterion
 `{ "segment": { "segment": "segments/eu-power-users" } }`.
 
-(See the core file's worked examples for the exact JSON payload shape,
+(See the worked examples above for the exact JSON payload shape,
 including version, set, and segment criteria.)
 
 ---
@@ -798,10 +1274,108 @@ line with:
 
 ---
 
-## Execute: Eppo-Specific Notes
+## Execute: How It Works
 
-(The core file defines the execute flow and the Flag Setup Sequence.
-This section adds Eppo-specific guidance.)
+`execute <plan-file>` walks through the plan interactively, step by step.
+
+### For flag plans
+
+```
+1. READ the plan file
+   - Client is already in the plan — use it, do NOT re-ask
+   - Randomization entity and the Eppo source environment are in the plan
+   - REFUSE TO PROCEED if any flag has neither `[x] Migrate` nor
+     `[x] Skip` ticked. List those flags back and ask the user to tick a
+     box for each. Migration is opt-in — never assume a default.
+   - REFUSE TO PROCEED if any flag is marked `BLOCKED` and the user
+     hasn't either resolved the block or ticked `[x] Skip`. Surface the
+     BLOCKED flags and the reason for each.
+2. FOR EACH FLAG marked [x] Migrate:
+   - Show flag name, description, and rules in plain English
+   - ASK: "Create this flag in Confidence? [Yes / Skip / Pause]"
+   - If Yes → run the Flag Setup Sequence (below)
+   - CHECKPOINT: "Flag done. [Continue / Pause]?"
+   - Wait for user response
+3. COMPLETION
+   - Show summary: created vs skipped
+```
+
+### For code plans
+
+**Each flag = one PR.** The code migration creates a separate pull
+request for each flag, keeping changes small and reviewable.
+
+```
+1. READ the plan file
+2. SDK SETUP (Section 1 of plan) — one-time, before any flag
+   - Show install command from plan
+   - ASK: "Install SDK now? [Yes / Skip / I already did]"
+   - Show wrapper file path + API surface from plan
+   - ASK: "Create the Confidence wrapper now? [Yes / Skip / I already did]"
+3. FOR EACH FLAG in the files list:
+   a. Create a branch: `migrate/<flag-key>-to-confidence`
+   b. Show flag name + all files using it
+   c. ASK: "Transform this flag's files? [Yes / Skip / Pause]"
+   d. If Yes → apply transform rules from plan to all files for this flag
+   e. Run lint + typecheck on changed files
+   f. Commit changes
+   g. Create PR titled: "feat: migrate <flag-key> from Eppo to Confidence"
+   h. CHECKPOINT: "PR created. [Continue to next flag / Pause]?"
+4. COMPLETION — show summary + list all PRs created
+```
+
+### Flag Setup Sequence (MUST complete all steps before resolving)
+
+Each flag MUST go through these steps in order. Do NOT call
+`resolveFlag` until ALL prior steps succeed.
+
+```
+STEP 1: createFlag
+  → If flag already exists, check the response for which clients
+    it's enabled on.
+
+STEP 2: Ensure flag is active and on the correct client
+  → If createFlag response does NOT list the target client:
+    a. Try addFlagToClient
+    b. If that fails with "Cannot update an archived flag":
+       → unarchiveFlag first, then retry addFlagToClient
+  → If createFlag response lists the target client: proceed
+
+STEP 3: addTargetingRule
+  → Add the targeting rule(s) from the plan. Emit one addTargetingRule
+    call per Eppo allocation in the SAME ORDER (Confidence evaluates
+    rules top-down — order is semantically significant).
+  → Add Eppo's is_default allocation LAST as a catch-all rule:
+    addTargetingRule with variantAllocations { <defaultVariant>: 100 }
+    and NO payload (empty payload = targets all contexts). Confidence has
+    no flag-level default (see "Default value" above), so this is the
+    only way to reproduce it. It MUST come after every specific rule.
+  → IMPORTANT: targeting rules added while a flag is archived OR
+    immediately after unarchiving may become inactive. Always complete
+    steps 1-2 fully BEFORE calling addTargetingRule.
+
+STEP 4: resolveFlag (verification)
+  → MUST test BOTH positive AND negative cases:
+    a. Resolve with a context that SHOULD match → verify expected variant
+    b. Resolve with a context that SHOULD NOT match any specific rule →
+       verify it lands on the catch-all and returns Eppo's default variant
+  → For multi-rule flags, also resolve with a context that misses the
+    first rule but matches a later one — verifies waterfall order.
+  → For attribute-based targeting, the resolve call MUST include those
+    attributes in the evaluation context.
+  → Do NOT report a flag as successfully migrated until both positive and
+    negative resolve tests pass.
+```
+
+### Rules
+
+- **NEVER auto-continue** — always wait for user at each checkpoint
+- **Flag-by-flag** — each flag is one unit (its files + tests)
+- **Preserve source order** — one Confidence rule per Eppo allocation, in
+  the same order
+- **Resumable** — update the Progress table in the plan file after each step
+
+## Execute: Eppo-Specific Notes
 
 **Create segments first (Section 3b).** Before processing any flag,
 create the Confidence segments listed in Section 3b — flags reference
@@ -851,26 +1425,87 @@ the allocation with `is_default: true` (its
 { <defaultVariant>: 100 }` and **no payload** (empty payload targets
 all contexts). It MUST be added after every non-default allocation's
 rule so it only catches subjects that matched nothing above. See
-"Default value" in the core file for why this is required.
+"Default value" above for why this is required.
 
 **Waterfall verification.** Because Eppo flags often have multiple
-allocations, the core file's Flag Setup Sequence Step 4 requires you to
+allocations, the Flag Setup Sequence Step 4 (above) requires you to
 also resolve with a context that misses the first allocation but
 matches a later one — this verifies the waterfall order is preserved.
 
 ---
 
-## Plan Code: Eppo-Specific Steps
+## Plan Code: Steps
 
-(Core file defines Steps 1, 2, and 5. Eppo provides Steps 3 and 4.)
+The code phase has 5 steps: Step 1 detect language/framework, Step 2
+fetch the Confidence SDK guide (and signal any resolve-mode change),
+Step 3 scan the codebase for Eppo usage, Step 4 generate transform
+rules, Step 5 generate the plan.
 
-### Source resolve mode (Eppo) — feeds the core's Step 2b signal
+### Step 1: Detect language & framework
+
+```
+Grep: pattern="<Eppo import/symbol patterns from Step 3>"  → Find Eppo usage
+Glob: pattern="package.json" or "build.gradle" or "Cargo.toml" or "pyproject.toml" etc
+Read: dependency file  → Determine language/framework
+```
+
+### Step 2: Fetch SDK guide from `confidence-docs` MCP
+
+**Step 2a — pick the target resolve mode.** Confidence has FOUR modes,
+not a local/remote binary. Pick from the language/framework detected in
+Step 1, honoring the "prefer local resolve" policy (see "SDK
+Preference"):
+
+| Target mode | Confidence SDKs | How evaluation works | Network profile |
+|-------------|-----------------|----------------------|-----------------|
+| **In-process** (local resolve) | backend **Java, Go, JS/Node, Rust** | Periodically fetch the resolver **state** (full ruleset); evaluate locally via WASM | No per-eval network call; network only for state refresh + sticky/materialization |
+| **Cached client** | **Android, iOS, web/browser JS, React, React Native** | Backend resolves; device **prefetches and caches resolved VALUES** (not the ruleset). Reads are local + offline. Context change triggers a refetch | Network on init / context change / refresh — NOT per read |
+| **Server-precomputed** | server-rendered React/Next.js (RSC) | Server resolves for a bound subject; client reads resolved values offline. No client-side ruleset | Resolution on the server; client reads are offline |
+| **Remote** (per-call) | backend **Python, Ruby, .NET** | Each resolve is a service call to Confidence | One call per resolve (with default-value fallback on failure) |
+
+Routing:
+
+- Backend **and** language ∈ {Java, Go, JS/Node, Rust} → **in-process**.
+  Fetch the local-resolve guide (server-only; the JS WASM provider is
+  **not** for browsers — large bundle + it exposes all rules):
+
+  ```
+  mcp__confidence-docs__getLocalResolveIntegrationGuide
+    sdk: "JAVA" | "GO" | "JS" | "RUST"
+  ```
+
+- Client app (mobile / browser / React Native) → **cached client**.
+  Backend **Python / Ruby / .NET** → **remote**. Either way fetch:
+
+  ```
+  mcp__confidence-docs__getCodeSnippetAndSdkIntegrationTips
+    sdk: "<detected>"
+  ```
+
+- **Server-rendered React / Next.js (RSC)** where Eppo precomputes
+  assignments on the server and the client reads them offline →
+  **server-precomputed**. Use Confidence's React local-resolve provider
+  (`<ConfidenceProvider>` + `useFlag`); see the React mapping in Step 4.
+  Fetch `getLocalResolveIntegrationGuide sdk: "JS"`. Do NOT bucket this
+  as cached client — there is no per-device value cache.
+
+**CRITICAL:** Include the ACTUAL MCP response in the plan, not a
+reference to fetch it. Plans are self-sufficient.
+
+**Step 2b — signal any resolve-mode CHANGE.** Compare the source mode
+(defined in "Source resolve mode (Eppo)" below) to the target mode from
+2a and, if it shifts, tell the user precisely what changes. Record the
+decision and any change notice in the plan's SDK Setup section and
+re-surface it at execute time before touching code. If unchanged, state
+that explicitly so the user knows it was considered.
+
+### Source resolve mode (Eppo) — feeds the Step 2b signal
 
 **Eppo always evaluates locally — but "local" means different things on
 server vs client.** Every Eppo SDK downloads the flag configuration
 (Universal Flag Configuration) and computes assignments without a
-per-assignment network call. Map it to the core's two "local" source
-modes by surface:
+per-assignment network call. Map it to two "local" source modes by
+surface:
 
 - **Eppo backend SDK → source mode = in-process eval.**
 - **Eppo client SDK (Android/iOS/JS browser) → source mode = on-device
@@ -880,7 +1515,7 @@ modes by surface:
   bound subject and ships only resolved values to the client, which reads
   them offline — no client-side ruleset, no per-read network call.
 
-Then the core's Step 2b transitions apply:
+Then the Step 2b transitions apply:
 
 - Eppo backend → Confidence **in-process** (Java/Go/JS/Rust): unchanged.
 - Eppo backend → Confidence **remote** (Python/Ruby/.NET): ⚠️ in-process
@@ -1100,14 +1735,124 @@ rather than porting it.
 Adjust method casing per language based on the MCP-fetched SDK guide
 (`getBooleanValue` in JS/TS/Kotlin, `get_boolean_value` in Python, etc.).
 
+### Step 5: Generate plan
+
+Save the plan to `.claude/plans/eppo-code-migration-<date>.md` using the
+template below.
+
+**Two Confidence-wide truths every code transform must honor:**
+
+- **Flags are structs — read a property, not the bare key.** Confidence
+  flag values are always accessed by a dot-path `<flag>.<property>`.
+  Phase 1 records each flag's resolve path so Phase 2 uses
+  `<flag>.<property>` instead of `<flag>`.
+- **Client SDKs use ambient context; server SDKs pass it per call.**
+  Confidence client SDKs read a single evaluation context set via
+  `setEvaluationContext`/`setEvaluationContextAndWait` — `get<Type>Value`
+  takes NO context argument. Server SDKs accept context per resolve.
+
+## Plan Code: Template
+
+```markdown
+# Eppo to Confidence Code Migration Plan
+
+**Created:** <date>
+**Scope:** Code transformation only
+**Language:** <detected>
+**Framework:** <detected>
+
+---
+
+## Generation Status
+
+| Step | Status | Result |
+|------|--------|--------|
+| 1. Detect language | ○ not started | |
+| 2. Fetch SDK guide | ○ not started | |
+| 3. Scan codebase | ○ not started | |
+| 4. Transform rules | ○ not started | |
+| 5. Group by flag | ○ not started | |
+
+**Overall:** in progress
+
+---
+
+## 1. SDK Setup
+
+### Resolve mode
+
+| | |
+|---|---|
+| **Source mode** | <in-process eval / on-device eval / server-precomputed — per surface> |
+| **Target mode** | <in-process / cached client / server-precomputed / remote — from Step 2a> |
+| **Change** | <unchanged / ⚠️ in-process → remote / ⚠️ on-device → cached client / … — see notice> |
+
+<If changed: one-paragraph notice of what actually shifts — where
+evaluation happens, per-read latency (cached client = local/offline, NOT
+per-call network), freshness/refetch behavior, cold-start defaults,
+ruleset exposure. If unchanged: "Resolve mode is preserved.">
+
+### Install
+
+<install commands from MCP response>
+
+### API Reference (from MCP: confidence-docs)
+
+<code examples from MCP response>
+
+### Create Confidence Wrapper
+
+**File:** <appropriate path for detected framework>
+
+**Must match source API surface:**
+
+| Method | Signature |
+|--------|-----------|
+<detected from source SDK usage>
+
+---
+
+## 2. Transform Rules
+
+### Source Files
+
+| Find | Replace |
+|------|---------|
+| <Eppo import> | <Confidence import> |
+| <Eppo usage> | <Confidence usage> |
+
+### Test Files
+
+| Find | Replace |
+|------|---------|
+| <Eppo mock> | <Confidence mock> |
+
+---
+
+## 3. Files to Transform
+
+<list from codebase scan, grouped by flag key>
+
+---
+
+## 4. Progress
+
+| # | Item | Status |
+|---|------|--------|
+| 0 | SDK Setup | :white_circle: |
+```
+
 ---
 
 ## Required Prerequisites
 
-(The core file lists the Confidence-side MCPs. This skill adds the Eppo
-REST API as documented in the Prerequisites section above — no MCP, just
-`curl` with `X-Eppo-Token: $EPPO_API_KEY`.)
+This skill needs the Confidence-side MCPs listed in "Prerequisites:
+Confidence Side" above (`confidence` for `plan flags`/`execute`,
+`confidence-docs` for `plan code`), plus the Eppo REST API — no MCP,
+just `curl` with `X-Eppo-Token: $EPPO_API_KEY`.
 
 | Source | What's used |
 |--------|-------------|
+| Confidence MCP | `listClients`, `createClient`, `getContextSchema`, `addContextField`, `createFlag`, `addFlagToClient`, `unarchiveFlag`, `addTargetingRule`, `resolveFlag`, plus (for audiences) `createSegment` and, if available, `listSegments` / `getSegment` |
+| Confidence Docs MCP (`plan code`) | `getLocalResolveIntegrationGuide`, `getCodeSnippetAndSdkIntegrationTips`, `searchDocumentation`, `getFullSource` |
 | Eppo REST API (`X-Eppo-Token`) | `GET /environments`, `GET /feature-flags`, `GET /feature-flags/{id}`, `GET /feature-flags/{id}/environments/{environmentId}`, `GET /audiences/{id}` |
