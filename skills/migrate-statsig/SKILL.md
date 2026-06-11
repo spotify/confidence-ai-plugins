@@ -248,7 +248,7 @@ flags, but they map differently:
 |--------------|-----------|----------------------|
 | **Feature Gate** | Boolean on/off with a rule waterfall | Boolean flag (`{ enabled }`); each rule → one targeting rule |
 | **Dynamic Config** | Returns a JSON value object; rules pick which value | Struct flag; each rule's `returnValue` → a variant; `defaultValue` → catch-all |
-| **Experiment** | A/B/n test with weighted groups | Struct flag; each `group` → a variant, split by `size`; `allocation` → rolloutPercentage |
+| **Experiment** | A/B/n test with weighted groups | Struct flag; each `group` → a variant, split by `size` in `variantAllocations` (see allocation<100 note) |
 
 > **Layers.** A Statsig **layer** groups several experiments that share a
 > parameter namespace and an allocation budget. Confidence has no layer
@@ -297,7 +297,9 @@ matched rule's `passPercentage` doesn't pass), the gate returns `false`.
   allocated users in this group), `parameterValues` (the value object for
   the group). Group sizes sum to 100 across the experiment.
 - `allocation` (0–100) — percent of eligible users entering the
-  experiment at all. Maps to the rule's `rolloutPercentage`.
+  experiment at all. There is no rollout knob in Confidence's
+  `addTargetingRule`, so `allocation` < 100 can't be encoded exactly —
+  see "Experiment `allocation` < 100 (limitation)".
 - `controlGroupID` — which group is control (informational)
 - `targetingGateID` — restrict the experiment to users who pass this
   gate. Confidence has no cross-flag gate dependency — see "Blocked".
@@ -780,10 +782,14 @@ it faithfully, emit it as an explicit **catch-all final rule**:
 - Add it **last**, after every specific rule, so it only catches
   subjects that matched nothing above it.
 
-For a **gate**, the catch-all variant is `disabled` (`false`). For a
-**dynamic config**, it's the variant carrying `defaultValue`. For an
-**experiment** whose `allocation` < 100, the unallocated users fall
-through — emit a catch-all serving the control group's value.
+For a **gate**, the catch-all variant is `disabled` (`false`) — reached
+only by users who matched **no** rule (remember each gate rule already
+captures its own fail share as `disabled` inside `variantAllocations`,
+per "Multivariant / Group Split Handling"). For a **dynamic config**,
+the catch-all variant carries `defaultValue`. For an **experiment**,
+emit a catch-all serving the **control** group's value (users outside
+the targeting, or — when approximating `allocation` < 100 — the
+non-entrants).
 
 ### Expression combinators
 
@@ -859,24 +865,54 @@ targeting rather than turned into reusable Confidence segments:
 
 ## Multivariant / Group Split Handling
 
-**CRITICAL:** A single Confidence targeting rule CAN assign multiple
-variants at different split percentages. Use ONE rule per Statsig rule
-(gate/config) or per experiment, listing all variants and their shares
-in that rule.
+**CRITICAL — there is no separate `rolloutPercentage` knob.** The
+Confidence `addTargetingRule` tool takes only `variantAllocations` (a
+map of variant → percent that **must sum to exactly 100**), `payload`,
+and `targetingKey`. Encode the entire pass/fail or group split *inside*
+`variantAllocations` — do NOT expect a rule-level rollout field.
 
-- **Gate rule** (boolean): ONE rule. `rolloutPercentage` = the rule's
-  `passPercentage`; `variantAllocations` = `{ "enabled": 100 }`. Users
-  who match but fall outside `passPercentage` fall through the waterfall
-  toward the catch-all `disabled` rule — this reproduces the FAIL group.
-- **Dynamic config rule**: ONE rule per config rule. `rolloutPercentage`
-  = `passPercentage`; `variantAllocations` = `{ "<variant-for-this-returnValue>": 100 }`.
-- **Experiment**: ONE rule. `rolloutPercentage` = `allocation`;
-  `variantAllocations` = each group's `name` → its `size`
-  (e.g. `{ "control": 50, "treatment": 50 }`).
+**CRITICAL — Statsig captures matched users; there is no fall-through.**
+In Statsig, *"as soon as a user qualifies based on the condition in a
+given rule, Statsig doesn't evaluate subsequent rules for this user"* —
+the matched user is then placed in the rule's Pass or Fail group right
+there. So a matched-but-failed user does **not** continue down the
+waterfall. Fold the fail share into the same Confidence rule:
+
+- **Gate rule** (boolean): ONE rule with the rule's conditions as
+  `payload` and `variantAllocations` =
+  `{ "enabled": <passPercentage>, "disabled": <100 − passPercentage> }`.
+  A pure feature gate (passPercentage 100) is `{ "enabled": 100 }`; a
+  25% rollout is `{ "enabled": 25, "disabled": 75 }`. A `public`
+  ("Everyone") rule is the same but with **no payload** (targets all).
+- **Dynamic config rule**: ONE rule per config rule, conditions as
+  `payload`, `variantAllocations` =
+  `{ "<variant-for-this-returnValue>": <passPercentage>, "<defaultVariant>": <100 − passPercentage> }`.
+  When `passPercentage` is 100 (the common case) it's just
+  `{ "<variant>": 100 }`.
+- **Experiment**: ONE rule (conditions from `inlineTargetingRules` as
+  `payload`, or no payload) with `variantAllocations` = each group's
+  `name` → its `size` (e.g. `{ "control": 50, "treatment": 50 }`).
 
 **Do NOT create separate rules per variant.** One targeting rule = one
 set of targeting conditions, with the variant split defined inside that
-rule.
+rule via `variantAllocations`.
+
+### Experiment `allocation` < 100 (limitation)
+
+`variantAllocations` must sum to 100 and there is no rollout knob, so an
+experiment with `allocation` < 100 (only part of eligible users enter,
+the rest get the control/default) **cannot be encoded exactly** with
+integer group shares. Handle it one of two ways and record the choice in
+the plan:
+
+- **Approximate** by scaling: each entering group gets
+  `round(size × allocation / 100)`, and the leftover (`100 − Σ`) goes to
+  the **control** variant (the not-entered users). Note that the split
+  is approximate and the control share is inflated by the non-entrants.
+- **Flag for review** if exact allocation fidelity matters.
+
+A fully-allocated experiment (`allocation` 100) is exact — just use the
+group sizes directly.
 
 ## Operator Mapping (Statsig → Confidence)
 
@@ -894,7 +930,7 @@ array.
 
 | Statsig `type` | Confidence attribute name | Notes |
 |---|---|---|
-| `public` | (none) | "Everyone" — emit a catch-all rule (no payload) at the rule's `passPercentage` |
+| `public` | (none) | "Everyone" — emit a rule with **no payload**; put the pass/fail split in `variantAllocations` (e.g. `{ enabled: 25, disabled: 75 }` for a 25% pass) |
 | `user_id` | the chosen entity field | unit allowlist/blocklist; use entity field name |
 | `unit_id` (+ `customID`) | the entity field for that custom unit | |
 | `email` | `email` | |
@@ -1017,16 +1053,19 @@ blocked.
 ### Worked example (gate waterfall)
 
 A three-rule Statsig gate — internal users force-on at 100%, then a 50%
-rollout to US/CA, then "Everyone" at 0% — becomes THREE
-`addTargetingRule` calls plus a catch-all:
+pass to US/CA, then "Everyone" at 0% — becomes `addTargetingRule` calls
+plus a catch-all (the split lives entirely in `variantAllocations`;
+there is no separate rollout field):
 
 1. Rule 1: `email str_ends_with_any ["@spotify.com"]` →
-   `endsWithRule "@spotify.com"`, `rolloutPercentage` 100,
-   `{ "enabled": 100 }`
-2. Rule 2: `country any ["US","CA"]` → `setRule`, `rolloutPercentage`
-   50, `{ "enabled": 100 }` (the other 50% fall through)
-3. Rule 3 (`public`, passPercentage 0) → since 0% pass, this contributes
-   nothing; omit it and rely on the catch-all
+   payload `endsWithRule "@spotify.com"`,
+   `variantAllocations { "enabled": 100 }`
+2. Rule 2: `country any ["US","CA"]` (passPercentage 50) → payload
+   `setRule [US, CA]`, `variantAllocations { "enabled": 50, "disabled": 50 }`
+   — the 50% fail share is captured **in this rule** as `disabled`, NOT
+   left to fall through (Statsig capture semantics)
+3. Rule 3 (`public`, passPercentage 0) → 0% pass contributes nothing;
+   omit it and rely on the catch-all
 4. Catch-all (default): no payload → `disabled` at 100%. Reproduces the
    gate's implicit `false`; MUST come last.
 
@@ -1132,11 +1171,12 @@ by `execute` — no implicit defaults.
 **Variants:** <variant list — e.g. "enabled, disabled" for a gate; group names for an experiment>
 **Confidence resolve path:** `<flag-key>.<property>` (Phase 2 reads this; `.enabled` for gates, `.<param>` per config/experiment parameter)
 **Unit:** <idType> → entity `<entity>`
-**Enabled in Statsig:** <yes / no — if no, all rules added at 0% rollout and flag created OFF>
+**Enabled in Statsig:** <yes / no — if no, set every rule's pass share to 0 (gate rules become `variantAllocations { disabled: 100 }`) so the flag stays OFF until intentionally enabled>
 **Rules (Statsig, in order):**
   1. `<rule name>` — <plain-English condition>, pass <X>%, <variant split>
   2. ...
-**Default:** <gate: disabled; config: defaultValue → variant; experiment: control fall-through>
+**Default:** <gate: disabled (no-match catch-all); config: defaultValue → variant; experiment: control catch-all>
+**Rollout/split:** <how passPercentage / group size / allocation are encoded in variantAllocations — note any allocation<100 approximation>
 **Segments inlined:** <none, or list of segment ids whose conditions were inlined>
 **Null rules emitted:** <none, or "is null on '<attr>' → ruleless presence criterion under `not`; may render empty in the segment editor">
 **Confidence rules:** one targeting rule per Statsig rule, in the same order, plus a final catch-all rule for the default
@@ -1276,8 +1316,9 @@ just apply the flag's payload as written.
 surface that during execute:
 
 > This <gate/config/experiment> is DISABLED in Statsig. I'll create it in
-> Confidence but keep the rules at 0% rollout so it stays off until you
-> turn it on intentionally. Continue?
+> Confidence but keep it OFF (every rule's pass share set to 0 — gate
+> rules become `variantAllocations { disabled: 100 }`) until you turn it
+> on intentionally. Continue?
 
 **Type → Confidence schema (and the resolve-path handoff to Phase 2).**
 A Confidence flag is a struct, not a bare scalar, so each flag needs a

@@ -138,6 +138,25 @@ After running `plan flags`, the generated plan file at
   clear reasons. `execute` should refuse to proceed on these unless
   they're `[x] Skip`'d
 
+## Verifying the translation logic (`verify_migration.py`)
+
+`verify_migration.py` models Statsig's deterministic evaluation (condition
+matching + the waterfall) over the fixtures and prints a context × flag
+matrix of expected results — including which gates are BLOCKED and which
+experiments have an un-representable `allocation` < 100. Run it
+before/after `execute` to spot-check that Confidence resolves match
+Statsig for the same context:
+
+```bash
+python3 verify_migration.py
+```
+
+It imports the fixtures directly from `server.py`, so no network or
+running server is needed. The random percentage dimension
+(`passPercentage` / group `size` / `allocation`) is reported as metadata
+rather than simulated, since bucketing is a property of the hashing, not
+the config translation.
+
 ## What this does NOT test
 
 - **Real Statsig evaluation.** This server is config-only; it never
