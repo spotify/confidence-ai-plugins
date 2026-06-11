@@ -317,7 +317,33 @@ GATES: list[dict[str, Any]] = [
             }
         ],
     },
-    # 11. Archived gate — hidden from list unless include archived opt-in.
+    # 11. References an id_list segment (`vip_user_list`, count 5000) →
+    #     REST materialized segment (BigQuery), or BLOCKED if REST/BQ
+    #     unavailable. Exercises the id_list path + REST backend selection.
+    {
+        "id": "vip_gate",
+        "name": "VIP gate",
+        "description": "Enable for users on the curated VIP id list.",
+        "idType": "userID",
+        "isEnabled": True,
+        "status": "In Progress",
+        "type": "PERMANENT",
+        "rules": [
+            {
+                "name": "VIPs",
+                "id": "rule_vip_1",
+                "passPercentage": 100,
+                "conditions": [
+                    {
+                        "type": "passes_segment",
+                        "operator": "any",
+                        "targetValue": ["vip_user_list"],
+                    }
+                ],
+            }
+        ],
+    },
+    # 12. Archived gate — hidden from list unless include archived opt-in.
     {
         "id": "old_onboarding_gate",
         "name": "Old onboarding gate",
@@ -425,6 +451,7 @@ EXPERIMENTS: list[dict[str, Any]] = [
         "controlGroupID": "grp_ob_control",
         "targetingGateID": None,
         "layerID": "onboarding_layer",
+        "holdoutIDs": ["q1_holdout"],
         "inlineTargetingRules": [
             {
                 "name": "North America",
@@ -509,6 +536,19 @@ SEGMENTS: list[dict[str, Any]] = [
             }
         ],
     },
+    # id_list segment — a literal list of unit IDs (no rules). Large lists
+    # map to a Confidence materialized segment (REST/BigQuery); small ones
+    # can inline as a setRule. `count` is the list length.
+    {
+        "id": "vip_user_list",
+        "name": "VIP user list",
+        "description": "Hand-curated VIP user IDs uploaded as an id list.",
+        "idType": "userID",
+        "isEnabled": True,
+        "type": "id_list",
+        "count": 5000,
+        "rules": [],
+    },
 ]
 
 
@@ -532,9 +572,8 @@ ROUTE_BY_ID = re.compile(
 
 
 def _full(item: dict[str, Any], kind: str) -> dict[str, Any]:
-    out = copy.deepcopy(item)
-    out.update(_meta(item["id"], kind))
-    return out
+    # Meta provides boilerplate defaults; fixture fields take precedence.
+    return {**_meta(item["id"], kind), **copy.deepcopy(item)}
 
 
 def _is_archived(item: dict[str, Any]) -> bool:

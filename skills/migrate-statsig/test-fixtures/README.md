@@ -29,7 +29,7 @@ Python 3.10+ stdlib, no dependencies.
 ```bash
 python3 server.py
 # Fake Statsig Console API listening on http://127.0.0.1:4000
-#   10 gates, 1 dynamic config, 2 experiments, 2 segments
+#   12 gates, 1 dynamic config, 2 experiments, 3 segments
 ```
 
 Override the port if 4000 is taken:
@@ -82,9 +82,10 @@ Pick a throwaway Confidence client and map the `userID` unit to a
 | `legacy_checkout` | `isEnabled: false` → flag created OFF, rules at 0% rollout | Migrate (with warning) |
 | `non_prod_email_gate` | `str_matches` suffix alternation `.*@(test\|qa\|staging)\.com$` → one `endsWithRule` per branch, OR'd | Migrate |
 | `contains_blocked_gate` | `str_contains_any` → no Confidence substring rule | BLOCKED |
-| `depends_on_gate` | `passes_gate` → no cross-flag dependency | BLOCKED |
-| `premium_segment_gate` | `passes_segment` + `fails_segment` (both `rule_based`) → inline each segment's conditions | Migrate |
+| `depends_on_gate` | `passes_gate` → inline the referenced gate's conditions (or a shared segment) | Migrate (inlined) |
+| `premium_segment_gate` | `passes_segment` + `fails_segment` (both `rule_based`) → reusable segments (REST) or inline (MCP) | Migrate |
 | `test_user_allowlist` | `user_id any` → `setRule` on the chosen entity field | Migrate |
+| `vip_gate` | `passes_segment` on an **`id_list`** segment (count 5000) → REST materialized segment (BigQuery), else BLOCKED | Migrate (REST) |
 | `old_onboarding_gate` | `status: Archived` → hidden from list unless opted in | Skipped (archived) |
 
 ## Fixture dynamic configs
@@ -97,25 +98,28 @@ Pick a throwaway Confidence client and map the `userID` unit to a
 
 | `id` | What it tests |
 |---|---|
-| `checkout_button_experiment` | 50/50 groups, `allocation: 100` → ONE rule, variant split 50/50 |
-| `onboarding_flow_experiment` | 3 groups (34/33/33), `allocation: 50` → rule at 50% rollout, control fall-through catch-all; `inlineTargetingRules` (country US/CA); `layerID` set → layer note |
+| `checkout_button_experiment` | 50/50 groups, `allocation: 100` → ONE rule, variant split 50/50 (MCP-OK) |
+| `onboarding_flow_experiment` | 3 groups (34/33/33), `allocation: 50` (→ REST segment `proportion` 0.5; control catch-all); `inlineTargetingRules` (country US/CA); `layerID` → REST exclusivity group; `holdoutIDs` → holdback surface step |
 
-## Fixture segments (rule_based → inlined)
+## Fixture segments
 
-| `id` | Targeting |
-|---|---|
-| `premium_users` | `custom_field plan any [premium, enterprise]` |
-| `internal_staff` | `email str_ends_with_any [@spotify.com]` |
+| `id` | Type | Targeting |
+|---|---|---|
+| `premium_users` | rule_based | `custom_field plan any [premium, enterprise]` |
+| `internal_staff` | rule_based | `email str_ends_with_any [@spotify.com]` |
+| `vip_user_list` | id_list (count 5000) | literal unit IDs → REST materialized segment (BigQuery) |
 
-These are inlined into `premium_segment_gate` because this plugin's
-Confidence MCP has no `createSegment` tool.
+The `rule_based` segments become reusable Confidence segments on the REST
+backend, or are inlined into `premium_segment_gate` on the MCP backend
+(this plugin's Confidence MCP has no `createSegment` tool). The `id_list`
+segment maps to a REST materialized segment.
 
 ## What a successful test looks like
 
 After running `plan flags`, the generated plan file at
 `.claude/plans/statsig-flag-migration-<date>.md` should:
 
-- Include the 10 non-archived gates, 1 dynamic config, and 2 experiments
+- Include the 11 non-archived gates, 1 dynamic config, and 2 experiments
   in Section 4 (`old_onboarding_gate` is archived and excluded by default)
 - For `new_search_rollout`, render the rule as something like "country is
   not DE and not FR AND appBuildNumber >= 28"
@@ -126,17 +130,23 @@ After running `plan flags`, the generated plan file at
 - For `gradual_rollout`, emit a catch-all rule at 25% rollout to `enabled`
 - For `legacy_checkout`, note "Enabled in Statsig: no" and warn rules go
   in at 0% rollout
-- For `premium_segment_gate`, inline the `premium_users` conditions and
-  inline `internal_staff` wrapped in `not`
+- For `premium_segment_gate`, create reusable `premium_users` /
+  `internal_staff` segments (REST) or inline their conditions (MCP), with
+  `internal_staff` wrapped in `not`
 - For `test_user_allowlist`, rewrite the `user_id` condition to a
   `setRule` on the chosen entity field
+- For `depends_on_gate`, inline the referenced `internal_tools_gate`
+  conditions (email ends with `@spotify.com`) — not BLOCKED
+- For `vip_gate`, mark `Backend: REST` and map the `vip_user_list`
+  id_list segment to a materialized segment (or BLOCKED if no BigQuery)
 - For `homepage_config`, create one variant per `returnValue` plus a
   default variant for `defaultValue`, and emit a final catch-all rule
-- For `onboarding_flow_experiment`, emit ONE rule at 50% rollout with the
-  three-way group split, restricted to US/CA, plus a layer note
-- Mark `contains_blocked_gate` and `depends_on_gate` as **BLOCKED** with
-  clear reasons. `execute` should refuse to proceed on these unless
-  they're `[x] Skip`'d
+- For `onboarding_flow_experiment`, mark `Backend: REST`, use a segment
+  with `proportion` 0.5 + the three-way group split restricted to US/CA,
+  map `layerID` to an exclusivity group, and record the `q1_holdout` →
+  holdback surface step
+- Mark only `contains_blocked_gate` as **BLOCKED** (`str_contains_any`).
+  `execute` should refuse to proceed on it unless it's `[x] Skip`'d
 
 ## Verifying the translation logic (`verify_migration.py`)
 

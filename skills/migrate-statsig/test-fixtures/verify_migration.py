@@ -25,6 +25,7 @@ from typing import Any
 from server import DYNAMIC_CONFIGS, EXPERIMENTS, GATES, SEGMENTS
 
 SEGMENTS_BY_ID = {s["id"]: s for s in SEGMENTS}
+GATES_BY_ID = {g["id"]: g for g in GATES}
 
 
 # ---------------------------------------------------------------------------
@@ -33,8 +34,10 @@ SEGMENTS_BY_ID = {s["id"]: s for s in SEGMENTS}
 
 # Operators that have no clean Confidence translation. A condition using
 # one of these makes the whole rule (and usually the flag) BLOCKED.
+# passes_gate/fails_gate are NOT blocked — the referenced gate's
+# conditions can be inlined (modeled below).
 BLOCKED_OPERATORS = {"str_contains_any", "str_contains_none"}
-BLOCKED_TYPES = {"passes_gate", "fails_gate", "experiment_group", "javascript"}
+BLOCKED_TYPES = {"experiment_group", "javascript"}
 
 
 class Blocked(Exception):
@@ -80,8 +83,17 @@ def eval_condition(cond: dict[str, Any], ctx: dict[str, Any], entity_value: str)
         seg = SEGMENTS_BY_ID.get(targets[0])
         if seg is None:
             raise Blocked(f"unknown segment {targets[0]}")
+        if seg.get("type") in ("id_list", "user_store_id_list"):
+            raise Blocked(f"id_list segment {seg['id']} (REST materialized)")
         in_seg = eval_rules(seg["rules"], ctx, entity_value) is not None
         return in_seg if ctype == "passes_segment" else not in_seg
+
+    if ctype in ("passes_gate", "fails_gate"):
+        gate = GATES_BY_ID.get(targets[0])
+        if gate is None:
+            raise Blocked(f"unknown gate {targets[0]}")
+        passes = eval_rules(gate["rules"], ctx, entity_value) is not None
+        return passes if ctype == "passes_gate" else not passes
 
     # Pick the value from context. user_id/unit_id read the entity value.
     if ctype in ("user_id", "unit_id"):
@@ -143,6 +155,17 @@ def eval_rules(rules: list[dict[str, Any]], ctx: dict[str, Any], entity_value: s
     return None
 
 
+def references_id_list(rules: list[dict[str, Any]]) -> str | None:
+    """Return the id_list segment id a rule references (REST/materialized), else None."""
+    for rule in rules:
+        for c in rule.get("conditions", []):
+            if c.get("type") in ("passes_segment", "fails_segment"):
+                seg = SEGMENTS_BY_ID.get(_as_list(c.get("targetValue"))[0])
+                if seg and seg.get("type") in ("id_list", "user_store_id_list"):
+                    return seg["id"]
+    return None
+
+
 def flag_is_blocked(rules: list[dict[str, Any]]) -> str | None:
     """Return a reason if every non-trivial rule is blocked, else None."""
     reasons = []
@@ -188,6 +211,11 @@ def main() -> None:
         if gate.get("status") in ("Archived", "archived"):
             print(f"  {gate['id']:<26} ARCHIVED (excluded from default scan)")
             continue
+        id_list = references_id_list(gate["rules"])
+        if id_list:
+            print(f"  {gate['id']:<26} REST backend (id_list segment "
+                  f"'{id_list}' → materialized segment / BigQuery)")
+            continue
         blocked = flag_is_blocked(gate["rules"])
         if blocked:
             print(f"  {gate['id']:<26} BLOCKED ({blocked})")
@@ -220,10 +248,14 @@ def main() -> None:
         print(f"  {exp['id']}")
         print(f"      allocation={exp['allocation']}%  groups=[{groups}]  targeting={targ}")
         if exp["allocation"] < 100:
-            print("      NOTE: allocation < 100 — not exactly representable; "
-                  "approximate or flag for review")
+            print("      NOTE: allocation < 100 — exact via REST segment proportion "
+                  f"({exp['allocation'] / 100}); MCP can only approximate")
         if exp["layerID"]:
-            print(f"      NOTE: belongs to layer '{exp['layerID']}' (no Confidence layer primitive)")
+            print(f"      NOTE: layer '{exp['layerID']}' → REST exclusivity group "
+                  "(exclusivityTags)")
+        if exp.get("holdoutIDs"):
+            print(f"      NOTE: holdouts {exp['holdoutIDs']} → Confidence holdback "
+                  "(surface step)")
         for cname, ctx in CONTEXTS.items():
             rule = eval_rules(exp["inlineTargetingRules"], ctx, ENTITY) if exp["inlineTargetingRules"] else True
             eligible = rule is not None if exp["inlineTargetingRules"] else True

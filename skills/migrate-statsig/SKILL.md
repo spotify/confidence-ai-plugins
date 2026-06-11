@@ -131,6 +131,48 @@ claude mcp add confidence-docs --transport http --url https://mcp.confidence.dev
 
 The user will be prompted to authenticate via OAuth in their browser.
 
+### Confidence REST API token (OPTIONAL — for full-fidelity Phase 1)
+
+The MCP `createFlag`/`addTargetingRule` tools cover the common cases but
+**cannot** express a few Statsig constructs faithfully: partial
+experiment allocation, reusable/materialized segments, layer mutual
+exclusion, and holdouts (see "Two execution backends" below). To migrate
+those faithfully, the skill uses the Confidence **management REST API**
+(`https://flags.confidence.dev/v1`), which needs a short-lived access
+token obtained via the client-credentials flow.
+
+Only ask for this if the scan finds features that need it (the plan
+flags them). To set it up:
+
+1. In Confidence, go to **Admin > API Clients**, create a client, and
+   copy its **client ID** and **client secret**.
+2. Exchange them for an access token (valid ~1h):
+   ```bash
+   curl -sS -X POST "https://iam.confidence.dev/v1/oauth/token" \
+     -H "Content-Type: application/json" \
+     -d '{"grantType":"client_credentials","clientId":"<id>","clientSecret":"<secret>"}'
+   # → { "accessToken": "eyJ...", "expiresIn": "86400" }
+   ```
+3. Store the token for the session as `CONFIDENCE_TOKEN` and send it as
+   `Authorization: Bearer $CONFIDENCE_TOKEN`. Never write the token or
+   the client secret to the plan file (same secret-handling rule as the
+   Statsig key).
+
+## Two execution backends (MCP vs REST)
+
+Phase 1 has two ways to write to Confidence. Pick per flag based on what
+the flag needs — the plan records which backend each flag uses.
+
+| Backend | Use when | Auth | Limitations |
+|---------|----------|------|-------------|
+| **MCP** (default) | Gates, dynamic configs, and fully-allocated (`allocation` 100) experiments with inline targeting | OAuth (`mcp__confidence__*`) | No partial allocation, no reusable/materialized segments, no exclusivity, no holdbacks |
+| **REST** (full-fidelity) | Anything needing partial experiment `allocation`, reusable or `id_list` segments, layer mutual exclusion, or holdouts | Bearer token (above) | BigQuery required for materialized segments |
+
+The MCP backend is the tested default. Reach for REST only for the
+specific constructs listed; the operator/handling sections below point to
+the matching REST recipe ("Full-Fidelity Phase 1 via the Confidence REST
+API") wherever it applies.
+
 ## User-Facing Communication Rules
 
 **NEVER expose internal technical details to the user.** The user should
@@ -251,10 +293,13 @@ flags, but they map differently:
 | **Experiment** | A/B/n test with weighted groups | Struct flag; each `group` → a variant, split by `size` in `variantAllocations` (see allocation<100 note) |
 
 > **Layers.** A Statsig **layer** groups several experiments that share a
-> parameter namespace and an allocation budget. Confidence has no layer
-> primitive. Migrate each experiment in the layer as its own Confidence
-> flag and record the shared `layerID` in the plan as a note (mutual
-> exclusion between layer experiments is not reproduced — surface this).
+> parameter namespace and an allocation budget, making them mutually
+> exclusive. Migrate each experiment in the layer as its own Confidence
+> flag. The mutual exclusion maps to a Confidence **exclusivity group**
+> via segment coordination on the **REST** backend — see "Layer mutual
+> exclusion" under "Full-Fidelity Phase 1 via the Confidence REST API".
+> On the MCP backend, mutual exclusion can't be reproduced; record the
+> shared `layerID` as a note and surface the gap.
 
 ### The Feature Gate object (`ExternalGateDto`)
 
@@ -297,9 +342,9 @@ matched rule's `passPercentage` doesn't pass), the gate returns `false`.
   allocated users in this group), `parameterValues` (the value object for
   the group). Group sizes sum to 100 across the experiment.
 - `allocation` (0–100) — percent of eligible users entering the
-  experiment at all. There is no rollout knob in Confidence's
-  `addTargetingRule`, so `allocation` < 100 can't be encoded exactly —
-  see "Experiment `allocation` < 100 (limitation)".
+  experiment at all. The MCP `addTargetingRule` has no rollout knob, so
+  `allocation` < 100 needs the REST backend's segment `proportion` —
+  see "Experiment `allocation` < 100".
 - `controlGroupID` — which group is control (informational)
 - `targetingGateID` — restrict the experiment to users who pass this
   gate. Confidence has no cross-flag gate dependency — see "Blocked".
@@ -307,6 +352,11 @@ matched rule's `passPercentage` doesn't pass), the gate returns `false`.
   as gates). Combine with `allocation`.
 - `layerID` — if set, the experiment belongs to a layer (see Layers
   note above).
+- `holdoutIDs[]` — holdouts applied to this entity (also present on gates
+  and dynamic configs). Each holds a fixed random subset of users out of
+  the entity. Maps to a Confidence **holdback** — see "Holdouts (item 5)"
+  under "Full-Fidelity Phase 1 via the Confidence REST API". Record any
+  holdouts in the plan; they need a (mostly manual) surface step.
 
 **Pagination.** Statsig uses `page` (1-based) + `limit`. The list
 response wraps results under `data` with a `pagination` object:
@@ -522,9 +572,15 @@ Extract from each item:
 - For **experiments**: `groups[]` (`name`, `size`, `parameterValues`),
   `allocation`, `controlGroupID`, `targetingGateID`,
   `inlineTargetingRules[]`, `layerID`
+- `holdoutIDs[]` (gates/configs/experiments) → record each holdout; it
+  maps to a Confidence holdback (a surface step — see "Holdouts (item 5)")
 - Any `passes_segment` / `fails_segment` / `in_segment_list` /
   `not_in_segment_list` conditions → record the referenced segment id;
   fetch it in Step 1c
+- Whether the item needs the **REST backend** (partial `allocation`,
+  reusable/`id_list` segments, a `layerID`, or any `holdoutIDs`) — record
+  the backend on the flag's plan entry so `execute` knows which path to
+  take
 
 **Step 1c — fetch referenced segments (once per unique id).** While
 scanning conditions, collect every segment id referenced by a
@@ -847,21 +903,28 @@ non-entrants).
 
 ## Segments
 
-The Confidence MCP in this plugin does **not** expose a `createSegment`
-tool, so Statsig segments are **inlined** into each referencing flag's
-targeting rather than turned into reusable Confidence segments:
+Confidence **has** reusable segments, but the **MCP** backend in this
+plugin exposes no `createSegment` tool. So the handling depends on the
+backend:
 
-- **`rule_based` segment** (`passes_segment` / `fails_segment`): fetch
-  its definition, translate its `conditions[]` with the operator table,
-  and inline them into the flag's `criteria` + `expression`. For
-  `passes_segment` reference the segment's combined expression directly;
-  for `fails_segment` wrap it in `not`. If the same segment is referenced
-  by many flags, repeat the inlined criteria in each (de-dup is not
-  available without a segment primitive — note this in the plan).
-- **`id_list` segment** (`in_segment_list` / `not_in_segment_list`): if
-  the list is small (≤ ~50 ids), inline as a `setRule` on the entity
-  field (wrapped in `not` for the `not_in` case). If large, mark the
-  condition BLOCKED.
+- **REST backend (preferred for reuse):** create one Confidence segment
+  per Statsig segment and reference it from every flag that uses it — see
+  "Segments (items 2 & 3)" under "Full-Fidelity Phase 1 via the
+  Confidence REST API". This preserves reuse/de-duplication and supports
+  `id_list` segments via materialized segments (BigQuery).
+- **MCP backend (inline fallback):** with no `createSegment` tool,
+  **inline** the segment's conditions into each referencing flag:
+  - **`rule_based` segment** (`passes_segment` / `fails_segment`): fetch
+    its definition, translate its `conditions[]` with the operator table,
+    and inline into the flag's `criteria` + `expression`. For
+    `passes_segment` reference the segment's expression directly; for
+    `fails_segment` wrap it in `not`. Repeat the inlined criteria in each
+    referencing flag (no de-dup without a segment primitive — note in the
+    plan).
+  - **`id_list` segment** (`in_segment_list` / `not_in_segment_list`):
+    if small (≤ ~50 ids), inline as a `setRule` on the entity field
+    (wrapped in `not` for `not_in`). If large, use a REST materialized
+    segment, or mark the condition BLOCKED.
 
 ## Multivariant / Group Split Handling
 
@@ -897,22 +960,20 @@ waterfall. Fold the fail share into the same Confidence rule:
 set of targeting conditions, with the variant split defined inside that
 rule via `variantAllocations`.
 
-### Experiment `allocation` < 100 (limitation)
+### Experiment `allocation` < 100
 
-`variantAllocations` must sum to 100 and there is no rollout knob, so an
-experiment with `allocation` < 100 (only part of eligible users enter,
-the rest get the control/default) **cannot be encoded exactly** with
-integer group shares. Handle it one of two ways and record the choice in
-the plan:
+A fully-allocated experiment (`allocation` 100) is exact on the **MCP**
+backend — just use the group sizes as `variantAllocations`.
 
-- **Approximate** by scaling: each entering group gets
-  `round(size × allocation / 100)`, and the leftover (`100 − Σ`) goes to
-  the **control** variant (the not-entered users). Note that the split
-  is approximate and the control share is inflated by the non-entrants.
-- **Flag for review** if exact allocation fidelity matters.
-
-A fully-allocated experiment (`allocation` 100) is exact — just use the
-group sizes directly.
+For `allocation` < 100 (only part of eligible users enter, the rest get
+control), the MCP backend can't be exact (`variantAllocations` must sum
+to 100, no rollout knob). **Prefer the REST backend**, which represents
+it exactly via a segment `allocation.proportion` + group bucket ranges —
+see "Partial experiment allocation" under "Full-Fidelity Phase 1 via the
+Confidence REST API". If REST isn't available, fall back to the MCP
+approximation: each entering group gets `round(size × allocation / 100)`
+and the leftover (`100 − Σ`) goes to **control** — record that it's
+approximate in the plan.
 
 ## Operator Mapping (Statsig → Confidence)
 
@@ -948,8 +1009,8 @@ array.
 | `time` | `time` | timestamp |
 | `environment_tier` | — | Confidence scopes environments via clients, not targeting; record as a note, usually drop or map to a `tier` attribute |
 | `custom_field` (+ `field`) | `field` value | the custom attribute name |
-| `passes_segment` / `fails_segment` | — | inline the segment (see "Segments") |
-| `passes_gate` / `fails_gate` | — | **BLOCKED** (no cross-flag dependency) |
+| `passes_segment` / `fails_segment` | — | reusable segment (REST) or inline (MCP) — see "Segments" |
+| `passes_gate` / `fails_gate` | — | inline the referenced gate's conditions (or a shared segment); see "Blocked" |
 | `experiment_group` | — | **BLOCKED** (depends on experiment assignment) |
 | `javascript` | — | **BLOCKED** (arbitrary JS) |
 | `target_app` | — | record as a note; usually handled by client scoping |
@@ -986,8 +1047,8 @@ Statsig operators: `any`, `none`, `any_case_sensitive`,
 | `before` (time) | `rangeRule.endExclusive: { timestampValue }` |
 | `after` (time) | `rangeRule.startExclusive: { timestampValue }` |
 | `on` (time) | `eqRule.value.timestampValue` |
-| `in_segment_list` | small list → `setRule` on entity; large → BLOCKED |
-| `not_in_segment_list` | small list → `setRule` on entity wrapped in `not`; large → BLOCKED |
+| `in_segment_list` | small list → `setRule` on entity; large → REST materialized segment (BigQuery) |
+| `not_in_segment_list` | small list → `setRule` on entity wrapped in `not`; large → REST materialized segment, referenced under `not` |
 | `is null` | ruleless presence criterion under `not`: `{ "attribute": { "attributeName": "X" } }`, expression `not` wrapping `ref` |
 | `is not null` | ruleless presence criterion, expression `ref` |
 | `str_matches` (regex) | decompose like below; else BLOCKED |
@@ -1023,28 +1084,35 @@ the literal char). Anything else is BLOCKED.
 
 ### Blocked (manual review)
 
-Only these genuinely have no clean Confidence translation:
+These genuinely have no clean Confidence translation on **any** backend:
 
 - **`str_contains_any` / `str_contains_none`** — Confidence has no
   substring/contains rule. Reason: `Uses a 'contains' match on
-  '<attribute>'; Confidence has no substring rule.`
+  '<attribute>'; Confidence has no substring rule.` (Workaround: change
+  the context field to send a list of strings and use set matching.)
 - **Generic `str_matches` regex** — anything that fails the
   decomposition rule above (character classes, quantifiers, wildcard
   `.`, etc.). Reason: `Uses a regex on '<attribute>' that isn't a
   prefix/suffix/alternation; Confidence has no general regex rule.`
-- **`passes_gate` / `fails_gate`** — depends on another gate's
-  evaluation. Confidence has no cross-flag dependency. Reason: `Depends
-  on gate '<gate>'; Confidence has no flag-to-flag dependency. Inline
-  that gate's conditions or migrate manually.`
 - **`experiment_group`** — depends on another experiment's assignment.
   Reason: `Depends on experiment-group assignment; migrate manually.`
 - **`javascript`** — arbitrary JS expression. Reason: `Uses a custom
   JavaScript condition; no Confidence equivalent.`
-- **Large `id_list` segments** — can't inline thousands of ids. Reason:
-  `References an id_list segment too large to inline.`
 - **Unnormalizable version strings** — `v`-prefixed or build-metadata
   versions that can't be reduced to 2–4-segment form. Reason: `Version
   comparison on '<attribute>' uses a format Confidence can't parse.`
+
+These are **not** blocked outright — they downgrade gracefully:
+
+- **`passes_gate` / `fails_gate`** — Confidence has no flag-to-flag
+  dependency, but the referenced gate's conditions can be **inlined** (or
+  turned into a shared segment on the REST backend) and composed with
+  `and` / `not`. Only block if the referenced gate is itself
+  unmigratable. Note the inlining in the plan (it won't auto-update if
+  the source gate changes).
+- **Large `id_list` segments** — use a **REST materialized segment**
+  (BigQuery). Only block (`References an id_list segment too large to
+  inline`) if the REST backend / BigQuery isn't available.
 
 When a rule/condition is blocked, mark it in Section 4 (per the
 template). A flag is fully blocked only when *every* non-default rule is
@@ -1068,6 +1136,147 @@ there is no separate rollout field):
    omit it and rely on the catch-all
 4. Catch-all (default): no payload → `disabled` at 100%. Reproduces the
    gate's implicit `false`; MUST come last.
+
+---
+
+## Full-Fidelity Phase 1 via the Confidence REST API
+
+Use this path for the constructs the MCP can't express: partial
+experiment `allocation`, reusable / `id_list` segments, layer mutual
+exclusion, and holdouts. It needs the `CONFIDENCE_TOKEN` from
+"Prerequisites: Confidence Side". Base URL `https://flags.confidence.dev/v1`;
+every call sends `-H "Authorization: Bearer $CONFIDENCE_TOKEN"`.
+
+### The REST rule model (different from the MCP model)
+
+A REST flag rule does **not** carry an inline payload + `variantAllocations`.
+Instead it references a **segment** (which holds the targeting + the
+allocation proportion) and assigns variants by **bucket ranges**:
+
+```bash
+curl -sS -X POST "https://flags.confidence.dev/v1/flags/<flag>/rules" \
+  -H "Authorization: Bearer $CONFIDENCE_TOKEN" -H "Content-Type: application/json" \
+  -d '{
+  "segment": "segments/<segment-id>",
+  "assignmentSpec": {
+    "bucketCount": 100,
+    "assignments": [
+      { "variant": { "variant": "flags/<flag>/variants/control" }, "bucketRanges": [{"lower":0,"upper":34}] },
+      { "variant": { "variant": "flags/<flag>/variants/variant-a" }, "bucketRanges": [{"lower":34,"upper":67}] },
+      { "variant": { "variant": "flags/<flag>/variants/variant-b" }, "bucketRanges": [{"lower":67,"upper":100}] }
+    ]
+  },
+  "targetingKeySelector": "user_id"
+}'
+```
+
+Key facts:
+- **Targeting lives in the segment**, not the rule. The rule picks the
+  segment + the variant split (bucket ranges over `bucketCount`).
+- **Allocation/rollout = the segment's `allocation.proportion`** (0.0–1.0):
+  the fraction of the matched audience that is *in* the segment. Users
+  not in the segment fall through to the next rule.
+- Special assignments: `{"fallthrough":{}}` (matched → continue to next
+  rule) and `{"clientDefault":{}}` (serve the caller's default).
+- **Rules start disabled.** Enable each with
+  `PATCH /v1/flags/<flag>/rules/<ruleId>?updateMask=enabled` body
+  `{"enabled":true}`. Order via the `priority` field (lower = first).
+- Flags/variants still need to exist first — you can create them with the
+  MCP `createFlag` (recommended, since it also wires the client) or via
+  `POST /v1/flags`. Either way the REST rules then reference
+  `flags/<flag>/variants/<variant>`.
+
+### Segments (items 2 & 3 — reusable + id_list)
+
+Create once, allocate, reference from many flag rules:
+
+```bash
+# rule_based segment from a Statsig segment / inline audience
+curl -sS -X POST "https://flags.confidence.dev/v1/segments?segmentId=<id>" \
+  -H "Authorization: Bearer $CONFIDENCE_TOKEN" -H "Content-Type: application/json" \
+  -d '{ "displayName": "<name>",
+        "targeting": { "criteria": { ... }, "expression": { ... } },
+        "allocation": { "proportion": { "value": "1.0" } } }'
+# segments MUST be allocated before use in a rule:
+curl -sS -X POST "https://flags.confidence.dev/v1/segments/<id>:allocate" \
+  -H "Authorization: Bearer $CONFIDENCE_TOKEN"
+```
+
+- The `targeting` uses the **same** `criteria` + `expression` payload as
+  the MCP path (the Operator Mapping table is unchanged — only the
+  transport differs).
+- **De-duplicate:** a Statsig `rule_based` segment referenced by N flags
+  becomes ONE Confidence segment, referenced N times. Track the
+  `statsig-segment-id → segments/<id>` map in the plan.
+- **`id_list` segments → materialized segments** (BigQuery only): export
+  the id list to a BigQuery table, then
+  `POST /v1/materializedSegments?materializationId=<id>` and a load job
+  whose `sql` selects the unit-id column. If BigQuery isn't available and
+  the list is large, keep the condition BLOCKED.
+
+### Partial experiment allocation (item 1)
+
+An experiment with `allocation` < 100 maps exactly:
+
+1. Create a segment for the experiment's targeting
+   (`inlineTargetingRules`, or empty `targeting: {}` for "all"), with
+   `allocation.proportion = allocation / 100` (e.g. `"0.5"` for 50%).
+2. Allocate the segment.
+3. Add a flag rule referencing it whose `assignmentSpec` splits the
+   **groups** across the full `0–100` bucket range by `size`
+   (e.g. control `0–34`, variant-a `34–67`, variant-b `67–100`).
+4. Add a trailing catch-all rule (segment with `proportion 1.0`, or the
+   MCP catch-all) serving the **control** group's value — this catches
+   the `1 − proportion` of users who weren't allocated into the
+   experiment.
+
+This reproduces "50% enter, split 34/33/33, the rest get control"
+faithfully, which the MCP `variantAllocations` (sum-to-100, no rollout
+knob) cannot.
+
+### Layer mutual exclusion (item 4)
+
+Statsig **layers** make their experiments mutually exclusive. Map each
+layer to a Confidence **exclusivity group** via segment coordination:
+every experiment in layer `L` gets a segment whose `allocation` carries
+matching coordination tags:
+
+```json
+"allocation": { "proportion": { "value": "0.5" },
+                "exclusivityTags": ["<layer-id>"],
+                "exclusiveTo": ["<layer-id>"] }
+```
+
+Segments sharing an `exclusivityTags`/`exclusiveTo` group never overlap —
+no user lands in two of the layer's experiments. The sum of proportions
+across a coordination group must fit in 100% (allocation can fail
+otherwise — surface that to the user). Record the
+`layer-id → exclusivity tag` mapping in the plan.
+
+### Holdouts (item 5)
+
+Statsig **holdouts** (`holdoutIDs`) hold a fixed random subset of users
+out of a set of experiments. The Confidence analogue is a **holdback**,
+configured as a **surface setting** (Admin → Surfaces), not a flag-API
+object. So holdouts are migrated as a **manual surface step**, not an
+automated API call:
+
+- Record each distinct Statsig holdout in the plan with its size and the
+  experiments it covers.
+- During execute, instruct the user to create a matching holdback on the
+  relevant surface (proportion = the holdout's size) and attach it to the
+  migrated experiments.
+- Approximation without surfaces: model the held-out population as a
+  shared segment and **exclude** it (`not` the segment criterion) from
+  each covered experiment's targeting. Note this lacks the holdback's
+  cross-experiment reuse guarantees.
+
+### Verification
+
+REST-created flags resolve through the same client. Verify with the MCP
+`resolveFlag` (positive + negative + waterfall) exactly as the MCP path
+does — the resolve behavior is identical regardless of which backend
+wrote the rules.
 
 ---
 
@@ -1167,6 +1376,7 @@ by `execute` — no implicit defaults.
 
 **Statsig type:** <Feature Gate / Dynamic Config / Experiment>
 **Description:** <from Statsig if available, otherwise empty>
+**Backend:** <MCP (default) / REST — REST is required for partial allocation, reusable or id_list segments, layer exclusivity, or holdouts>
 **Confidence schema:** <e.g. `{ enabled: boolean }` for a gate; the value shape for a config/experiment>
 **Variants:** <variant list — e.g. "enabled, disabled" for a gate; group names for an experiment>
 **Confidence resolve path:** `<flag-key>.<property>` (Phase 2 reads this; `.enabled` for gates, `.<param>` per config/experiment parameter)
@@ -1176,8 +1386,10 @@ by `execute` — no implicit defaults.
   1. `<rule name>` — <plain-English condition>, pass <X>%, <variant split>
   2. ...
 **Default:** <gate: disabled (no-match catch-all); config: defaultValue → variant; experiment: control catch-all>
-**Rollout/split:** <how passPercentage / group size / allocation are encoded in variantAllocations — note any allocation<100 approximation>
-**Segments inlined:** <none, or list of segment ids whose conditions were inlined>
+**Rollout/split:** <how passPercentage / group size / allocation are encoded — variantAllocations (MCP) or segment proportion + bucketRanges (REST)>
+**Segments:** <none, or list of Confidence segments created (REST) / inlined (MCP) with the statsig-segment-id → segments/<id> mapping>
+**Layer / exclusivity:** <none, or layerID → exclusivity tag (REST)>
+**Holdouts:** <none, or holdout ids → holdback surface step>
 **Null rules emitted:** <none, or "is null on '<attr>' → ruleless presence criterion under `not`; may render empty in the segment editor">
 **Confidence rules:** one targeting rule per Statsig rule, in the same order, plus a final catch-all rule for the default
 **Action:** [ ] Migrate  [ ] Skip
@@ -1188,8 +1400,8 @@ with:
 **Status:** BLOCKED — <one-line reason from the BLOCKED rules above>
 **Action:** [ ] Skip (no migrate option available until the block is resolved)
 
-**MCP Commands:**
-<createFlag, addFlagToClient, addTargetingRule (ONE per Statsig rule, in order, with variant assignments and their split) THEN a final catch-all addTargetingRule (no payload, 100% → default variant), resolveFlag with full parameters — positive AND negative case (negative must land on the catch-all and return the default variant)>
+**Commands:**
+<For MCP backend: createFlag, addFlagToClient, addTargetingRule (ONE per Statsig rule, in order) THEN a final catch-all addTargetingRule (no payload, 100% → default variant). For REST backend: createFlag (MCP, to wire the client), then per segment a POST /v1/segments + :allocate, then POST /v1/flags/<flag>/rules (segment + assignmentSpec) + PATCH enabled=true, in order. Finish with resolveFlag (MCP) — positive AND negative case (negative must land on the catch-all and return the default variant)>
 
 ---
 
@@ -1254,8 +1466,13 @@ request for each flag, keeping changes small and reviewable.
 
 ### Flag Setup Sequence (MUST complete all steps before resolving)
 
-Each flag MUST go through these steps in order. Do NOT call
-`resolveFlag` until ALL prior steps succeed.
+**Pick the backend from the flag's `Backend` field first.** The sequence
+below is the **MCP** path (the default). For a flag marked `Backend: REST`,
+use the **REST sequence** instead (next subsection), then verify with the
+same `resolveFlag` step 4. Either way, do NOT call `resolveFlag` until all
+prior steps succeed.
+
+#### MCP sequence
 
 ```
 STEP 1: createFlag
@@ -1296,6 +1513,34 @@ STEP 4: resolveFlag (verification)
     negative resolve tests pass.
 ```
 
+#### REST sequence (Backend: REST)
+
+For flags needing partial allocation, reusable/`id_list` segments, layer
+exclusivity, or holdouts. Requires `CONFIDENCE_TOKEN` (confirm it's set;
+if not, prompt the user — see prerequisites). Follow the recipes in
+"Full-Fidelity Phase 1 via the Confidence REST API".
+
+```
+STEP 1: createFlag + client  (MCP createFlag — also wires the client and variants)
+STEP 2: For each segment this flag needs (in the plan's Segments list):
+  → POST /v1/segments?segmentId=<id>  (targeting + allocation.proportion
+    + exclusivityTags/exclusiveTo for layered experiments)
+  → POST /v1/segments/<id>:allocate   (MUST allocate before use)
+  → For id_list: POST /v1/materializedSegments + a load job instead
+  → Reuse already-created segments (check the plan's segment map) — do
+    not recreate
+STEP 3: For each Statsig rule, in order:
+  → POST /v1/flags/<flag>/rules  (segment + assignmentSpec bucketRanges
+    + targetingKeySelector)
+  → PATCH /v1/flags/<flag>/rules/<ruleId>?updateMask=enabled  {enabled:true}
+  → Set priority so order matches the Statsig waterfall (lower = first)
+  → Add the trailing catch-all rule LAST (default variant)
+STEP 4: Holdouts (if any): instruct the user to create the matching
+  holdback on the relevant surface and attach it (manual surface step).
+STEP 5: resolveFlag (verification) — identical to the MCP sequence's
+  STEP 4 (positive + negative + waterfall).
+```
+
 ### Rules
 
 - **NEVER auto-continue** — always wait for user at each checkpoint
@@ -1306,11 +1551,12 @@ STEP 4: resolveFlag (verification)
 
 ## Execute: Statsig-Specific Notes
 
-**Inline segments first.** For any flag whose rules reference a
-`rule_based` segment, the inlined criteria are already part of that
-flag's targeting payload in the plan (this plugin's Confidence MCP has no
-`createSegment` tool). No separate segment-creation step is needed —
-just apply the flag's payload as written.
+**Segments first.** REST-backend flags: create + allocate every segment
+the flag references **before** adding its rules (rules reference segments
+by name), reusing any already-created segment per the plan's segment map.
+MCP-backend flags: the `rule_based` segment conditions are already inlined
+into the flag's payload in the plan, so no separate step is needed — apply
+the payload as written.
 
 **Disabled-in-Statsig handling.** If an item's `isEnabled` is false,
 surface that during execute:
@@ -1680,4 +1926,5 @@ MCP, just `curl` with `STATSIG-API-KEY: $STATSIG_API_KEY` and
 |--------|-------------|
 | Confidence MCP | `listClients`, `createClient`, `getContextSchema`, `addContextField`, `createFlag`, `addFlagToClient`, `unarchiveFlag`, `addTargetingRule`, `resolveFlag` |
 | Confidence Docs MCP (`plan code`) | `getLocalResolveIntegrationGuide`, `getCodeSnippetAndSdkIntegrationTips`, `searchDocumentation`, `getFullSource` |
+| Confidence REST API (`CONFIDENCE_TOKEN`, OPTIONAL — full-fidelity Phase 1) | `POST /v1/segments` + `:allocate`, `POST /v1/materializedSegments` (+ load jobs), `POST /v1/flags/{flag}/rules` + `PATCH …?updateMask=enabled`; token via `POST https://iam.confidence.dev/v1/oauth/token` |
 | Statsig Console API (`STATSIG-API-KEY`) | `GET /console/v1/gates`, `GET /console/v1/gates/{id}`, `GET /console/v1/dynamic_configs[/{id}]`, `GET /console/v1/experiments[/{id}]`, `GET /console/v1/segments/{id}` |
