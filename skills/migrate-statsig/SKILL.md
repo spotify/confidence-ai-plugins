@@ -1098,9 +1098,19 @@ These genuinely have no clean Confidence translation on **any** backend:
   Reason: `Depends on experiment-group assignment; migrate manually.`
 - **`javascript`** — arbitrary JS expression. Reason: `Uses a custom
   JavaScript condition; no Confidence equivalent.`
-- **Unnormalizable version strings** — `v`-prefixed or build-metadata
-  versions that can't be reduced to 2–4-segment form. Reason: `Version
-  comparison on '<attribute>' uses a format Confidence can't parse.`
+- **Version *range* comparisons on an un-normalizable format** — only
+  `version_gt/gte/lt/lte`, and only when the value can't be reduced to
+  the supported 2–4 numeric segments. `v`-prefix and `+build` metadata
+  ARE normalizable: strip them on **both** the criterion and the runtime
+  context value (the skill strips them; the app must send the cleaned
+  value too). Truly blocked only for non-numeric schemes (date/calendar
+  versions, git hashes, named releases). Two escape hatches before
+  blocking: (a) **version equality/set** (`version_eq` / `version_neq` /
+  `any` / `none`) needs no parsing — use an `eqRule`/`setRule` on the raw
+  strings; (b) for ranges, send a **numeric build number** in context and
+  use a numeric `rangeRule`. Reason (last resort): `Version range on
+  '<attribute>' uses a non-numeric format; use exact match or a numeric
+  build number instead.`
 
 These are **not** blocked outright — they downgrade gracefully:
 
