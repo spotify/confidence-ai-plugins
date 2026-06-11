@@ -15,6 +15,5 @@
     "a/b-testing",
     "migration",
     "openfeature"
-  ],
-  "hooks": "./hooks/hooks.json"
+  ]
 }
