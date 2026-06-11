@@ -83,12 +83,13 @@ This plugin provides access to Confidence tools across these categories:
 
 - **Feature flags** — Create, list, update, archive, resolve, and target feature flags
 - **Documentation** — Search Confidence docs and SDK integration guides
-- **Migration** — Migrate feature flags from PostHog or Eppo to Confidence
+- **Migration** — Migrate feature flags from PostHog, Eppo, or Statsig to Confidence
 
 ## Slash Commands
 
 - `/confidence:migrate-posthog` — Migrate feature flags from PostHog to Confidence SDK
 - `/confidence:migrate-eppo` — Migrate feature flags from Eppo to Confidence SDK
+- `/confidence:migrate-statsig` — Migrate feature flags from Statsig to Confidence SDK
 
 ## Example Usage
 
@@ -99,6 +100,8 @@ This plugin provides access to Confidence tools across these categories:
 > /confidence:migrate-posthog plan code
 > /confidence:migrate-eppo plan flag
 > /confidence:migrate-eppo plan code
+> /confidence:migrate-statsig plan flag
+> /confidence:migrate-statsig plan code
 ```
 
 ## MCP Servers
