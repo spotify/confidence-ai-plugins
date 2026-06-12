@@ -599,6 +599,9 @@ curl -sS -H "STATSIG-API-KEY: $STATSIG_API_KEY" \
 - An **`id_list`** / `user_store_id_list` segment is a literal list of
   unit IDs. If small (≤ ~50), inline as a `setRule` on the entity field.
   If large, mark the referencing condition BLOCKED (see "Blocked").
+- An **`analysis_list`** segment is an analysis-only audience with no
+  targeting rules — it has no Confidence targeting equivalent. Mark the
+  referencing condition BLOCKED for manual review.
 
 **Unit ID.** Statsig randomizes on the entity named by `idType`
 (`userID`, `stableID`, or a custom ID). Record each item's `idType`; the
@@ -925,6 +928,9 @@ backend:
     if small (≤ ~50 ids), inline as a `setRule` on the entity field
     (wrapped in `not` for `not_in`). If large, use a REST materialized
     segment, or mark the condition BLOCKED.
+  - **`analysis_list` segment**: analysis-only, no targeting rules to
+    inline and no Confidence equivalent on either backend — mark the
+    condition BLOCKED for manual review.
 
 ## Multivariant / Group Split Handling
 

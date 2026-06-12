@@ -56,16 +56,27 @@ def _ver_tuple(s: str) -> tuple[int, ...]:
 
 
 def _regex_alternation_ok(pattern: str) -> bool:
-    """True if a str_matches value is a prefix/suffix/alternation we can map."""
+    """True if a str_matches value is a prefix/suffix/alternation we can map.
+
+    Mirrors the skill's decomposition rule: after stripping anchors and
+    leading/trailing `.*`, the remainder must be literal text (escaped
+    dots ok) with at most ONE alternation group of literals — no other
+    regex metacharacters (`.` as wildcard, quantifiers, classes, ...).
+    """
+    metachars = r"[\[\]+?{}\\.*]"  # checked after removing `\.` escapes
     body = pattern
     anchored_end = body.endswith("$")
     anchored_start = body.startswith("^")
     body = body.lstrip("^").rstrip("$")
     body = re.sub(r"^\.\*", "", body)
     body = re.sub(r"\.\*$", "", body)
-    # Allow one (a|b|c) group plus literal text (escaped dots ok).
+    groups = re.findall(r"\(([^()]*)\)", body)
+    if len(groups) > 1:
+        return False
+    if any(re.search(metachars, g.replace("\\.", "")) for g in groups):
+        return False
     stripped = re.sub(r"\([^()]*\)", "", body).replace("\\.", "")
-    return (anchored_start or anchored_end) and not re.search(r"[\[\]+?{}\\]", stripped)
+    return (anchored_start or anchored_end) and not re.search(metachars, stripped)
 
 
 def eval_condition(cond: dict[str, Any], ctx: dict[str, Any], entity_value: str) -> bool:
@@ -85,6 +96,9 @@ def eval_condition(cond: dict[str, Any], ctx: dict[str, Any], entity_value: str)
             raise Blocked(f"unknown segment {targets[0]}")
         if seg.get("type") in ("id_list", "user_store_id_list"):
             raise Blocked(f"id_list segment {seg['id']} (REST materialized)")
+        if seg.get("type") != "rule_based":
+            # e.g. analysis_list — analysis-only audience, no Confidence equivalent
+            raise Blocked(f"{seg.get('type')} segment {seg['id']}")
         in_seg = eval_rules(seg["rules"], ctx, entity_value) is not None
         return in_seg if ctype == "passes_segment" else not in_seg
 
@@ -211,6 +225,10 @@ def main() -> None:
         if gate.get("status") in ("Archived", "archived"):
             print(f"  {gate['id']:<26} ARCHIVED (excluded from default scan)")
             continue
+        if not gate.get("isEnabled", True):
+            print(f"  {gate['id']:<26} DISABLED in Statsig (false for every "
+                  "context; migrates OFF — rules at 0%)")
+            continue
         id_list = references_id_list(gate["rules"])
         if id_list:
             print(f"  {gate['id']:<26} REST backend (id_list segment "
@@ -236,6 +254,10 @@ def main() -> None:
     print("\n## Dynamic configs — returned variant value (or defaultValue)\n")
     for cfg in DYNAMIC_CONFIGS:
         print(f"  {cfg['id']}  (default={cfg['defaultValue']})")
+        if not cfg.get("isEnabled", True):
+            print("      DISABLED in Statsig (defaultValue for every context; "
+                  "migrates OFF — rules at 0%)")
+            continue
         for cname, ctx in CONTEXTS.items():
             rule = eval_rules(cfg["rules"], ctx, ENTITY)
             val = rule["returnValue"] if rule else cfg["defaultValue"]

@@ -626,7 +626,7 @@ class Handler(BaseHTTPRequestHandler):
         m = ROUTE_LIST.match(path)
         if m:
             coll, kind = COLLECTIONS[m["coll"]]
-            include_archived = self._bool_param(query, "include_archived")
+            include_archived = self._bool_param(query, "includeArchived")
             limit = int(query.get("limit", [str(self.limit_default)])[0])
             page = int(query.get("page", ["1"])[0])
 
