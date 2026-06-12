@@ -1,5 +1,5 @@
 ---
-description: Migrate feature flags from Statsig to Confidence SDK. Use when the user says /migrate-statsig, asks to migrate Statsig gates/configs/experiments, or transform SDK code to Confidence.
+description: Migrate feature flag definitions from Statsig to Confidence. Use when the user says /migrate-statsig or asks to migrate Statsig gates/configs/experiments to Confidence.
 ---
 
 # Statsig to Confidence Migration
@@ -9,16 +9,6 @@ skill is fully self-contained: it defines both the Statsig-specific
 migration logic AND all the Confidence-side conventions it relies on
 (payload formats, naming rules, the flag setup sequence, the execute
 flow, etc.).
-
-## SDK Preference
-
-**ALWAYS prefer OpenFeature with local resolve.**
-
-| Priority | Approach | When to use |
-|----------|----------|-------------|
-| 1st | Local resolve | Default for all new integrations |
-| 2nd | Remote resolve | Only if local resolve not supported for platform |
-| Avoid | Direct SDK | Being phased out |
 
 ## Plan Philosophy
 
@@ -36,15 +26,14 @@ flow, etc.).
 | Command | Description |
 |---------|-------------|
 | `/migrate-statsig plan flags` | Phase 1: plan flag definitions migration |
-| `/migrate-statsig plan code` | Phase 2: plan code transformation |
 | `/migrate-statsig execute <plan-file>` | Execute a plan interactively |
 
 ---
 
-## Migration Overview (MUST display at start of `plan flags` or `plan code`)
+## Migration Overview (MUST display at start of `plan flags`)
 
-**Every time** the user runs `plan flags` or `plan code`, display this
-overview FIRST — before doing any work.
+**Every time** the user runs `plan flags`, display this overview FIRST
+— before doing any work.
 
 ```
 ═══════════════════════════════════════════════════════════════
@@ -69,20 +58,11 @@ overview FIRST — before doing any work.
   │                                                        │
   │  Result: All flags live in Confidence, ready to resolve│
   ├─────────────────────────────────────────────────────────┤
-  │  PHASE 2 — Code Transformation                         │
+  │  PHASE 2 — Code Transformation (ships separately)      │
   │                                                        │
-  │  Once flags exist in Confidence, migrate the code that │
-  │  evaluates them. Each flag = one PR.                   │
-  │                                                        │
-  │  Steps:                                                │
-  │    1. Detect language & framework                      │
-  │    2. Fetch Confidence SDK guide                       │
-  │    3. Scan codebase for Statsig usage                  │
-  │    4. Generate transform rules (Statsig → Confidence)  │
-  │    5. Generate plan grouped by flag                    │
-  │    6. Execute: transform code flag by flag, one PR each│
-  │                                                        │
-  │  Result: Code uses Confidence SDK, Statsig removed     │
+  │  Once flags exist in Confidence, the code that         │
+  │  evaluates them is migrated flag-by-flag, one PR each. │
+  │  Phase 2 is delivered as a follow-up to this skill.    │
   └─────────────────────────────────────────────────────────┘
 
   Why flags first?
@@ -95,15 +75,8 @@ overview FIRST — before doing any work.
 ═══════════════════════════════════════════════════════════════
 ```
 
-After displaying the overview, indicate which phase the user is about
-to enter:
-
-- For `plan flags`: "Starting **Phase 1** — Flag Definitions"
-- For `plan code`: "Starting **Phase 2** — Code Transformation.
-  Make sure Phase 1 (flag definitions) is complete first — the flags
-  need to exist in Confidence before the code can resolve them."
-
-Then proceed with the normal workflow for that phase.
+After displaying the overview, say: "Starting **Phase 1** — Flag
+Definitions", then proceed with the normal workflow.
 
 ---
 
@@ -116,17 +89,6 @@ Test: `mcp__confidence__listClients`
 If not available, install it:
 ```
 claude mcp add confidence --transport http --url https://mcp.confidence.dev/mcp/flags
-```
-
-The user will be prompted to authenticate via OAuth in their browser.
-
-### Confidence Docs MCP (required for `plan code` only)
-
-Test: `mcp__confidence-docs__searchDocumentation`
-
-If not available, install it:
-```
-claude mcp add confidence-docs --transport http --url https://mcp.confidence.dev/mcp/docs
 ```
 
 The user will be prompted to authenticate via OAuth in their browser.
@@ -491,8 +453,8 @@ Example after Step 1 completes:
 
 ## Plan Files: Resume Check & Progressive Updates
 
-Both plan flags and plan code use a progressive plan file. Created at
-Step 1, updated after each step, so a closed session can resume.
+`plan flags` uses a progressive plan file. Created at Step 1, updated
+after each step, so a closed session can resume.
 
 ### Resume check (MUST do first)
 
@@ -500,7 +462,6 @@ Before starting any plan workflow, check for an existing in-progress
 plan:
 
 - `plan flags` → `.claude/plans/statsig-flag-migration-*.md`
-- `plan code`  → `.claude/plans/statsig-code-migration-*.md`
 
 If a plan file exists, read its `## Generation Status` section:
 
@@ -1499,30 +1460,6 @@ with:
    - Show summary: created vs skipped
 ```
 
-### For code plans
-
-**Each flag = one PR.** The code migration creates a separate pull
-request for each flag, keeping changes small and reviewable.
-
-```
-1. READ the plan file
-2. SDK SETUP (Section 1 of plan) — one-time, before any flag
-   - Show install command from plan
-   - ASK: "Install SDK now? [Yes / Skip / I already did]"
-   - Show wrapper file path + API surface from plan
-   - ASK: "Create the Confidence wrapper now? [Yes / Skip / I already did]"
-3. FOR EACH FLAG in the files list:
-   a. Create a branch: `migrate/<flag-key>-to-confidence`
-   b. Show flag name + all files using it
-   c. ASK: "Transform this flag's files? [Yes / Skip / Pause]"
-   d. If Yes → apply transform rules from plan to all files for this flag
-   e. Run lint + typecheck on changed files
-   f. Commit changes
-   g. Create PR titled: "feat: migrate <flag-key> from Statsig to Confidence"
-   h. CHECKPOINT: "PR created. [Continue to next flag / Pause]?"
-4. COMPLETION — show summary + list all PRs created
-```
-
 ### Flag Setup Sequence (MUST complete all steps before resolving)
 
 **Pick the backend from the flag's `Backend` field first.** The sequence
@@ -1654,340 +1591,15 @@ one — this verifies the waterfall order is preserved.
 
 ---
 
-## Plan Code: Steps
-
-The code phase has 5 steps: Step 1 detect language/framework, Step 2
-fetch the Confidence SDK guide (and signal any resolve-mode change),
-Step 3 scan the codebase for Statsig usage, Step 4 generate transform
-rules, Step 5 generate the plan.
-
-### Step 1: Detect language & framework
-
-```
-Grep: pattern="<Statsig import/symbol patterns from Step 3>"  → Find Statsig usage
-Glob: pattern="package.json" or "build.gradle" or "go.mod" or "requirements.txt" etc
-Read: dependency file  → Determine language/framework
-```
-
-### Step 2: Fetch SDK guide from `confidence-docs` MCP
-
-**Step 2a — pick the target resolve mode.** Confidence has FOUR modes,
-not a local/remote binary. Pick from the language/framework detected in
-Step 1, honoring the "prefer local resolve" policy (see "SDK
-Preference"):
-
-| Target mode | Confidence SDKs | How evaluation works | Network profile |
-|-------------|-----------------|----------------------|-----------------|
-| **In-process** (local resolve) | backend **Java, Go, JS/Node, Rust** | Periodically fetch the resolver **state** (full ruleset); evaluate locally via WASM | No per-eval network call; network only for state refresh |
-| **Cached client** | **Android, iOS, web/browser JS, React, React Native** | Backend resolves; device **prefetches and caches resolved VALUES**. Reads are local + offline. Context change triggers a refetch | Network on init / context change / refresh — NOT per read |
-| **Server-precomputed** | server-rendered React/Next.js (RSC) | Server resolves for a bound subject; client reads resolved values offline | Resolution on the server; client reads are offline |
-| **Remote** (per-call) | backend **Python, Ruby, .NET** | Each resolve is a service call to Confidence | One call per resolve (with default-value fallback on failure) |
-
-Routing:
-
-- Backend **and** language ∈ {Java, Go, JS/Node, Rust} → **in-process**.
-  Fetch the local-resolve guide (server-only):
-
-  ```
-  mcp__confidence-docs__getLocalResolveIntegrationGuide
-    sdk: "JAVA" | "GO" | "JS" | "RUST"
-  ```
-
-- Client app (mobile / browser / React Native) → **cached client**.
-  Backend **Python / Ruby / .NET** → **remote**. Either way fetch:
-
-  ```
-  mcp__confidence-docs__getCodeSnippetAndSdkIntegrationTips
-    sdk: "<detected>"
-  ```
-
-**CRITICAL:** Include the ACTUAL MCP response in the plan, not a
-reference to fetch it. Plans are self-sufficient.
-
-**Step 2b — signal any resolve-mode CHANGE.** Compare the source mode
-(defined in "Source resolve mode (Statsig)" below) to the target mode
-from 2a and, if it shifts, tell the user precisely what changes. Record
-the decision and any change notice in the plan's SDK Setup section and
-re-surface it at execute time. If unchanged, state that explicitly.
-
-### Source resolve mode (Statsig) — feeds the Step 2b signal
-
-Map the Statsig SDK in use to a source mode by surface:
-
-- **Statsig server SDK** (`statsig-node` v3+, Server Core
-  `@statsig/statsig-node-core`, `statsig` Python/Ruby, Java/Go/.NET) →
-  source mode = **in-process eval** (the SDK downloads the project config
-  and evaluates locally, no per-check network call).
-- **Statsig client SDK** (`@statsig/js-client`, `@statsig/react-bindings`,
-  Android/iOS) → **precomputed/cached values**: the server precomputes
-  per-user values that the client reads locally (with `updateUser`
-  triggering a refetch).
-- **Statsig on-device evaluation client SDK**
-  (`@statsig/js-on-device-eval-client`) → **on-device eval** (the client
-  downloads the ruleset and evaluates locally).
-
-Then the Step 2b transitions apply:
-
-- Statsig server → Confidence **in-process** (Java/Go/JS/Rust):
-  unchanged.
-- Statsig server → Confidence **remote** (Python/Ruby/.NET): ⚠️
-  in-process → remote — each resolve becomes a service call.
-- Statsig client (precomputed) → Confidence **cached client**: ✅ similar
-  model — backend resolves, client reads cached values offline; reads
-  stay local/fast.
-- Statsig on-device eval → Confidence **cached client**: ⚠️ on-device →
-  cached client. Reads stay local/offline, but evaluation moves to the
-  backend; the device caches resolved values instead of the ruleset (a
-  payload/security win — the full ruleset is no longer shipped to the
-  client).
-
-### Plan-file path
-
-`.claude/plans/statsig-code-migration-<date>.md`
-
-### Step 3: Scan codebase for Statsig usage
-
-```
-Grep: pattern="statsig|Statsig|StatsigClient|StatsigUser" → Find Statsig imports
-Grep: pattern="checkGate|check_gate" → boolean gate checks
-Grep: pattern="getConfig|get_config|getDynamicConfig|get_dynamic_config" → dynamic configs
-Grep: pattern="getExperiment|get_experiment" → experiments
-Grep: pattern="getLayer|get_layer" → layers
-Grep: pattern="useGateValue|useFeatureGate|useExperiment|useLayer|useDynamicConfig|useStatsigClient" → React hooks
-```
-
-**Scan case-insensitively.** Method names vary by language and SDK
-generation (legacy vs Server Core). Map whatever you find to an
-evaluation TYPE, not a fixed spelling:
-
-| Statsig call | What it returns | Confidence accessor (by value type) |
-|--------------|-----------------|-------------------------------------|
-| `checkGate(user, "g")` / `client.checkGate("g")` | boolean | `getBooleanValue("g.enabled", false, ctx)` |
-| `getConfig(user, "c").get("p", d)` | typed param | `get<Type>Value("c.p", d, ctx)` |
-| `getDynamicConfig(user, "c").get("p", d)` | typed param | `get<Type>Value("c.p", d, ctx)` |
-| `getExperiment(user, "e").get("p", d)` | typed param | `get<Type>Value("e.p", d, ctx)` |
-| `getLayer(user, "l").get("p", d)` | typed param | `get<Type>Value("<exp>.p", d, ctx)` — the layer param resolves through its backing experiment flag |
-| `.getValue()` / `.value` (whole config object) | object | `getObjectValue("c", {}, ctx)` |
-
-**Classify the SDK as client-side or server-side** — this decides the
-evaluation-context model in Step 4:
-
-| Statsig package | Side |
-|-----------------|------|
-| `@statsig/js-client`, `@statsig/react-bindings`, `@statsig/react-native-bindings`, Android/iOS client SDK | **client** |
-| `@statsig/js-on-device-eval-client` | **client (on-device eval)** |
-| `statsig-node`, `@statsig/statsig-node-core`, `statsig` (Python/Ruby), Java/Go/.NET server SDK | **server** |
-
-Group files by the **gate/config/experiment name** they reference (the
-string argument). For each evaluation site, record:
-- The Statsig name and TYPE (gate / config / experiment / layer)
-- **Client vs server side** (from the table above)
-- The value type (boolean for gates; inferred from the `.get(param, default)`
-  call or `default` literal for configs/experiments)
-- The `StatsigUser` argument (so the transform can map `userID`/`custom`
-  to `targetingKey` + attributes)
-- The `default` argument (carried over to the Confidence call)
-- The **Confidence resolve path** (`<flag-key>.<property>`) from the
-  Phase 1 plan's "Confidence resolve path" line. For gates the property
-  is `enabled`. If the item is NOT in the Phase 1 plan, flag it — the
-  code references a flag that was never migrated; do not invent a path.
-
-### Step 4: Generate transform rules
-
-**Two things are NOT 1:1 line replacements — get them right first:**
-
-1. **Name → resolve path.** Confidence flags are structs; every read
-   uses a dot-path `<flag-key>.<property>`. Use the resolve path from the
-   Phase 1 plan everywhere the bare Statsig name appeared. A
-   `getConfig("c").get("p")` becomes `getXValue("c.p", default)` — the
-   parameter folds INTO the path.
-2. **Evaluation-context model depends on client vs server:**
-   - **Server SDKs** pass the `StatsigUser` **per call** — fold
-     `user.userID` → `targetingKey` and `user.custom` / top-level fields
-     → attributes into the evaluation-context argument of each resolve.
-   - **Client SDKs** use **ambient** context — no per-call user argument.
-     Hoist `userID` + attributes ONCE into a
-     `setEvaluationContext`/`setEvaluationContextAndWait` call (at init or
-     where the user becomes known, replacing Statsig's
-     `updateUser` / init user), and the per-call site becomes a bare
-     `get<Type>Value(path, default)`.
-
-**StatsigUser → evaluation context.** Statsig's user object
-(`{ userID, email, country, appVersion, custom: {...}, customIDs: {...} }`)
-maps to a Confidence evaluation context: `userID` → `targetingKey`;
-top-level reserved fields and `custom` entries → attributes of the same
-name; `customIDs` → the corresponding entity fields. Statsig auto-derives
-country/browser/OS/version server-side — in Confidence you MUST pass
-these explicitly, so add them to the context where targeting needs them.
-
-**Server-target mapping (per-call context), JS/TS example:**
-
-| Statsig call | OpenFeature call |
-|--------------|------------------|
-| `statsig.checkGate(user, "g")` | `client.getBooleanValue("g.enabled", false, { targetingKey: user.userID, ...attrs })` |
-| `statsig.getConfig(user, "c").get("p", d)` | `client.get<Type>Value("c.p", d, { targetingKey: user.userID, ...attrs })` |
-| `statsig.getExperiment(user, "e").get("p", d)` | `client.get<Type>Value("e.p", d, { targetingKey: user.userID, ...attrs })` |
-
-The accessor name and signature are language-specific (use the Step 2
-SDK guide):
-- **Go**: PascalCase, context-LAST, `ctx` first:
-  `client.BooleanValue(ctx, "g.enabled", false, evalCtx)` where
-  `evalCtx := openfeature.NewEvaluationContext(user.UserID, attrsMap)`.
-- **Java**: build a `MutableContext(userID)` + `ctx.add(...)`:
-  `client.getBooleanValue("g.enabled", false, ctx)`.
-- **Python (REMOTE target)**: snake_case `get_<type>_value`, context
-  last: `client.get_boolean_value("g.enabled", False, EvaluationContext(targeting_key=user_id, attributes=attrs))`.
-  Use `api.set_provider(ConfidenceOpenFeatureProvider(Confidence(client_secret=...)))`
-  (NOT `set_provider_and_wait`) and delete Statsig's `initialize()` wait.
-
-**Client-target mapping (ambient context):** the per-call site drops its
-user argument; emit a one-time context setup instead.
-
-| Statsig call | Confidence client call | Plus, once |
-|--------------|------------------------|------------|
-| `client.checkGate("g")` | `getBooleanValue("g.enabled", false)` | `setEvaluationContext({ targetingKey: userID, ...attrs })` |
-| `client.getExperiment("e").get("p", d)` | `get<Type>Value("e.p", d)` | (same — set once) |
-
-**React mapping.** Statsig `@statsig/react-bindings` hooks map to
-Confidence's React provider + `useFlag`:
-
-| Statsig (React) | Confidence (React) |
-|-----------------|--------------------|
-| `<StatsigProvider sdkKey user>` | `<ConfidenceProvider>` with evaluation context `{ targetingKey: userID, ...attrs }` |
-| `useGateValue("g")` / `useFeatureGate("g").value` | `useFlag("g.enabled", false)` |
-| `useExperiment("e").get("p", d)` / `.value.p` | `useFlag("e.p", d)` |
-| `useLayer("l").get("p", d)` | `useFlag("<exp>.p", d)` |
-| `useStatsigClient().checkGate("g")` | `useFlag("g.enabled", false)` (or imperative client read) |
-
-**Remove Statsig readiness scaffolding.** Statsig examples gate the
-first check behind `await statsig.initialize(...)` /
-`await client.initializeAsync()` / `StatsigProvider`'s loading state.
-Confidence's `setProviderAndWait` / `setEvaluationContextAndWait` already
-block until flags are ready — delete the hand-rolled wait rather than
-porting it. Drop Statsig's `disableExposureLog` plumbing and manual
-exposure logging (`logEvent` for exposures) — Confidence logs exposure
-automatically.
-
-**Layers caveat.** A Statsig `getLayer("l").get("p", d)` reads a
-parameter that, in Statsig, is owned by whichever experiment is
-currently allocated in that layer. Confidence has no layer; resolve the
-param through the specific experiment flag the Phase 1 plan created for
-it. If a layer parameter is shared across multiple experiments, surface
-it for review rather than guessing which flag owns it.
-
-### Step 5: Generate plan
-
-Save the plan to `.claude/plans/statsig-code-migration-<date>.md` using
-the template below.
-
-**Two Confidence-wide truths every code transform must honor:**
-
-- **Flags are structs — read a property, not the bare name.** Always use
-  `<flag>.<property>` (gates → `.enabled`; configs/experiments →
-  `.<param>`).
-- **Client SDKs use ambient context; server SDKs pass it per call.**
-
-## Plan Code: Template
-
-```markdown
-# Statsig to Confidence Code Migration Plan
-
-**Created:** <date>
-**Scope:** Code transformation only
-**Language:** <detected>
-**Framework:** <detected>
-
----
-
-## Generation Status
-
-| Step | Status | Result |
-|------|--------|--------|
-| 1. Detect language | ○ not started | |
-| 2. Fetch SDK guide | ○ not started | |
-| 3. Scan codebase | ○ not started | |
-| 4. Transform rules | ○ not started | |
-| 5. Group by flag | ○ not started | |
-
-**Overall:** in progress
-
----
-
-## 1. SDK Setup
-
-### Resolve mode
-
-| | |
-|---|---|
-| **Source mode** | <in-process eval / precomputed-cached / on-device eval — per surface> |
-| **Target mode** | <in-process / cached client / server-precomputed / remote — from Step 2a> |
-| **Change** | <unchanged / ⚠️ in-process → remote / ⚠️ on-device → cached client / … — see notice> |
-
-<If changed: one-paragraph notice of what actually shifts. If unchanged: "Resolve mode is preserved.">
-
-### Install
-
-<install commands from MCP response>
-
-### API Reference (from MCP: confidence-docs)
-
-<code examples from MCP response>
-
-### Create Confidence Wrapper
-
-**File:** <appropriate path for detected framework>
-
-**Must match source API surface:**
-
-| Method | Signature |
-|--------|-----------|
-<detected from source SDK usage>
-
----
-
-## 2. Transform Rules
-
-### Source Files
-
-| Find | Replace |
-|------|---------|
-| <Statsig import> | <Confidence import> |
-| <Statsig usage> | <Confidence usage> |
-
-### Test Files
-
-| Find | Replace |
-|------|---------|
-| <Statsig mock> | <Confidence mock> |
-
----
-
-## 3. Files to Transform
-
-<list from codebase scan, grouped by gate/config/experiment name>
-
----
-
-## 4. Progress
-
-| # | Item | Status |
-|---|------|--------|
-| 0 | SDK Setup | :white_circle: |
-```
-
----
-
 ## Required Prerequisites
 
-This skill needs the Confidence-side MCPs listed in "Prerequisites:
-Confidence Side" above (`confidence` for `plan flags`/`execute`,
-`confidence-docs` for `plan code`), plus the Statsig Console API — no
-MCP, just `curl` with `STATSIG-API-KEY: $STATSIG_API_KEY` and
+This skill needs the Confidence MCP listed in "Prerequisites:
+Confidence Side" above, plus the Statsig Console API — no MCP, just
+`curl` with `STATSIG-API-KEY: $STATSIG_API_KEY` and
 `STATSIG-API-VERSION: 20240601`.
 
 | Source | What's used |
 |--------|-------------|
 | Confidence MCP | `listClients`, `createClient`, `getContextSchema`, `addContextField`, `createFlag`, `addFlagToClient`, `unarchiveFlag`, `addTargetingRule`, `resolveFlag` |
-| Confidence Docs MCP (`plan code`) | `getLocalResolveIntegrationGuide`, `getCodeSnippetAndSdkIntegrationTips`, `searchDocumentation`, `getFullSource` |
 | Confidence REST API (`CONFIDENCE_TOKEN`, OPTIONAL — full-fidelity Phase 1) | `POST /v1/segments` + `:allocate`, `POST /v1/materializedSegments` (+ load jobs), `POST /v1/flags/{flag}/rules` + `PATCH …?updateMask=enabled`; token via `POST https://iam.confidence.dev/v1/oauth/token` |
 | Statsig Console API (`STATSIG-API-KEY`) | `GET /console/v1/gates`, `GET /console/v1/gates/{id}`, `GET /console/v1/dynamic_configs[/{id}]`, `GET /console/v1/experiments[/{id}]`, `GET /console/v1/segments/{id}` |

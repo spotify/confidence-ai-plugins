@@ -101,7 +101,6 @@ This plugin provides access to Confidence tools across these categories:
 > /confidence:migrate-eppo plan flag
 > /confidence:migrate-eppo plan code
 > /confidence:migrate-statsig plan flag
-> /confidence:migrate-statsig plan code
 ```
 
 ## MCP Servers
