@@ -30,9 +30,12 @@ What gets seeded (mirrors server.py):
 
 KNOWN API LIMITATION — one manual step. The Console API cannot write
 `inlineTargetingRules` (read-only on ExternalExperimentDto; absent from
-the create/update DTOs as of API version 20240601). After seeding, add
-the inline targeting rule to `onboarding_flow_experiment` by hand in the
-console UI: country is any of [US, CA]. The script prints a reminder.
+the create/update DTOs as of API version 20240601). Experiments whose
+fixture carries inline targeting are therefore left UNSTARTED (targeting
+locks at start): add the rule in the console UI (for
+`onboarding_flow_experiment`: country is any of [US, CA]), then re-run
+this script to start them. If an experiment was already started, unlock
+it with `PUT /console/v1/experiments/{id}/reset`.
 """
 
 import argparse
@@ -191,6 +194,15 @@ def seed(api: Api, vip_count: int) -> int:
         ]
         if not step(api, f"experiment {exp['id']}", "POST", "/console/v1/experiments", body):
             failures += 1
+            continue
+        if exp.get("inlineTargetingRules"):
+            # Targeting locks once an experiment starts, and the API can't
+            # write inlineTargetingRules — leave it in `setup` so the rule
+            # can be added in the console UI first, then re-run this script
+            # (or PUT /{id}/start) to start it. A started experiment can be
+            # unlocked again with PUT /{id}/reset.
+            print(f"  ⏸ start {exp['id']} — SKIPPED: add the inline targeting "
+                  "rule in the console UI first, then re-run to start")
             continue
         if not step(api, f"  start {exp['id']}", "PUT",
                     f"/console/v1/experiments/{exp['id']}/start", {}):
