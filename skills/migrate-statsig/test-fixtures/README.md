@@ -167,6 +167,36 @@ running server is needed. The random percentage dimension
 rather than simulated, since bucketing is a property of the hashing, not
 the config translation.
 
+## Seeding a real Statsig project (`seed_statsig.py`)
+
+To test end-to-end against **real** Statsig instead of this fake server,
+`seed_statsig.py` pushes the same fixtures into an actual Statsig project
+via the Console API (free tier is enough):
+
+1. Sign up at <https://statsig.com> and create a project (manual — the
+   signup flow can't be automated).
+2. Create a **Console API key with write access** under Project Settings
+   > API Keys (starts with `console-`).
+3. Seed:
+
+   ```bash
+   export STATSIG_API_KEY=console-...
+   python3 seed_statsig.py            # --dry-run to preview, --teardown to clean up
+   ```
+
+4. One manual step: the Console API cannot write `inlineTargetingRules`
+   (read-only as of API version 20240601), so add the inline rule to
+   `onboarding_flow_experiment` in the console UI: country is any of
+   [US, CA].
+
+Then run `/confidence:migrate-statsig plan flags` against
+`https://statsigapi.net` and compare the plan with
+`python3 verify_migration.py` — same expectations as the fake-server
+table above. Differences from the fake fixtures: experiment group IDs
+and `controlGroupID` are assigned by Statsig (Control is kept as the
+first group), and `status` values reflect the real lifecycle
+(experiments are started by the script).
+
 ## What this does NOT test
 
 - **Real Statsig evaluation.** This server is config-only; it never
