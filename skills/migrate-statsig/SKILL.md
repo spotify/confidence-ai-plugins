@@ -1255,6 +1255,18 @@ curl -sS -X POST "https://flags.confidence.dev/v1/segments/<id>:allocate" \
 - **De-duplicate:** a Statsig `rule_based` segment referenced by N flags
   becomes ONE Confidence segment, referenced N times. Track the
   `statsig-segment-id → segments/<id>` map in the plan.
+- **Composing segments (e.g. `passes_segment` AND `fails_segment` in one
+  Statsig rule):** a REST flag rule references exactly ONE segment, but
+  segment targeting supports **segment criteria** — create a wrapper
+  segment whose expression combines the reusable ones (verified live):
+
+  ```json
+  "targeting": {
+    "criteria": { "s0": { "segment": { "segment": "segments/premium-users" } },
+                   "s1": { "segment": { "segment": "segments/internal-staff" } } },
+    "expression": { "and": { "operands": [ { "ref": "s0" }, { "not": { "ref": "s1" } } ] } }
+  }
+  ```
 - **`id_list` segments → materialized segments** (BigQuery only): export
   the id list to a BigQuery table, then
   `POST /v1/materializedSegments?materializationId=<id>` and a load job
@@ -1548,6 +1560,10 @@ STEP 3: addTargetingRule
     steps 1-2 fully BEFORE calling addTargetingRule.
 
 STEP 4: resolveFlag (verification)
+  → Resolver state propagates asynchronously: a resolveFlag immediately
+    after flag/rule creation can fail with "No active flags found for
+    the client" even though the flag is ACTIVE and wired (observed
+    live). Wait a few seconds and retry before treating it as an error.
   → MUST test BOTH positive AND negative cases:
     a. Resolve with a context that SHOULD match → verify expected variant
     b. Resolve with a context that SHOULD NOT match any specific rule →
