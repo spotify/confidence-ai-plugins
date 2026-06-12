@@ -18,8 +18,11 @@ fetch). Field names match `ExternalGateDto`, `DynamicConfigDto`,
 Notable conventions:
   * camelCase everywhere (`idType`, `passPercentage`, `isEnabled`, ...)
   * IDs are strings (e.g. "internal_tools_gate")
-  * A condition is { type, operator, targetValue, field?, customID? };
-    targetValue may be a scalar or an array
+  * A condition is { type, operator?, targetValue, field?, customID? };
+    a single targetValue is a SCALAR (string/number), multiple values an
+    array; numeric comparisons carry numbers, not numeric strings; and
+    passes_gate / passes_segment / fails_segment conditions have NO
+    operator key (all verified against the live Console API)
   * Gates are boolean (no explicit default — implicit false on no match)
   * Dynamic configs carry a server-side `defaultValue`
   * Experiments carry weighted `groups[]` + an `allocation` percent
@@ -71,7 +74,9 @@ def _meta(entity_id: str, kind: str) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 GATES: list[dict[str, Any]] = [
-    # 1. email ends-with → endsWithRule. Single rule, 100% pass.
+    # 1. email suffix via str_matches → endsWithRule. Single rule, 100% pass.
+    #    (The Console API rejects str_ends_with_any for `email` — suffix
+    #    matching arrives as an anchored str_matches regex in practice.)
     {
         "id": "internal_tools_gate",
         "name": "Internal tools gate",
@@ -88,8 +93,8 @@ GATES: list[dict[str, Any]] = [
                 "conditions": [
                     {
                         "type": "email",
-                        "operator": "str_ends_with_any",
-                        "targetValue": ["@spotify.com"],
+                        "operator": "str_matches",
+                        "targetValue": ".*@spotify\\.com$",  # single targetValue → scalar on the wire
                     }
                 ],
             }
@@ -119,7 +124,7 @@ GATES: list[dict[str, Any]] = [
                         "type": "custom_field",
                         "field": "appBuildNumber",
                         "operator": "gte",
-                        "targetValue": ["28"],
+                        "targetValue": 28,  # numerics come back as numbers, not strings
                     },
                 ],
             }
@@ -148,7 +153,7 @@ GATES: list[dict[str, Any]] = [
                     {
                         "type": "app_version",
                         "operator": "version_gte",
-                        "targetValue": ["1.2.0"],
+                        "targetValue": "1.2.0",
                     },
                 ],
             }
@@ -168,7 +173,7 @@ GATES: list[dict[str, Any]] = [
                 "name": "Everyone",
                 "id": "rule_gradual_1",
                 "passPercentage": 25,
-                "conditions": [{"type": "public", "operator": None, "targetValue": None}],
+                "conditions": [{"type": "public"}],  # real wire shape: no operator/targetValue keys
             }
         ],
     },
@@ -180,7 +185,7 @@ GATES: list[dict[str, Any]] = [
         "idType": "userID",
         "isEnabled": False,
         "status": "Disabled",
-        "type": "STALE",
+        "type": "TEMPORARY",
         "rules": [
             {
                 "name": "US cohort",
@@ -210,7 +215,7 @@ GATES: list[dict[str, Any]] = [
                     {
                         "type": "email",
                         "operator": "str_matches",
-                        "targetValue": [".*@(test|qa|staging)\\.com$"],
+                        "targetValue": ".*@(test|qa|staging)\\.com$",
                     }
                 ],
             }
@@ -256,9 +261,8 @@ GATES: list[dict[str, Any]] = [
                 "passPercentage": 100,
                 "conditions": [
                     {
-                        "type": "passes_gate",
-                        "operator": "any",
-                        "targetValue": ["internal_tools_gate"],
+                        "type": "passes_gate",  # no operator key on the wire
+                        "targetValue": "internal_tools_gate",
                     }
                 ],
             }
@@ -280,14 +284,12 @@ GATES: list[dict[str, Any]] = [
                 "passPercentage": 100,
                 "conditions": [
                     {
-                        "type": "passes_segment",
-                        "operator": "any",
-                        "targetValue": ["premium_users"],
+                        "type": "passes_segment",  # no operator key on the wire
+                        "targetValue": "premium_users",
                     },
                     {
                         "type": "fails_segment",
-                        "operator": "any",
-                        "targetValue": ["internal_staff"],
+                        "targetValue": "internal_staff",
                     },
                 ],
             }
@@ -336,8 +338,7 @@ GATES: list[dict[str, Any]] = [
                 "conditions": [
                     {
                         "type": "passes_segment",
-                        "operator": "any",
-                        "targetValue": ["vip_user_list"],
+                        "targetValue": "vip_user_list",
                     }
                 ],
             }
@@ -351,7 +352,7 @@ GATES: list[dict[str, Any]] = [
         "idType": "userID",
         "isEnabled": False,
         "status": "Archived",
-        "type": "STALE",
+        "type": "TEMPORARY",
         "rules": [
             {
                 "name": "US cohort",
@@ -423,7 +424,7 @@ EXPERIMENTS: list[dict[str, Any]] = [
         "controlGroupID": "grp_control",
         "targetingGateID": None,
         "layerID": None,
-        "inlineTargetingRules": [],
+        # NB: unset inlineTargetingRules is ABSENT from the real payload
         "groups": [
             {
                 "name": "Control",
@@ -451,7 +452,9 @@ EXPERIMENTS: list[dict[str, Any]] = [
         "controlGroupID": "grp_ob_control",
         "targetingGateID": None,
         "layerID": "onboarding_layer",
-        "holdoutIDs": ["q1_holdout"],
+        # Observed live: the Console API returns duplicated holdoutIDs
+        # entries (one attach → two list items). Readers must dedupe.
+        "holdoutIDs": ["q1_holdout", "q1_holdout"],
         "inlineTargetingRules": [
             {
                 "name": "North America",
@@ -529,8 +532,8 @@ SEGMENTS: list[dict[str, Any]] = [
                 "conditions": [
                     {
                         "type": "email",
-                        "operator": "str_ends_with_any",
-                        "targetValue": ["@spotify.com"],
+                        "operator": "str_matches",
+                        "targetValue": ".*@spotify\\.com$",
                     }
                 ],
             }

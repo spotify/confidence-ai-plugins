@@ -266,7 +266,8 @@ def main() -> None:
     print("\n## Experiments — group split + allocation + targeting\n")
     for exp in EXPERIMENTS:
         groups = ", ".join(f"{g['name']}={g['size']}%" for g in exp["groups"])
-        targ = "all" if not exp["inlineTargetingRules"] else "inline-targeted"
+        itr = exp.get("inlineTargetingRules") or []  # key is absent when unset
+        targ = "all" if not itr else "inline-targeted"
         print(f"  {exp['id']}")
         print(f"      allocation={exp['allocation']}%  groups=[{groups}]  targeting={targ}")
         if exp["allocation"] < 100:
@@ -275,12 +276,12 @@ def main() -> None:
         if exp["layerID"]:
             print(f"      NOTE: layer '{exp['layerID']}' → REST exclusivity group "
                   "(exclusivityTags)")
-        if exp.get("holdoutIDs"):
-            print(f"      NOTE: holdouts {exp['holdoutIDs']} → Confidence holdback "
+        holdouts = list(dict.fromkeys(exp.get("holdoutIDs") or []))  # live API duplicates entries
+        if holdouts:
+            print(f"      NOTE: holdouts {holdouts} → Confidence holdback "
                   "(surface step)")
         for cname, ctx in CONTEXTS.items():
-            rule = eval_rules(exp["inlineTargetingRules"], ctx, ENTITY) if exp["inlineTargetingRules"] else True
-            eligible = rule is not None if exp["inlineTargetingRules"] else True
+            eligible = eval_rules(itr, ctx, ENTITY) is not None if itr else True
             print(f"      {cname:<16} -> {'in-experiment' if eligible else 'control (untargeted)'}")
 
     print("\nDone. Compare these against Confidence resolveFlag output.")

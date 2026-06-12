@@ -68,6 +68,9 @@ LAYER = {
     "name": "Onboarding layer",
     "description": "Fixture layer for onboarding experiments.",
     "idType": "userID",
+    # Experiments in a layer may only use parameters the layer defines;
+    # set via PATCH after create (LayerCreateContractDto has no params).
+    "parameters": [{"name": "flow", "type": "string", "defaultValue": "classic"}],
 }
 
 
@@ -106,16 +109,28 @@ def step(api: Api, label: str, method: str, path: str, body: dict | None = None)
     if 200 <= code < 300:
         print(f"  ✓ {label}")
         return True
-    msg = str(payload.get("message", payload))[:160]
-    if code in (400, 409) and ("exist" in msg.lower() or "duplicate" in msg.lower()):
+    detail = payload.get("errors") or payload.get("message") or payload
+    msg = json.dumps(detail) if not isinstance(detail, str) else detail
+    lower = msg.lower()
+    if code in (400, 409) and any(s in lower for s in ("already exists", "already in use", "already started", "duplicate")):
         print(f"  ⊘ {label} — already exists, skipping")
         return True
-    print(f"  ✗ {label} — HTTP {code}: {msg}")
+    print(f"  ✗ {label} — HTTP {code}: {msg[:300]}")
     return False
 
 
+def strip_nones(value: Any) -> Any:
+    """Drop None-valued keys recursively — the API rejects explicit nulls
+    (e.g. a public condition must omit operator/targetValue entirely)."""
+    if isinstance(value, dict):
+        return {k: strip_nones(v) for k, v in value.items() if v is not None}
+    if isinstance(value, list):
+        return [strip_nones(v) for v in value]
+    return value
+
+
 def pick(d: dict, allowed: set) -> dict:
-    return {k: v for k, v in d.items() if k in allowed and v is not None}
+    return strip_nones({k: v for k, v in d.items() if k in allowed and v is not None})
 
 
 def seed(api: Api, vip_count: int) -> int:
@@ -124,21 +139,27 @@ def seed(api: Api, vip_count: int) -> int:
     print("\n## Segments")
     for seg in SEGMENTS:
         body = pick(seg, SEGMENT_CREATE_FIELDS)
+        if not body.get("rules"):
+            body.pop("rules", None)  # only rule_based segments may carry rules
         if not step(api, f"segment {seg['id']} ({seg['type']})", "POST", "/console/v1/segments", body):
             failures += 1
             continue
         if seg["type"] == "id_list":
+            # id_list segments upload via /id_list (max 100k ids per call);
+            # /add_ids is only for user_store_id_list segments.
             ids = [f"vip-user-{i:05d}" for i in range(vip_count)]
-            for start in range(0, len(ids), 1000):  # add_ids caps at 1000/call
-                batch = ids[start : start + 1000]
-                if not step(api, f"  add_ids {seg['id']} [{start}..{start + len(batch)})",
-                            "PATCH", f"/console/v1/segments/{seg['id']}/add_ids", {"ids": batch}):
-                    failures += 1
-                    break
+            if not step(api, f"  id_list upload {seg['id']} ({len(ids)} ids)",
+                        "PATCH", f"/console/v1/segments/{seg['id']}/id_list", {"ids": ids}):
+                failures += 1
 
     print("\n## Layer")
-    if not step(api, f"layer {LAYER['id']}", "POST", "/console/v1/layers",
-                {k: v for k, v in LAYER.items() if k != "id"} | {"id": LAYER["id"]}):
+    create = {k: v for k, v in LAYER.items() if k != "parameters"}
+    if step(api, f"layer {LAYER['id']}", "POST", "/console/v1/layers", create):
+        if not step(api, f"  parameters {LAYER['id']}", "PATCH",
+                    f"/console/v1/layers/{LAYER['id']}",
+                    {"parameters": LAYER["parameters"]}):
+            failures += 1
+    else:
         failures += 1
 
     print("\n## Gates")
@@ -148,8 +169,8 @@ def seed(api: Api, vip_count: int) -> int:
             failures += 1
             continue
         if gate.get("status") in ("Archived", "archived"):
-            if not step(api, f"  archive {gate['id']}", "POST",
-                        f"/console/v1/gates/{gate['id']}/archive"):
+            if not step(api, f"  archive {gate['id']}", "PUT",
+                        f"/console/v1/gates/{gate['id']}/archive", {}):
                 failures += 1
 
     print("\n## Dynamic configs")
@@ -179,10 +200,14 @@ def seed(api: Api, vip_count: int) -> int:
     if step(api, f"holdout {HOLDOUT['id']}", "POST", "/console/v1/holdouts",
             {"id": HOLDOUT["id"], "name": HOLDOUT["name"],
              "description": HOLDOUT["description"], "idType": HOLDOUT["idType"]}):
-        if not step(api, f"  attach {HOLDOUT['id']} → {HOLDOUT['experimentIDs']}", "PATCH",
+        # Full update (POST) replaces experimentIDs; PATCH appends and
+        # duplicates entries on re-runs.
+        if not step(api, f"  attach {HOLDOUT['id']} → {HOLDOUT['experimentIDs']}", "POST",
                     f"/console/v1/holdouts/{HOLDOUT['id']}",
                     {"isEnabled": True, "passPercentage": HOLDOUT["passPercentage"],
-                     "experimentIDs": HOLDOUT["experimentIDs"]}):
+                     "experimentIDs": HOLDOUT["experimentIDs"], "gateIDs": [],
+                     "layerIDs": [], "isGlobal": False, "targetingGateID": None,
+                     "description": HOLDOUT["description"]}):
             failures += 1
     else:
         failures += 1

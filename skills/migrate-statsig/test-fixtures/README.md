@@ -22,6 +22,15 @@ enum values, required fields, and pagination semantics
 If you suspect the fixtures have drifted from real Statsig, fetch that
 file fresh and diff against `server.py`.
 
+One thing the spec does NOT capture (verified against the live Console
+API): operators are validated **per condition type**. Notably,
+`str_starts_with_any` / `str_ends_with_any` are rejected for `email`,
+`custom_field`, `url`, `locale`, `user_agent`, and `browser_name` —
+suffix matching arrives as an anchored `str_matches` regex instead, and
+`custom_field` additionally accepts array operators
+(`array_contains_any/none/all`, `not_array_contains_all`). The fixtures
+only use type/operator combinations the live API accepts.
+
 ## Run
 
 Python 3.10+ stdlib, no dependencies.
@@ -75,7 +84,7 @@ Pick a throwaway Confidence client and map the `userID` unit to a
 
 | `id` | What it tests | Expected status |
 |---|---|---|
-| `internal_tools_gate` | `str_ends_with_any` → `endsWithRule` | Migrate |
+| `internal_tools_gate` | `str_matches` suffix regex (`.*@spotify\.com$`) → `endsWithRule` | Migrate |
 | `new_search_rollout` | `none` (NOT IN) → `setRule` + `not`, numeric `gte` → `rangeRule`, AND in one rule | Migrate |
 | `mobile_only_feature` | `os_name any` → `setRule`, `app_version version_gte` → `rangeRule` with `versionValue` | Migrate |
 | `gradual_rollout` | `public` "Everyone" at 25% → catch-all rule at 25% rollout | Migrate |
@@ -106,7 +115,7 @@ Pick a throwaway Confidence client and map the `userID` unit to a
 | `id` | Type | Targeting |
 |---|---|---|
 | `premium_users` | rule_based | `custom_field plan any [premium, enterprise]` |
-| `internal_staff` | rule_based | `email str_ends_with_any [@spotify.com]` |
+| `internal_staff` | rule_based | `email str_matches [.*@spotify\.com$]` |
 | `vip_user_list` | id_list (count 5000) | literal unit IDs → REST materialized segment (BigQuery) |
 
 The `rule_based` segments become reusable Confidence segments on the REST
@@ -136,7 +145,7 @@ After running `plan flags`, the generated plan file at
 - For `test_user_allowlist`, rewrite the `user_id` condition to a
   `setRule` on the chosen entity field
 - For `depends_on_gate`, inline the referenced `internal_tools_gate`
-  conditions (email ends with `@spotify.com`) — not BLOCKED
+  conditions (email matches `.*@spotify\.com$` → `endsWithRule`) — not BLOCKED
 - For `vip_gate`, mark `Backend: REST` and map the `vip_user_list`
   id_list segment to a materialized segment (or BLOCKED if no BigQuery)
 - For `homepage_config`, create one variant per `returnValue` plus a

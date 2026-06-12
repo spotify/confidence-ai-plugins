@@ -279,7 +279,11 @@ The migration uses these endpoints. All require both
 
 **Convention.** Field names are `camelCase`. IDs are strings (e.g.
 `a_gate`). Condition `targetValue` is sometimes a scalar and sometimes an
-array — normalize to an array when translating.
+array — normalize to an array when translating. Verified against the
+live Console API: a single value comes back as a **scalar** (and numeric
+comparisons carry **numbers**, e.g. `28` not `"28"`), multiple values as
+an array; `passes_gate` / `passes_segment` / `fails_segment` conditions
+have **no `operator` key at all**.
 
 ### Statsig's three configurable types
 
@@ -573,7 +577,9 @@ Extract from each item:
   `allocation`, `controlGroupID`, `targetingGateID`,
   `inlineTargetingRules[]`, `layerID`
 - `holdoutIDs[]` (gates/configs/experiments) → record each holdout; it
-  maps to a Confidence holdback (a surface step — see "Holdouts (item 5)")
+  maps to a Confidence holdback (a surface step — see "Holdouts (item 5)").
+  **Dedupe the list** — the live Console API returns duplicated entries
+  (one attached holdout can appear twice).
 - Any `passes_segment` / `fails_segment` / `in_segment_list` /
   `not_in_segment_list` conditions → record the referenced segment id;
   fetch it in Step 1c
@@ -783,6 +789,8 @@ proto3 → JSON (camelCase keys).
 | Timestamp `>=` | `"rangeRule": { "startInclusive": { "timestampValue": "2022-11-17T15:16:17Z" } }` |
 | starts with | `"startsWithRule": { "value": "prefix" }` |
 | ends with | `"endsWithRule": { "value": "suffix" }` |
+| list attr: any item matches | `"anyRule": { "rule": { "setRule": { "values": [...] } } }` (inner rule may be `eqRule`/`setRule`/`rangeRule`/`startsWithRule`/`endsWithRule`; no match on empty/missing list) |
+| list attr: every item matches | `"allRule": { "rule": { ... } }` (same inner rules; matches on empty/missing list) |
 | attribute is set (exists) | `{ "attribute": { "attributeName": "X" } }` (attribute criterion with **no** inner rule) |
 
 **Value types.** A `Value` is a oneof: `boolValue`, `numberValue`,
@@ -1028,8 +1036,20 @@ Statsig operators: `any`, `none`, `any_case_sensitive`,
 `version_gte`, `version_lt`, `version_lte`, `version_eq`, `version_neq`,
 `str_starts_with_any`, `str_ends_with_any`, `str_contains_any`,
 `str_contains_none`, `str_matches`, `eq`, `neq`, `before`, `after`,
-`on`, `in_segment_list`, `not_in_segment_list`, plus null checks
-(`is null` / `is not null`).
+`on`, `in_segment_list`, `not_in_segment_list`, array operators
+(`array_contains_any`, `array_contains_none`, `array_contains_all`,
+`not_array_contains_all`), plus null checks (`is null` / `is not null`).
+
+**Per-type operator validity (verified against the live Console API).**
+Statsig validates operators per condition `type`, and the practical
+operator sets are narrower than the union above. Notably,
+`str_starts_with_any` / `str_ends_with_any` are **rejected** for
+`email`, `custom_field`, `url`, `locale`, `user_agent`, and
+`browser_name` — prefix/suffix matching on those types arrives as an
+anchored `str_matches` regex (decompose it per the regex rule below →
+`startsWithRule` / `endsWithRule`) or as `str_contains_any` (BLOCKED —
+see the workaround). `custom_field` additionally accepts numeric,
+version, time, and the array operators.
 
 | Statsig operator | Confidence payload strategy |
 |---|---|
@@ -1055,6 +1075,10 @@ Statsig operators: `any`, `none`, `any_case_sensitive`,
 | `on` (time) | `eqRule.value.timestampValue` |
 | `in_segment_list` | small list → `setRule` on entity; large → REST materialized segment (BigQuery) |
 | `not_in_segment_list` | small list → `setRule` on entity wrapped in `not`; large → REST materialized segment, referenced under `not` |
+| `array_contains_any` | one criterion `anyRule { rule: { setRule { values } } }` on the list attribute, expression `ref` |
+| `array_contains_none` | same `anyRule` criterion, expression `not` wrapping `ref` |
+| `array_contains_all` | one criterion `anyRule { rule: { eqRule v } }` **per target value**, expression `and` of `ref`s (each value must be present; Confidence `allRule` means "every input item matches" — NOT the same thing) |
+| `not_array_contains_all` | the `array_contains_all` construction, expression wrapped in `not` |
 | `is null` | ruleless presence criterion under `not`: `{ "attribute": { "attributeName": "X" } }`, expression `not` wrapping `ref` |
 | `is not null` | ruleless presence criterion, expression `ref` |
 | `str_matches` (regex) | decompose like below; else BLOCKED |
@@ -1141,8 +1165,9 @@ pass to US/CA, then "Everyone" at 0% — becomes `addTargetingRule` calls
 plus a catch-all (the split lives entirely in `variantAllocations`;
 there is no separate rollout field):
 
-1. Rule 1: `email str_ends_with_any ["@spotify.com"]` →
-   payload `endsWithRule "@spotify.com"`,
+1. Rule 1: `email str_matches ".*@spotify\.com$"` (suffix regex — how
+   email suffix targeting actually arrives; see per-type validity) →
+   decomposes to payload `endsWithRule "@spotify.com"`,
    `variantAllocations { "enabled": 100 }`
 2. Rule 2: `country any ["US","CA"]` (passPercentage 50) → payload
    `setRule [US, CA]`, `variantAllocations { "enabled": 50, "disabled": 50 }`
