@@ -6,6 +6,15 @@ description: Create Confidence accounts and onboard users. Use when the user ask
 
 Create accounts, invite users, and get started with Confidence — all from the CLI.
 
+## Default behavior (no sub-command)
+
+When the user says "onboard me", "get started with Confidence", or triggers this skill without a specific sub-command, go **straight to the setup wizard**. The first question is always:
+
+> 1. **Create a new account** — I'll walk you through signup
+> 2. **Sign in to an existing account** — I already have one
+
+Do NOT show a menu of sub-commands. Do NOT offer "Setup Wizard" as a choice — it IS the default flow. The only decision the user needs to make upfront is whether they have an account.
+
 ## Commands
 
 | Command | Description |
@@ -35,138 +44,69 @@ Create accounts, invite users, and get started with Confidence — all from the 
 
 ### Auth script
 
-Write the following to `$TMPDIR/confidence_auth.py`, substituting CLIENT_ID and optional ORGANIZATION parameter. Run with `python3 $TMPDIR/confidence_auth.py`. Outputs `TOKEN:<jwt>` on success.
+The auth script is **bundled in the plugin** as `auth.py` next to this SKILL.md. The path is shown in the "Base directory for this skill" header at the top of the loaded skill context. Do NOT write the script — just run it.
 
-```python
-import http.server, urllib.parse, json, sys, subprocess, hashlib, base64, secrets, string
+**Usage — single Bash tool call** with `dangerouslyDisableSandbox: true` and `timeout: 130000`:
+```bash
+lsof -ti:8084 | xargs kill -9 2>/dev/null; python3 <SKILL_BASE_DIR>/auth.py <CLIENT_ID> [ORGANIZATION]
+```
 
-code_verifier = ''.join(secrets.choice(string.ascii_letters + string.digits + '-._~') for _ in range(43))
-code_challenge = base64.urlsafe_b64encode(hashlib.sha256(code_verifier.encode()).digest()).rstrip(b'=').decode()
+Replace `<SKILL_BASE_DIR>` with the actual path from the skill header (e.g., `/Users/.../confidence-ai-plugins/.claude/skills/onboard-confidence`).
 
-port = 8084  # Fixed — must match Auth0 Allowed Callback URLs
-CLIENT_ID = '<CLIENT_ID>'
-ORGANIZATION = '<ORG_ID_OR_EMPTY>'  # Set after account creation, empty for signup
-REDIRECT_URI = f'http://localhost:{port}/callback'
-auth_code = None
-error = None
+**Outputs on stdout** (parse line by line):
+- `WAITING_FOR_LOGIN` — browser opened, waiting for callback
+- `TOKEN:<jwt>` — success, extract everything after `TOKEN:`
+- `AUTH_ERROR:<msg>` — Auth0 returned an error
+- `TOKEN_ERROR:<msg>` — token exchange failed
 
-class Handler(http.server.BaseHTTPRequestHandler):
-    def do_GET(self):
-        global auth_code, error
-        q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
-        self.send_response(200)
-        self.send_header('Content-Type', 'text/html')
-        self.end_headers()
-        if 'code' in q:
-            auth_code = q['code'][0]
-            self.wfile.write(b'<h1>Login successful!</h1><p>You can close this tab.</p>')
-        else:
-            error = q.get('error', ['unknown'])[0]
-            self.wfile.write(b'<h1>Login failed</h1><p>Please try again.</p>')
-    def log_message(self, format, *args):
-        pass
+**Examples:**
 
-params = {
-    'client_id': CLIENT_ID,
-    'redirect_uri': REDIRECT_URI,
-    'response_type': 'code',
-    'scope': 'openid profile email offline_access',
-    'audience': 'https://confidence.dev/',
-    'code_challenge': code_challenge,
-    'code_challenge_method': 'S256',
-}
-if ORGANIZATION:
-    params['organization'] = ORGANIZATION
-else:
-    params['screen_hint'] = 'signup'
-    params['prompt'] = 'login'
+Signup (no org):
+```bash
+lsof -ti:8084 | xargs kill -9 2>/dev/null; python3 <SKILL_BASE_DIR>/auth.py 82qMvwZvqd3t3S0gRDvs8R53TehQXSJY
+```
 
-authorize_url = 'https://auth.confidence.dev/authorize?' + urllib.parse.urlencode(params)
-subprocess.Popen(['open', authorize_url])
-print('WAITING_FOR_LOGIN', flush=True)
-
-server = http.server.HTTPServer(('127.0.0.1', port), Handler)
-server.timeout = 120
-while auth_code is None and error is None:
-    server.handle_request()
-server.server_close()
-
-if error:
-    print(f'AUTH_ERROR:{error}', flush=True)
-    sys.exit(1)
-
-import urllib.request
-token_data = json.dumps({
-    'grant_type': 'authorization_code',
-    'client_id': CLIENT_ID,
-    'code': auth_code,
-    'redirect_uri': REDIRECT_URI,
-    'code_verifier': code_verifier
-}).encode()
-req = urllib.request.Request(
-    'https://auth.confidence.dev/oauth/token',
-    data=token_data,
-    headers={'Content-Type': 'application/json'}
-)
-try:
-    with urllib.request.urlopen(req) as resp:
-        token_response = json.loads(resp.read())
-    print(f'TOKEN:{token_response["access_token"]}', flush=True)
-except Exception as e:
-    print(f'TOKEN_ERROR:{e}', flush=True)
-    sys.exit(1)
+Existing account login:
+```bash
+lsof -ti:8084 | xargs kill -9 2>/dev/null; python3 <SKILL_BASE_DIR>/auth.py 2fG3H4RhlAbIZm9Rfn32zTaILH7w1X4w org_abc123
 ```
 
 **Key details:**
 - Port is fixed at **8084** (must match Auth0 Allowed Callback URLs)
-- For signup (`create-account`): no `organization`, add `screen_hint=signup` + `prompt=login`
-- For existing account (all other commands): include `organization=<org_id>` — auto-completes if browser session exists
-- After `create-account`, automatically re-auth with `organization` param to get org-scoped token (browser auto-redirects, no interaction)
-- If port 8084 is busy: `lsof -ti:8084 | xargs kill -9 2>/dev/null`
-- All network commands require `dangerouslyDisableSandbox: true`
+- For signup (`create-account`): omit ORGANIZATION arg → adds `screen_hint=signup` + `prompt=login`
+- For existing account (all other commands): pass `ORGANIZATION=<org_id>` → auto-completes if browser session exists
+- After `create-account`, automatically re-auth with org param to get org-scoped token (browser auto-redirects, no interaction)
+- All network commands require `dangerouslyDisableSandbox: true` and `timeout: 130000`
 
 ### Session-only token management
 
 The token is kept in the current session only and is never saved to disk. If the session ends or the token expires, the skill will open your browser to log in again.
 
-**On every sub-command start**, check if the `TOKEN` variable is set and not expired:
+**On every sub-command start**, check if the `TOKEN` variable is set and not expired. Combine the check + region extraction in a **single Bash command**:
 
 ```bash
-if [ -n "$TOKEN" ]; then
-  PAYLOAD=$(echo "$TOKEN" | cut -d. -f2)
-  EXP=$(echo "$PAYLOAD" | python3 -c "
-import sys, json, base64
-p = sys.stdin.read().strip()
-p += '=' * (4 - len(p) % 4) if len(p) % 4 else ''
+echo "$TOKEN" | python3 -c "
+import sys, json, base64, time
+t = sys.stdin.read().strip()
+if not t:
+    print('MISSING'); sys.exit(0)
+p = t.split('.')[1]
+p += '=' * (4 - len(p) % 4)
 d = json.loads(base64.b64decode(p))
-print(d.get('exp', 0))
-")
-  NOW=$(date +%s)
-  if [ "$EXP" -gt "$NOW" ]; then
-    echo "VALID"  # Token still good — skip login
-  else
-    echo "EXPIRED"  # Token expired — re-authenticate
-    unset TOKEN
-  fi
-fi
+if d.get('exp', 0) < time.time():
+    print('EXPIRED'); sys.exit(0)
+print('VALID')
+print('REGION=' + d.get('https://confidence.dev/region', 'EU'))
+print('ORG=' + d.get('org_id', ''))
+print('ACCOUNT=' + d.get('https://confidence.dev/account_name', ''))
+"
 ```
+
+Output is multi-line: first line is `VALID`/`EXPIRED`/`MISSING`, followed by `REGION=EU`, `ORG=...`, `ACCOUNT=...` if valid.
 
 If `TOKEN` is unset or expired, run the browser auth flow to get a new token. Store the result in the `TOKEN` shell variable only. **NEVER write the token to disk. NEVER reference `~/.confidence/`.**
 
-**Extract region from token** to determine API base URLs:
-
-```bash
-PAYLOAD=$(echo "$TOKEN" | cut -d. -f2)
-REGION=$(echo "$PAYLOAD" | python3 -c "
-import sys, json, base64
-p = sys.stdin.read().strip()
-p += '=' * (4 - len(p) % 4) if len(p) % 4 else ''
-d = json.loads(base64.b64decode(p))
-print(d.get('https://confidence.dev/region', 'EU'))
-")
-```
-
-Then use `${REGION,,}` (lowercase) for URL prefix: `iam.eu.confidence.dev`, `flags.eu.confidence.dev`, etc.
+Use the `REGION` value (lowercased) for URL prefixes: `iam.eu.confidence.dev`, `flags.eu.confidence.dev`, etc.
 
 If the token is valid, skip the login step entirely. If expired or missing, run the auth flow.
 
@@ -182,6 +122,16 @@ Fields NOT in the body (like `flag_id`, `parent`) become **query parameters**.
 
 **Field names are `snake_case`** in requests. Responses may use `camelCase`.
 
+### Speed: minimize tool calls
+
+**Every Bash tool call adds latency.** Optimize by combining commands:
+
+- **Chain independent curls** with `&&` or `;` in a single Bash call when the results don't depend on each other
+- **Parallel API calls**: When creating multiple variants, setting schema + creating variants can be chained: `curl ... schema && curl ... variant1 && curl ... variant2`
+- **Token check + region extract**: Do both in one command (see session-only token management)
+- **Port kill + auth run**: Always combine: `lsof -ti:8084 | xargs kill -9 2>/dev/null; python3 ...`
+- **Never use Write/Read tools** for temporary files — use Bash heredocs or bundled scripts
+
 ### Common notes
 
 - All network commands require `dangerouslyDisableSandbox: true`
@@ -196,8 +146,11 @@ Fields NOT in the body (like `flag_id`, `parent`) become **query parameters**.
 
 - Do NOT show raw JSON request/response bodies in conversation
 - Do NOT show Auth0 configuration details, token values, or OAuth internals
+- Do NOT mention error codes, org IDs, JWT claims, token scoping, or API error details
+- Do NOT ask the user for organization IDs, external IDs, or any auth-internal identifiers
 - DO show human-readable status updates: "Opening browser for login...", "Creating your workspace...", "Invitation sent!"
 - DO describe results in plain English
+- DO handle all token re-issuance, org-scoping, and retry logic transparently — if something needs to happen behind the scenes (re-auth, polling, retry), just do it and show a friendly progress message
 - The agent handles all auth/API complexity silently
 
 **Step Tracker:** Display a visual step tracker at every phase transition. Update and re-display it each time you move to a new step.
@@ -225,12 +178,24 @@ Use `●` for completed, `▶` for in-progress, `○` for pending.
 
 ### Step 1: Log in
 
-Write the auth script to `$TMPDIR/confidence_auth.py` with the **signup client ID** (`82qMvwZvqd3t3S0gRDvs8R53TehQXSJY`). Run it and parse the TOKEN from stdout.
+Run the bundled auth script with the **signup client ID** (`82qMvwZvqd3t3S0gRDvs8R53TehQXSJY`) and no organization arg. Parse the TOKEN and REFRESH_TOKEN from stdout.
 
 Tell the user:
 > Opening your browser to log in. Sign up with Google or create an account with email and password.
 
+Store both `TOKEN` and `REFRESH_TOKEN` in shell variables. The refresh token is used in Step 5 to silently get an org-scoped token without opening the browser again.
+
 If login fails, show the error in plain English and offer to retry.
+
+**After successful login**, immediately extract the user's email by calling the Auth0 userinfo endpoint (combine with the token export in a single Bash call):
+```bash
+curl -s "https://konfidens.eu.auth0.com/userinfo" -H "Authorization: Bearer $TOKEN"
+```
+Response: `{ "email": "user@company.com", "name": "...", ... }`
+
+Store the `email` value as `SIGNUP_EMAIL`. This is used to:
+- Derive workspace name suggestions in Step 2
+- Pre-fill the admin email in Step 3
 
 ### Step 2: Workspace name
 
@@ -241,6 +206,8 @@ EDUCATE then ASK:
 >
 > **Rules:** 3-21 characters, lowercase letters, digits, and hyphens. Must start with a letter and end with a letter or digit.
 
+**Suggest names derived from `SIGNUP_EMAIL`.** Extract the local part (before `@`), strip `+` suffixes, and generate 2-3 suggestions. For example, if `SIGNUP_EMAIL` is `jane+test@acme.com`, suggest `jane`, `jane-acme`, `acme-jane`.
+
 Wait for user input. Then:
 
 1. **Validate locally** against regex `^[a-z][a-z0-9-]{1,19}[a-z0-9]$`
@@ -248,7 +215,7 @@ Wait for user input. Then:
 ```bash
 curl -s "https://onboarding.confidence.dev/v1/loginIdAvailability:check?login_id=${LOGIN_ID}"
 ```
-Response: `{ "available": true/false, "message": "..." }`
+Response: `{ "available": true/false }`
 
 If taken, inform the user and suggest alternatives (append numbers, abbreviations). Re-ask.
 
@@ -257,7 +224,7 @@ If taken, inform the user and suggest alternatives (append numbers, abbreviation
 Collect interactively, one field at a time:
 
 1. **Display name** — the human-readable name for the workspace (company name).
-   Validate: 3-21 characters, starts with a letter, alphanumeric + spaces + hyphens.
+   Validate: 3-32 characters, starts with a letter/digit, alphanumeric + Unicode letters + spaces + hyphens.
 
 2. **Region** — present as a choice:
    > Where should your data be stored? This **cannot be changed later**.
@@ -271,15 +238,16 @@ Collect interactively, one field at a time:
    > 3. Both
 
 4. **Admin email** — the email of the first admin user. Must be a **work email** — free email providers (Gmail, Yahoo, etc.) are rejected by the API.
+   **Default to `SIGNUP_EMAIL`** (the email from Step 1). Present it as the pre-filled suggestion. Only ask the user to change it if they want a different admin email.
 
 5. **Allowed login email domains** — optional. Ask if they want to restrict login to a specific email domain (e.g., `@company.com`).
 
 ### Step 4: Create account
 
-Build and send the request:
+Build and send the request. Use `--max-time 120` to allow for slow gRPC provisioning:
 
 ```bash
-curl -s -w "\n%{http_code}" -X POST "https://onboarding.confidence.dev/v1/accounts" \
+curl -s -w "\n%{http_code}" --max-time 120 -X POST "https://onboarding.confidence.dev/v1/accounts" \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -317,25 +285,50 @@ Tell the user:
 |---|---|---|
 | 400 + "work email" | Free email rejected | "Confidence requires a work email address. Free providers like Gmail aren't allowed." |
 | 400 + "already have an account" | Logged-in Auth0 user already has account | "This login already has a Confidence account. Log in with a different email to create a new workspace." → re-run Step 1 |
+| 400 + "under review" (code 9) | Email not verified yet | see "Under review retry" below |
 | 400 | Other validation error | Parse `.message`, show in plain English, re-collect the invalid field |
 | 401 | Token expired/invalid | "Session expired. Let me log you in again." → re-run Step 1 |
 | 409 | Name already taken | "That workspace name was just taken. Let's pick another." → re-run Step 2 |
+| 504 / timeout | gRPC deadline exceeded | Retry up to 3 times with 3-second delays. If it still fails, tell the user: "The server is taking longer than usual. Let me try once more." |
 | 500+ | Server error | "Something went wrong on our end. Let me try again in a moment." |
+
+**Under review retry (code 9):**
+
+Tell the user: "Please check your email for a verification link from Confidence and confirm your address. Let me know once you've done that!"
+
+After the user confirms, **retry 4 times with 2-second delays** in a single Bash command — do NOT re-open the browser or re-authenticate:
+
+```bash
+for i in 1 2 3 4; do
+  RESP=$(curl -s -w "\n%{http_code}" --max-time 120 -X POST "https://onboarding.confidence.dev/v1/accounts" \
+    -H "Authorization: Bearer $TOKEN" \
+    -H "Content-Type: application/json" \
+    -d '<SAME_BODY>')
+  HTTP=$(echo "$RESP" | tail -1)
+  BODY=$(echo "$RESP" | sed '$d')
+  echo "ATTEMPT $i: HTTP=$HTTP"
+  echo "$BODY"
+  if [ "$HTTP" = "200" ]; then echo "SUCCESS"; break; fi
+  if [ "$HTTP" != "400" ] || ! echo "$BODY" | grep -q "under review"; then echo "DIFFERENT_ERROR"; break; fi
+  if [ "$i" -lt 4 ]; then sleep 2; fi
+done
+```
+
+If all 4 attempts still return "under review", tell the user: "Verification hasn't propagated yet. Please wait a moment and let me know when you'd like to try again."
 
 ### Step 5: Get account-scoped token
 
-The token from Step 1 has no `org_id` (it was issued before the account existed). Re-auth with the **regular client ID** and the `organization` parameter set to the `externalId` returned in Step 4.
+The token from Step 1 has no `org_id` (it was issued before the account existed). The signup client's refresh token **cannot** be exchanged for an org-scoped token — Auth0 rejects cross-client refresh, and the signup client doesn't support org-scoping. A browser auth with the regular client is required.
 
-Run the auth script again with:
-- `CLIENT_ID = '2fG3H4RhlAbIZm9Rfn32zTaILH7w1X4w'` (regular client)
-- `ORGANIZATION = '<externalId from Step 4>'`
+**Use the browser auth script** with the **regular client ID** and the new org. The browser session from Step 1 is still active, so Auth0 auto-completes — the user sees no extra login prompt:
+```bash
+lsof -ti:8084 | xargs kill -9 2>/dev/null; python3 <SKILL_BASE_DIR>/auth.py 2fG3H4RhlAbIZm9Rfn32zTaILH7w1X4w <loginId_from_Step_4>
+```
 
-This auto-completes in the browser — no login form, just a redirect. The new token will have `org_id`, `account_name`, and `region` claims.
-
-Store this token in the `TOKEN` shell variable. This is the token used for all subsequent commands in this session. **Do NOT save to disk.**
+The response token will contain `org_id`, `account_name`, and `region` claims. Parse and store in the `TOKEN` shell variable. **Do NOT save to disk.**
 
 Tell the user:
-> Activating your account... (browser will briefly flash)
+> Connecting to your new workspace... (your browser will briefly open and close automatically — no action needed)
 
 Then suggest connecting MCP:
 > To connect Confidence tools for flag management, type `/mcp` and authenticate **confidence-flags**.
@@ -356,10 +349,12 @@ Show a summary and next steps:
   URL:       https://confidence.spotify.com
 
   Next steps:
-  • Invite team members:  /onboard-confidence invite-user
-  • Create a feature flag: Ask me to create a flag, or use
-    the Confidence UI
-  • Integrate your app:   Ask me for SDK setup instructions
+  • Run the setup wizard:    /onboard-confidence setup-wizard
+  • Invite team members:     /onboard-confidence invite-user
+  • Set up data warehouse:   /onboard-confidence setup-warehouse
+  • Create a feature flag:   Ask me or use the Confidence UI
+  • Integrate your app:      Ask me for SDK setup instructions
+  • Learn experimentation:   /onboard-confidence learn
 
 ═══════════════════════════════════════════════════════════════
 ```
@@ -383,7 +378,7 @@ Show a summary and next steps:
 
 Check if a token is available from a prior `create-account` run in this session.
 
-If not, write the auth script with the **regular client ID** (`2fG3H4RhlAbIZm9Rfn32zTaILH7w1X4w`) — this user already has an account.
+If not, run the bundled auth script with the **regular client ID** (`2fG3H4RhlAbIZm9Rfn32zTaILH7w1X4w`) — this user already has an account.
 
 Validate the token works by calling:
 ```bash
@@ -531,28 +526,41 @@ The `clientSecret.secret` is only returned once on creation — show it to the u
 
 Guided walkthrough of the full onboarding checklist. Uses REST APIs — no MCP needed.
 
-### Prerequisites
-
-Requires an authenticated token. If none available in the current session, run login flow first.
-
-Determine the region from the token or ask the user — this sets the API base URLs:
-- EU: `flags.eu.confidence.dev`, `resolver.eu.confidence.dev`, `iam.eu.confidence.dev`
-- US: `flags.us.confidence.dev`, `resolver.us.confidence.dev`, `iam.us.confidence.dev`
-
 ### Step Tracker
 
 ```
 ───── Setup Wizard ────────────────────────────────────────
-  [1] Create client      ○ pending
-  [2] Create flag        ○ pending
-  [3] Add variants       ○ pending
-  [4] Add targeting      ○ pending
-  [5] Test resolve       ○ pending
-  [6] Done               ○ pending
+  [1] Get started        ○ pending
+  [2] Create client      ○ pending
+  [3] Create flag        ○ pending
+  [4] Add variants       ○ pending
+  [5] Add targeting      ○ pending
+  [6] Test resolve       ○ pending
+  [7] Done               ○ pending
 ────────────────────────────────────────────────────────────
 ```
 
-### Step 1: Create client
+### Step 1: Get started
+
+If the user already answered "create account" vs "sign in" (e.g., from the default onboarding flow), use that answer — do NOT re-ask.
+
+Otherwise (when entered directly via `/onboard-confidence setup-wizard`), ask:
+
+> Do you already have a Confidence account, or would you like to create one?
+> 1. **Create a new account** — I'll walk you through signup
+> 2. **Sign in to an existing account** — I already have one
+
+**If "Create a new account":**
+Run the full `create-account` sub-command flow (Steps 1–6 from that section). This handles signup, workspace creation, and re-auth with an org-scoped token. Once complete, proceed to Step 2 of setup-wizard with the token and region already set.
+
+**If "Sign in to existing account":**
+Check if a token is already available from a prior command in this session. If not, run the bundled auth script with the **regular client ID** (`2fG3H4RhlAbIZm9Rfn32zTaILH7w1X4w`). Validate the token, extract the region, and proceed to Step 2.
+
+Determine the region from the token — this sets the API base URLs:
+- EU: `flags.eu.confidence.dev`, `resolver.eu.confidence.dev`, `iam.eu.confidence.dev`
+- US: `flags.us.confidence.dev`, `resolver.us.confidence.dev`, `iam.us.confidence.dev`
+
+### Step 2: Create client
 
 Check if the user already has a client:
 ```bash
@@ -562,13 +570,13 @@ curl -s "https://iam.${REGION}.confidence.dev/v1/clients" \
 
 If clients exist, ask which one to use. If none, run the `create-client` flow (REST).
 
-Save the client `name` (e.g., `clients/abc123`) and the `clientSecret` for resolve in Step 5. If using an existing client, fetch its credentials:
+Save the client `name` (e.g., `clients/abc123`) and the `clientSecret` for resolve in Step 6. If using an existing client, fetch its credentials:
 ```bash
 curl -s "https://iam.${REGION}.confidence.dev/v1/${CLIENT_NAME}/credentials" \
   -H "Authorization: Bearer $TOKEN"
 ```
 
-### Step 2: Create flag
+### Step 3: Create flag
 
 EDUCATE then ASK:
 > A feature flag controls a piece of functionality. Let's create your first one.
@@ -584,9 +592,9 @@ curl -s -w "\n%{http_code}" -X POST "https://flags.${REGION}.confidence.dev/v1/f
   -d '{}'
 ```
 
-**Do NOT attach flag to client yet** — the schema update in Step 3 clears the client list. Attach after variants are added.
+**Do NOT attach flag to client yet** — the schema update in Step 4 clears the client list. Attach after variants are added.
 
-### Step 3: Add variants
+### Step 4: Add variants
 
 EDUCATE:
 > Variants are the different values a flag can have. For a simple on/off flag, you'd have "on" and "off" variants.
@@ -626,7 +634,7 @@ curl -s -X POST "https://flags.${REGION}.confidence.dev/v1/flags/<FLAG_NAME>:add
   -d '{"client": "<CLIENT_NAME>", "flag": "flags/<FLAG_NAME>"}'
 ```
 
-### Step 4: Add targeting
+### Step 5: Add targeting
 
 EDUCATE:
 > Targeting rules control who sees which variant. Let's set a default — you can add more rules later.
@@ -674,7 +682,7 @@ curl -s -w "\n%{http_code}" -X POST "https://flags.${REGION}.confidence.dev/v1/f
   }'
 ```
 
-### Step 5: Test resolve
+### Step 6: Test resolve
 
 EDUCATE:
 > Let's verify the flag works by resolving it.
@@ -698,7 +706,7 @@ Parse the response and show in plain English:
 
 If resolve fails, check that the flag is attached to the client and has at least one enabled rule.
 
-### Step 6: Done
+### Step 7: Done
 
 ```
 ═══════════════════════════════════════════════════════════════
@@ -712,9 +720,11 @@ If resolve fails, check that the flag is attached to the client and has at least
   Default:  <DEFAULT_VARIANT>
 
   Your flag is live and resolving. Next steps:
-  • Integrate the SDK: Ask me for setup instructions
-  • Create more flags: Ask me or use the Confidence UI
-  • Set up experiments: /onboard-confidence learn
+  • Invite team members:     /onboard-confidence invite-user
+  • Set up data warehouse:   /onboard-confidence setup-warehouse
+  • Integrate the SDK:       Ask me for setup instructions
+  • Create more flags:       Ask me or use the Confidence UI
+  • Learn experimentation:   /onboard-confidence learn
 
 ═══════════════════════════════════════════════════════════════
 ```
@@ -867,7 +877,7 @@ METRICS_API:     https://metrics.${region}.confidence.dev/v1
 **Check login ID availability (no auth):**
 ```
 GET ${ONBOARDING_API}/loginIdAvailability:check?login_id={id}
-→ { "available": bool, "message": string }
+→ { "available": bool }
 ```
 
 **Check region availability (no auth):**
@@ -1096,7 +1106,7 @@ Body: { "course": "courses/<category>", "questionUpdates": [{ "lessonIndex": int
 | Field | Rule | Regex |
 |-------|------|-------|
 | `loginId` | 3-21 chars, lowercase, digits, hyphens. Starts with letter, ends with letter/digit | `^[a-z][a-z0-9-]{1,19}[a-z0-9]$` |
-| `displayName` | 3-21 chars, letters, digits, spaces, hyphens. Starts with letter, ends with letter/digit | `^[a-zA-Z][a-zA-Z0-9\s-]{1,19}[a-zA-Z0-9]$` |
+| `displayName` | 3-32 chars, letters, digits, Unicode letters, spaces, hyphens. Starts/ends with word char/digit/letter | `[\w\d\p{L}][\w\s\d\-\p{L}]{1,30}[\w\d\p{L}]` |
 | `region` | Exactly `REGION_EU` or `REGION_US` | — |
 | `authConnections` | At least one required | — |
 | `adminEmail` | Must be a work email. Free providers (Gmail, Yahoo, Hotmail, etc.) are rejected | — |
@@ -1119,7 +1129,7 @@ Body: { "course": "courses/<category>", "questionUpdates": [{ "lessonIndex": int
 
 ### Sandbox note
 
-All `curl`, `open`, and `python3` commands that access external hosts (`auth.confidence.dev`, `onboarding.confidence.dev`, `iam.confidence.dev`) require `dangerouslyDisableSandbox: true`. On first occurrence, briefly explain to the user that network access outside the sandbox is needed for API calls.
+All `curl`, `open`, and `python3` commands that access external hosts (`auth.confidence.dev`, `onboarding.confidence.dev`, `iam.confidence.dev`) require `dangerouslyDisableSandbox: true`. The auth script additionally requires `timeout: 130000` (server timeout is 120s). On first occurrence, briefly explain to the user that network access outside the sandbox is needed for API calls.
 
 ---
 
@@ -1140,8 +1150,9 @@ Most sub-commands use REST APIs and do NOT require MCP. MCP is only used as a co
 ## Known Limitations
 
 - **MCP auth cannot be triggered programmatically** — user must run `/mcp` to authenticate MCP servers. The Auth0 browser session from the login step makes this instant (no second login).
-- **Port 8084 must be free** — the Auth0 callback server uses a fixed port. If busy, kill the process first.
+- **Port 8084 must be free** — the Auth0 callback server uses a fixed port. The auth script auto-kills any existing process on port 8084.
 - **Auth0 Allowed Callback URLs** — both Auth0 clients must have `http://localhost:8084/callback` in their Allowed Callback URLs, Allowed Logout URLs, and Allowed Web Origins.
+- **Auth script is bundled** — `auth.py` ships with the plugin in the skill directory. Never write auth scripts to disk; always use the bundled script.
 - **Learning API** — REST-only (gRPC on epx-onboarding). Course content is generated by the skill using docs MCP; the API only tracks progress indices.
 - **`learn` sub-command** — uses docs MCP for content. If MCP not connected, the skill can still teach using its own knowledge but won't have the latest docs.
 - **Region-specific API URLs** — flags/resolver APIs use region prefixes (`flags.eu.confidence.dev` vs `flags.us.confidence.dev`). Determine region from the JWT token or from the account creation step.
