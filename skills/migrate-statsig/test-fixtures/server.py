@@ -344,7 +344,28 @@ GATES: list[dict[str, Any]] = [
             }
         ],
     },
-    # 12. Archived gate — hidden from list unless include archived opt-in.
+    # 12. Targeting gate referenced by onboarding_flow_experiment's
+    #     targetingGateID — its conditions get inlined into the experiment.
+    {
+        "id": "onboarding_na_targeting",
+        "name": "Onboarding NA targeting",
+        "description": "Targeting gate for the onboarding experiment: North America only.",
+        "idType": "userID",
+        "isEnabled": True,
+        "status": "In Progress",
+        "type": "PERMANENT",
+        "rules": [
+            {
+                "name": "North America",
+                "id": "rule_na_1",
+                "passPercentage": 100,
+                "conditions": [
+                    {"type": "country", "operator": "any", "targetValue": ["US", "CA"]}
+                ],
+            }
+        ],
+    },
+    # 13. Archived gate — hidden from list unless include archived opt-in.
     {
         "id": "old_onboarding_gate",
         "name": "Old onboarding gate",
@@ -422,7 +443,7 @@ EXPERIMENTS: list[dict[str, Any]] = [
         "status": "active",
         "allocation": 100,
         "controlGroupID": "grp_control",
-        "targetingGateID": None,
+        "targetingGateID": "",  # unset reads back as empty string, not null
         "layerID": None,
         # NB: unset inlineTargetingRules is ABSENT from the real payload
         "groups": [
@@ -450,21 +471,15 @@ EXPERIMENTS: list[dict[str, Any]] = [
         "status": "active",
         "allocation": 50,
         "controlGroupID": "grp_ob_control",
-        "targetingGateID": None,
+        # The modern Statsig console creates experiment targeting as a
+        # targeting GATE (inline rules are legacy and the Console API
+        # can't write them) — fetch the gate and inline its conditions.
+        "targetingGateID": "onboarding_na_targeting",
         "layerID": "onboarding_layer",
         # Observed live: the Console API returns duplicated holdoutIDs
         # entries (one attach → two list items). Readers must dedupe.
         "holdoutIDs": ["q1_holdout", "q1_holdout"],
-        "inlineTargetingRules": [
-            {
-                "name": "North America",
-                "id": "rule_ob_na",
-                "passPercentage": 100,
-                "conditions": [
-                    {"type": "country", "operator": "any", "targetValue": ["US", "CA"]}
-                ],
-            }
-        ],
+        # NB: unset inlineTargetingRules is ABSENT from the real payload
         "groups": [
             {
                 "name": "Control",

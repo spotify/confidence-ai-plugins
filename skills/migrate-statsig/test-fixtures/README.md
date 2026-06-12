@@ -38,7 +38,7 @@ Python 3.10+ stdlib, no dependencies.
 ```bash
 python3 server.py
 # Fake Statsig Console API listening on http://127.0.0.1:4000
-#   12 gates, 1 dynamic config, 2 experiments, 3 segments
+#   13 gates, 1 dynamic config, 2 experiments, 3 segments
 ```
 
 Override the port if 4000 is taken:
@@ -95,6 +95,7 @@ Pick a throwaway Confidence client and map the `userID` unit to a
 | `premium_segment_gate` | `passes_segment` + `fails_segment` (both `rule_based`) → reusable segments (REST) or inline (MCP) | Migrate |
 | `test_user_allowlist` | `user_id any` → `setRule` on the chosen entity field | Migrate |
 | `vip_gate` | `passes_segment` on an **`id_list`** segment (count 5000) → REST materialized segment (BigQuery), else BLOCKED | Migrate (REST) |
+| `onboarding_na_targeting` | plain `country any [US, CA]` gate; also referenced by `onboarding_flow_experiment.targetingGateID` (conditions inlined there) | Migrate |
 | `old_onboarding_gate` | `status: Archived` → hidden from list unless opted in | Skipped (archived) |
 
 ## Fixture dynamic configs
@@ -108,7 +109,7 @@ Pick a throwaway Confidence client and map the `userID` unit to a
 | `id` | What it tests |
 |---|---|
 | `checkout_button_experiment` | 50/50 groups, `allocation: 100` → ONE rule, variant split 50/50 (MCP-OK) |
-| `onboarding_flow_experiment` | 3 groups (34/33/33), `allocation: 50` (→ REST segment `proportion` 0.5; control catch-all); `inlineTargetingRules` (country US/CA); `layerID` → REST exclusivity group; `holdoutIDs` → holdback surface step |
+| `onboarding_flow_experiment` | 3 groups (34/33/33), `allocation: 50` (→ REST segment `proportion` 0.5; control catch-all); `targetingGateID: onboarding_na_targeting` (gate conditions inlined — how the modern console targets experiments); `layerID` → REST exclusivity group; duplicated `holdoutIDs` (live-API quirk — dedupe) → holdback surface step |
 
 ## Fixture segments
 
@@ -128,7 +129,7 @@ segment maps to a REST materialized segment.
 After running `plan flags`, the generated plan file at
 `.claude/plans/statsig-flag-migration-<date>.md` should:
 
-- Include the 11 non-archived gates, 1 dynamic config, and 2 experiments
+- Include the 12 non-archived gates, 1 dynamic config, and 2 experiments
   in Section 4 (`old_onboarding_gate` is archived and excluded by default)
 - For `new_search_rollout`, render the rule as something like "country is
   not DE and not FR AND appBuildNumber >= 28"
@@ -151,9 +152,10 @@ After running `plan flags`, the generated plan file at
 - For `homepage_config`, create one variant per `returnValue` plus a
   default variant for `defaultValue`, and emit a final catch-all rule
 - For `onboarding_flow_experiment`, mark `Backend: REST`, use a segment
-  with `proportion` 0.5 + the three-way group split restricted to US/CA,
-  map `layerID` to an exclusivity group, and record the `q1_holdout` →
-  holdback surface step
+  with `proportion` 0.5 + the three-way group split restricted to US/CA
+  (inlined from the `onboarding_na_targeting` targeting gate), map
+  `layerID` to an exclusivity group, and record the `q1_holdout` →
+  holdback surface step (deduped — the live API returns the id twice)
 - Mark only `contains_blocked_gate` as **BLOCKED** (`str_contains_any`).
   `execute` should refuse to proceed on it unless it's `[x] Skip`'d
 

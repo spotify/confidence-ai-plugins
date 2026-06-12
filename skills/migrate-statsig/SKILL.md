@@ -351,7 +351,12 @@ matched rule's `passPercentage` doesn't pass), the gate returns `false`.
   see "Experiment `allocation` < 100".
 - `controlGroupID` — which group is control (informational)
 - `targetingGateID` — restrict the experiment to users who pass this
-  gate. Confidence has no cross-flag gate dependency — see "Blocked".
+  gate. **This is how the modern Statsig console expresses experiment
+  targeting** (inline rules are legacy; the Console API can't even write
+  them). Treat it exactly like a `passes_gate` condition: fetch the
+  referenced gate and **inline its conditions** into the experiment's
+  Confidence targeting (or share it as a segment on the REST backend).
+  Only block if the referenced gate is itself unmigratable.
 - `inlineTargetingRules[]` — inline targeting (same rule/condition shape
   as gates). Combine with `allocation`.
 - `layerID` — if set, the experiment belongs to a layer (see Layers
@@ -574,8 +579,9 @@ Extract from each item:
 - For **gates / dynamic configs**: the ordered `rules[]`. For each rule:
   `passPercentage`, `conditions[]`, and (configs only) `returnValue`
 - For **experiments**: `groups[]` (`name`, `size`, `parameterValues`),
-  `allocation`, `controlGroupID`, `targetingGateID`,
-  `inlineTargetingRules[]`, `layerID`
+  `allocation`, `controlGroupID`, `targetingGateID` (fetch the referenced
+  gate — its conditions get inlined; see the Experiment object notes),
+  `inlineTargetingRules[]` (legacy), `layerID`
 - `holdoutIDs[]` (gates/configs/experiments) → record each holdout; it
   maps to a Confidence holdback (a surface step — see "Holdouts (item 5)").
   **Dedupe the list** — the live Console API returns duplicated entries
@@ -1144,12 +1150,12 @@ These genuinely have no clean Confidence translation on **any** backend:
 
 These are **not** blocked outright — they downgrade gracefully:
 
-- **`passes_gate` / `fails_gate`** — Confidence has no flag-to-flag
-  dependency, but the referenced gate's conditions can be **inlined** (or
-  turned into a shared segment on the REST backend) and composed with
-  `and` / `not`. Only block if the referenced gate is itself
-  unmigratable. Note the inlining in the plan (it won't auto-update if
-  the source gate changes).
+- **`passes_gate` / `fails_gate` / experiment `targetingGateID`** —
+  Confidence has no flag-to-flag dependency, but the referenced gate's
+  conditions can be **inlined** (or turned into a shared segment on the
+  REST backend) and composed with `and` / `not`. Only block if the
+  referenced gate is itself unmigratable. Note the inlining in the plan
+  (it won't auto-update if the source gate changes).
 - **Large `id_list` segments** — use a **REST materialized segment**
   (BigQuery). Only block (`References an id_list segment too large to
   inline`) if the REST backend / BigQuery isn't available.

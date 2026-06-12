@@ -267,7 +267,9 @@ def main() -> None:
     for exp in EXPERIMENTS:
         groups = ", ".join(f"{g['name']}={g['size']}%" for g in exp["groups"])
         itr = exp.get("inlineTargetingRules") or []  # key is absent when unset
-        targ = "all" if not itr else "inline-targeted"
+        tgate = GATES_BY_ID.get(exp["targetingGateID"]) if exp.get("targetingGateID") else None
+        targ = ("inline-targeted" if itr else
+                f"gate:{tgate['id']}" if tgate else "all")
         print(f"  {exp['id']}")
         print(f"      allocation={exp['allocation']}%  groups=[{groups}]  targeting={targ}")
         if exp["allocation"] < 100:
@@ -282,6 +284,8 @@ def main() -> None:
                   "(surface step)")
         for cname, ctx in CONTEXTS.items():
             eligible = eval_rules(itr, ctx, ENTITY) is not None if itr else True
+            if eligible and tgate:  # targetingGateID restricts entry like passes_gate
+                eligible = eval_rules(tgate["rules"], ctx, ENTITY) is not None
             print(f"      {cname:<16} -> {'in-experiment' if eligible else 'control (untargeted)'}")
 
     print("\nDone. Compare these against Confidence resolveFlag output.")

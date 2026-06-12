@@ -21,7 +21,7 @@ What gets seeded (mirrors server.py):
   * 3 segments  — premium_users / internal_staff (rule_based, with rules),
                   vip_user_list (id_list, --vip-count generated ids)
   * 1 layer     — onboarding_layer
-  * 12 gates    — including the disabled one (isEnabled false) and the
+  * 13 gates    — including the disabled one (isEnabled false) and the
                   archived one (created, then archived via /archive)
   * 1 dynamic config — homepage_config (defaultValue + 2 rules)
   * 2 experiments — created, then started (PUT /{id}/start → active);
@@ -54,7 +54,7 @@ API_VERSION = "20240601"
 # accepted (or not safe to send) on the create DTOs.
 GATE_CREATE_FIELDS = {"id", "name", "description", "idType", "isEnabled", "rules", "type", "tags"}
 CONFIG_CREATE_FIELDS = {"id", "name", "description", "idType", "isEnabled", "rules", "defaultValue"}
-EXPERIMENT_CREATE_FIELDS = {"id", "name", "description", "idType", "allocation", "layerID"}
+EXPERIMENT_CREATE_FIELDS = {"id", "name", "description", "idType", "allocation", "layerID", "targetingGateID"}
 SEGMENT_CREATE_FIELDS = {"id", "name", "description", "idType", "type", "rules"}
 
 HOLDOUT = {
