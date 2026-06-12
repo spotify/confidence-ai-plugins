@@ -1,0 +1,3 @@
+flask
+spotify-confidence-sdk==3.0.1
+openfeature-sdk==0.4.2

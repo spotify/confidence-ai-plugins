@@ -1,0 +1,38 @@
+{
+  "name": "confidence",
+  "version": "0.2.3",
+  "description": "Access Confidence feature flags, experiments, and migration tools directly from Gemini CLI.",
+  "mcpServers": {
+    "confidence-flags": {
+      "command": "npx",
+      "args": [
+        "mcp-remote@latest",
+        "${CONFIDENCE_MCP_FLAGS_URL:-https://mcp.confidence.dev/mcp/flags}",
+        "--header",
+        "x-confidence-mcp-consumer:plugin"
+      ]
+    },
+    "confidence-docs": {
+      "command": "npx",
+      "args": [
+        "mcp-remote@latest",
+        "${CONFIDENCE_MCP_DOCS_URL:-https://mcp.confidence.dev/mcp/docs}",
+        "--header",
+        "x-confidence-mcp-consumer:plugin"
+      ]
+    }
+  },
+  "contextFileName": "GEMINI.md",
+  "settings": [
+    {
+      "name": "Confidence MCP Flags URL",
+      "description": "Confidence MCP flags endpoint URL (default: https://mcp.confidence.dev/mcp/flags).",
+      "envVar": "CONFIDENCE_MCP_FLAGS_URL"
+    },
+    {
+      "name": "Confidence MCP Docs URL",
+      "description": "Confidence MCP docs endpoint URL (default: https://mcp.confidence.dev/mcp/docs).",
+      "envVar": "CONFIDENCE_MCP_DOCS_URL"
+    }
+  ]
+}
