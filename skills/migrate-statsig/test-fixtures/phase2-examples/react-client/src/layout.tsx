@@ -11,7 +11,10 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
   await registerConfidence();
 
   // StatsigUser → evaluation context (userID → targetingKey; custom → attributes).
-  const context = { targetingKey: 'user-123', country: 'US', plan: 'premium' };
+  // IMPORTANT: also set the Phase 1 ENTITY FIELD (here `user_id`) — the field the
+  // migrated targeting rules bucket by. targetingKey alone is NOT aliased to it
+  // by the resolver, so resolution falls back to DEFAULT. (Verified end-to-end.)
+  const context = { targetingKey: 'user-123', user_id: 'user-123', country: 'US', plan: 'premium' };
 
   return (
     <ConfidenceProvider

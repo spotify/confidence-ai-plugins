@@ -25,7 +25,11 @@ function toContext(req: RequestUser): EvaluationContext {
   // StatsigUser → Confidence evaluation context. OpenFeature's
   // EvaluationContext rejects `undefined` values, so omit absent attributes
   // rather than setting them to undefined.
-  const context: EvaluationContext = { targetingKey: req.userID };
+  // IMPORTANT: set the Phase 1 ENTITY FIELD (here `user_id`) — that is the field
+  // the migrated targeting rules bucket by. targetingKey alone is NOT aliased to
+  // it by the local resolver, so a context with only targetingKey resolves to
+  // DEFAULT. (Verified end-to-end against a real Confidence project.)
+  const context: EvaluationContext = { targetingKey: req.userID, user_id: req.userID };
   if (req.email !== undefined) context.email = req.email;
   if (req.country !== undefined) context.country = req.country;
   if (req.plan !== undefined) context.plan = req.plan;

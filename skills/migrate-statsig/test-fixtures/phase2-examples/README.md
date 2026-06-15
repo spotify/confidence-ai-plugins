@@ -38,6 +38,21 @@ doc-verified against the provider README.
 - **in-process** — node-server, java-server, **python-server**, go-server, rust-server (Statsig server SDK local eval → Confidence WASM local eval; unchanged). Python now has a local-resolve provider (`confidence-openfeature-provider`, alpha), so the server case is in-process, not remote.
 - **cached client / precomputed** — react-client (Statsig precomputed client values → Confidence cached client)
 
+## Live end-to-end (python-server) — and the entity-field gotcha
+
+`python-server` was run **for real** against a Confidence project (local-resolve
+provider downloads state + resolves via WASM), not just compiled. This caught a
+bug compile-checks can't: the migrated context originally set only
+`targetingKey`, and **every flag resolved to `DEFAULT`**. Phase 1 buckets rules
+by the **entity field** (`user_id`), and the local resolver does not alias
+`targetingKey` to it — so the context MUST set the entity field by name. All six
+fixtures now do (`{ targetingKey: id, user_id: id, ... }`); the skill documents
+it as a CRITICAL Phase 1↔Phase 2 contract.
+
+After the fix, the live resolve matched the Phase-1 config exactly (spotify-email
+gate → enabled; US config → "Hi USA"/20; JP → default "Welcome"). See
+`python-server/e2e_resolve.py` (needs a real backend secret; not run in CI).
+
 ## Transform points exercised
 
 ### node-server

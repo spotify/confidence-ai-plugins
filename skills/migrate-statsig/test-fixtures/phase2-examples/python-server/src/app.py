@@ -30,7 +30,12 @@ class RequestUser:
 
 def to_context(req: RequestUser) -> EvaluationContext:
     # StatsigUser -> Confidence evaluation context; include only present attributes.
-    attributes: dict[str, object] = {}
+    # IMPORTANT: set the Phase 1 ENTITY FIELD (here `user_id`) — that is the field
+    # the migrated targeting rules bucket by. OpenFeature's targeting_key is NOT
+    # auto-aliased to it by the local resolver, so a context with only
+    # targeting_key resolves to DEFAULT. (Verified end-to-end against a real
+    # Confidence project.)
+    attributes: dict[str, object] = {"user_id": req.user_id}
     if req.email is not None:
         attributes["email"] = req.email
     if req.country is not None:

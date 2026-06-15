@@ -1839,6 +1839,23 @@ name; `customIDs` → the corresponding entity fields. Statsig auto-derives
 country/browser/OS/version server-side — in Confidence you MUST pass
 these explicitly, so add them to the context where targeting needs them.
 
+**CRITICAL — set the Phase 1 ENTITY FIELD in the context, not just
+`targetingKey` (verified end-to-end).** Phase 1 buckets every rule by the
+entity field it created from the Statsig `idType` (e.g. `userID` →
+`user_id`). The local-resolve providers do **not** auto-alias OpenFeature's
+`targetingKey` to that field, so a context that sets only `targetingKey`
+resolves every flag to **DEFAULT** (silent — no error). The transform MUST
+put the unit id under the **entity field name** the Phase 1 plan recorded
+(e.g. `user_id: userID`), in addition to `targetingKey`:
+
+```
+{ targetingKey: user.userID, user_id: user.userID, /* ...attrs */ }
+```
+
+This was caught by a live resolve against a real Confidence project (the
+fixtures originally set only `targetingKey` and every flag returned
+DEFAULT). Use the entity field name from Phase 1's "Unit ID Mapping".
+
 **Omit `undefined` attributes (verified).** OpenFeature's
 `EvaluationContext` (at least the TypeScript `@openfeature/server-sdk`)
 rejects `undefined` values under strict typing. When the source reads
@@ -1849,11 +1866,13 @@ attributes conditionally** — do NOT emit `{ email: user.email }` when
 
 **Server-target mapping (per-call context), JS/TS example:**
 
+(Context shown abbreviated; `ctx` = `{ targetingKey: user.userID, user_id: user.userID, ...attrs }` — note the entity field, per the CRITICAL note above.)
+
 | Statsig call | OpenFeature call |
 |--------------|------------------|
-| `statsig.checkGate(user, "g")` | `client.getBooleanValue("g.enabled", false, { targetingKey: user.userID, ...attrs })` |
-| `statsig.getConfig(user, "c").get("p", d)` | `client.get<Type>Value("c.p", d, { targetingKey: user.userID, ...attrs })` |
-| `statsig.getExperiment(user, "e").get("p", d)` | `client.get<Type>Value("e.p", d, { targetingKey: user.userID, ...attrs })` |
+| `statsig.checkGate(user, "g")` | `client.getBooleanValue("g.enabled", false, ctx)` |
+| `statsig.getConfig(user, "c").get("p", d)` | `client.get<Type>Value("c.p", d, ctx)` |
+| `statsig.getExperiment(user, "e").get("p", d)` | `client.get<Type>Value("e.p", d, ctx)` |
 
 The accessor name and signature are language-specific (use the Step 2
 SDK guide):

@@ -25,7 +25,12 @@ public final class App {
   private static MutableContext toContext(RequestUser req) {
     // StatsigUser → Confidence evaluation context. Add attributes only when
     // present (don't add null values).
+    // IMPORTANT: set the Phase 1 ENTITY FIELD (here `user_id`) — that is the
+    // field the migrated targeting rules bucket by. The MutableContext targeting
+    // key alone is NOT aliased to it by the local resolver, so a context with
+    // only the targeting key resolves to DEFAULT. (Verified end-to-end.)
     MutableContext ctx = new MutableContext(req.userID());
+    ctx.add("user_id", req.userID());
     if (req.email() != null) {
       ctx.add("email", req.email());
     }

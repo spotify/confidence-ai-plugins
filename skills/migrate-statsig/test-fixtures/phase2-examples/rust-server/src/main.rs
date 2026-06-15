@@ -29,7 +29,13 @@ pub struct RequestUser {
 
 fn to_context(u: &RequestUser) -> EvaluationContext {
     // StatsigUser -> Confidence evaluation context; include only present attributes.
-    let mut ctx = EvaluationContext::default().with_targeting_key(u.user_id.clone());
+    // IMPORTANT: set the Phase 1 ENTITY FIELD (here "user_id") — that is the field
+    // the migrated targeting rules bucket by. The targeting key alone is NOT
+    // aliased to it by the local resolver, so a context with only the targeting
+    // key resolves to DEFAULT. (Verified end-to-end against a real project.)
+    let mut ctx = EvaluationContext::default()
+        .with_targeting_key(u.user_id.clone())
+        .with_custom_field("user_id", u.user_id.clone());
     if let Some(e) = &u.email {
         ctx = ctx.with_custom_field("email", e.clone());
     }

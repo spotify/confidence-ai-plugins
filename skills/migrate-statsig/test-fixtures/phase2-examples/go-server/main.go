@@ -50,7 +50,11 @@ func setup(ctx context.Context) error {
 
 func toContext(u RequestUser) openfeature.EvaluationContext {
 	// statsig.User -> Confidence evaluation context; include only present attributes.
-	attrs := map[string]interface{}{}
+	// IMPORTANT: set the Phase 1 ENTITY FIELD (here "user_id") — that is the field
+	// the migrated targeting rules bucket by. The targeting key alone is NOT
+	// aliased to it by the local resolver, so a context with only the targeting
+	// key resolves to DEFAULT. (Verified end-to-end against a real project.)
+	attrs := map[string]interface{}{"user_id": u.UserID}
 	if u.Email != "" {
 		attrs["email"] = u.Email
 	}
