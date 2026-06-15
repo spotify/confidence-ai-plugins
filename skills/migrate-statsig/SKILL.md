@@ -1820,6 +1820,14 @@ name; `customIDs` → the corresponding entity fields. Statsig auto-derives
 country/browser/OS/version server-side — in Confidence you MUST pass
 these explicitly, so add them to the context where targeting needs them.
 
+**Omit `undefined` attributes (verified).** OpenFeature's
+`EvaluationContext` (at least the TypeScript `@openfeature/server-sdk`)
+rejects `undefined` values under strict typing. When the source reads
+optional `StatsigUser` fields, build the context by **adding present
+attributes conditionally** — do NOT emit `{ email: user.email }` when
+`email` may be `undefined`. (Confirmed by typechecking the
+`phase2-examples/node-server` fixture against the real provider.)
+
 **Server-target mapping (per-call context), JS/TS example:**
 
 | Statsig call | OpenFeature call |
