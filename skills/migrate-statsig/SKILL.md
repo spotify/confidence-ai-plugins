@@ -1788,6 +1788,15 @@ fixtures.)
 | `getLayer(user, "l").get("p", d)` | typed param | `get<Type>Value("<exp>.p", d, ctx)` — the layer param resolves through its backing experiment flag |
 | `.getValue()` / `.value` (whole config object) | object | `getObjectValue("c", {}, ctx)` |
 
+**Whole-object (JSON) reads.** A Statsig `getConfig(...).getValue()` /
+`.value` (the whole config dict) maps to `getObjectValue("<flag>", {}, ctx)`
+— read the **flag root**, not a `.property` path. Caveat (verified
+end-to-end): object reads surface **numeric fields as floats** (e.g.
+`maxItems` comes back as `20.0`, not `20`), unlike `getIntegerValue`, which
+returns an int. Cast if the caller needs an int. Prefer per-property reads
+(`getIntegerValue("<flag>.maxItems", …)`) when the source only used a few
+typed params. (See `phase2-examples/python-server` `read_homepage_object`.)
+
 **Classify the SDK as client-side or server-side** — this decides the
 evaluation-context model in Step 4:
 

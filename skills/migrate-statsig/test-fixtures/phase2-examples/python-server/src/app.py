@@ -64,3 +64,19 @@ def handle_request(req: RequestUser) -> dict:
         "max_items": max_items,
         "button_color": button_color,
     }
+
+
+def read_homepage_object(req: RequestUser) -> dict:
+    """Whole-config (JSON/object) read.
+
+    Statsig `get_config(user, "homepage_config").get_value()` returns the whole
+    config dict → Confidence `get_object_value("<flag>", {}, ctx)` (read the flag
+    root, not a property path).
+
+    Note: object reads surface numeric fields as **floats** (e.g. `maxItems`
+    comes back as `20.0`), unlike `get_integer_value` which returns `20`. Cast if
+    the caller needs an int. Verified end-to-end against a real Confidence
+    project (US → {"title": "Hi USA", "maxItems": 20.0}).
+    """
+    client = get_client()
+    return client.get_object_value("homepage-config", {}, to_context(req))

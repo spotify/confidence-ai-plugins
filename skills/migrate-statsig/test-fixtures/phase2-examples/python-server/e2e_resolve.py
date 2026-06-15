@@ -54,6 +54,13 @@ def main() -> None:
             "field its rules bucket by."
         )
 
+    # Optional: whole-config JSON/object read (set E2E_OBJECT_FLAG to a flag root).
+    object_flag = os.environ.get("E2E_OBJECT_FLAG")
+    if object_flag:
+        obj = client.get_object_details(object_flag, {}, context)
+        # NOTE: object reads surface numeric fields as floats (e.g. 20.0).
+        print(f"{object_flag} (object): value={obj.value} reason={obj.reason}")
+
 
 if __name__ == "__main__":
     main()

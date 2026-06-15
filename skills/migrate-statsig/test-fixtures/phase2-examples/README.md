@@ -53,6 +53,13 @@ After the fix, the live resolve matched the Phase-1 config exactly (spotify-emai
 gate → enabled; US config → "Hi USA"/20; JP → default "Welcome"). See
 `python-server/e2e_resolve.py` (needs a real backend secret; not run in CI).
 
+**Whole-object (JSON) read — also verified live.** `read_homepage_object`
+(`get_object_value("homepage-config", {}, ctx)`) returned the full struct
+(US → `{"title": "Hi USA", "maxItems": 20.0}`; JP → default
+`{"title": "Welcome", "maxItems": 10.0}`). Gotcha: object reads surface numeric
+fields as **floats** (`20.0`), unlike `get_integer_value` (`20`) — cast if you
+need an int. Reproduce with `E2E_OBJECT_FLAG=st-homepage-config python3 e2e_resolve.py`.
+
 ### Another cross-phase gotcha: materialized segments / sticky assignments
 
 If Phase 1 migrated a flag using an `id_list`/materialized segment or sticky

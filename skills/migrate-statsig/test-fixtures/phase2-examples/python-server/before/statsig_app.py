@@ -49,3 +49,14 @@ def handle_request(req: RequestUser) -> dict:
         "max_items": max_items,
         "button_color": button_color,
     }
+
+
+def read_homepage_object(req: RequestUser) -> dict:
+    """Whole-config (JSON/object) read — returns the entire config dict."""
+    statsig.initialize(os.environ["STATSIG_SERVER_SECRET"])
+    user = StatsigUser(
+        user_id=req.user_id,
+        custom={"country": req.country, "plan": req.plan},
+    )
+    homepage = statsig.get_config(user, "homepage_config")
+    return homepage.get_value()
