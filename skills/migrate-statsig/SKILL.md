@@ -1771,7 +1771,13 @@ Grep: pattern="useGateValue|useFeatureGate|useExperiment|useLayer|useDynamicConf
 
 **Scan case-insensitively.** Method names vary by language and SDK
 generation (legacy vs Server Core). Map whatever you find to an
-evaluation TYPE, not a fixed spelling:
+evaluation TYPE, not a fixed spelling. Notably **Java uses `…Sync`
+suffixes** — `checkGateSync` / `getConfigSync` / `getExperimentSync`
+(the grep patterns substring-match these). Go exports PascalCase
+(`CheckGate` / `GetConfig` / `GetExperiment`); Python/JS are
+`check_gate`/`checkGate`, `getDynamicConfig`/`get_config`, etc.
+(Scan patterns verified against all five `phase2-examples/*/before/`
+fixtures.)
 
 | Statsig call | What it returns | Confidence accessor (by value type) |
 |--------------|-----------------|-------------------------------------|
