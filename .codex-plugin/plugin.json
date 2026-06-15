@@ -21,7 +21,7 @@
   "interface": {
     "displayName": "Confidence",
     "shortDescription": "Feature flags, experiments, and migration tools",
-    "longDescription": "Access Confidence feature flags, experiments, and migration tools directly from Codex. Create, list, resolve, and target feature flags. Migrate from PostHog or Optimizely to Confidence SDK.",
+    "longDescription": "Access Confidence feature flags, experiments, and migration tools directly from Codex. Create, list, resolve, and target feature flags. Migrate from PostHog, Eppo, or Statsig to Confidence SDK.",
     "developerName": "Spotify Confidence",
     "category": "Productivity",
     "capabilities": [
