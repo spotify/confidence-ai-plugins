@@ -107,8 +107,8 @@ This plugin provides access to Confidence tools across these categories:
 
 | Server | Endpoint | Description |
 |--------|----------|-------------|
-| `confidence-flags` | `https://mcp.confidence.spotify.com/mcp/flags` | Feature flag management |
-| `confidence-docs` | `https://mcp.confidence.spotify.com/mcp/docs` | Confidence documentation |
+| `confidence-flags` | `https://mcp.confidence.dev/mcp/flags` | Feature flag management |
+| `confidence-docs` | `https://mcp.confidence.dev/mcp/docs` | Confidence documentation |
 
 ## Supported Clients
 
