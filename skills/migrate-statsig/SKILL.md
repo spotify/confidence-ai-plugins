@@ -1876,15 +1876,31 @@ user argument; emit a one-time context setup instead.
 | `client.getExperiment("e").get("p", d)` | `get<Type>Value("e.p", d)` | (same — set once) |
 
 **React mapping.** Statsig `@statsig/react-bindings` hooks map to
-Confidence's React provider + `useFlag`:
+Confidence's React `useFlag`. **Prefer the local-resolve React integration**
+(server-precomputed / RSC) — the standalone Confidence React SDK
+(`@spotify-confidence/react`) is being phased out. Imports come from
+`@spotify-confidence/openfeature-server-provider-local/react-server`
+(the `<ConfidenceProvider context flags>` RSC component + `getFlag`) and
+`/react-client` (`useFlag`/`useFlagDetails`). Register the provider once on
+the server with `createConfidenceServerProvider` + `OpenFeature.setProviderAndWait`
+(as in the server case). (Validated in `phase2-examples/react-client` against
+provider `0.14.2` + React 19.)
 
-| Statsig (React) | Confidence (React) |
-|-----------------|--------------------|
-| `<StatsigProvider sdkKey user>` | `<ConfidenceProvider>` with evaluation context `{ targetingKey: userID, ...attrs }` |
-| `useGateValue("g")` / `useFeatureGate("g").value` | `useFlag("g.enabled", false)` |
+| Statsig (React) | Confidence (React, local-resolve) |
+|-----------------|-----------------------------------|
+| `<StatsigProvider sdkKey user>` | server `<ConfidenceProvider context={{ targetingKey: userID, ...attrs }} flags={[...]}>` (from `/react-server`); the user becomes the context, resolution happens server-side |
+| `useGateValue("g")` / `useFeatureGate("g").value` | `useFlag("g.enabled", false)` (from `/react-client`) |
+| `useDynamicConfig("c").get("p", d)` | `useFlag("c.p", d)` |
 | `useExperiment("e").get("p", d)` / `.value.p` | `useFlag("e.p", d)` |
 | `useLayer("l").get("p", d)` | `useFlag("<exp>.p", d)` |
-| `useStatsigClient().checkGate("g")` | `useFlag("g.enabled", false)` (or imperative client read) |
+| `useStatsigClient().checkGate("g")` | `useFlag("g.enabled", false)` (or `getFlag` server-side) |
+
+⚠️ **Resolve-mode shift:** Statsig React (client-precomputed) → Confidence
+**server-precomputed**. Client reads stay local/offline, but resolution moves
+to the server, so this needs an RSC server (e.g. Next.js App Router). For a
+pure SPA with no server, fall back to the (deprecated) cached-client web SDK
+`@spotify-confidence/react` (`ConfidenceProvider` + `useFlag` on top of
+`@spotify-confidence/sdk`).
 
 **Remove Statsig readiness scaffolding.** Statsig examples gate the
 first check behind `await statsig.initialize(...)` /

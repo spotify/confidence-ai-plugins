@@ -26,15 +26,12 @@ Prioritizing the **local-resolve providers** in
 | `go-server` | `github.com/statsig-io/go-sdk` | in-process eval | Go local-resolve (`github.com/spotify/confidence-resolver/openfeature-provider/go`) | none (in-process → in-process) | 📄 doc-verified vs provider README (no Go toolchain here) |
 | `rust-server` | `statsig` crate | in-process eval | Rust local-resolve (`spotify-confidence-openfeature-provider-local`) | none (in-process → in-process) | 📄 doc-verified vs provider README (no Rust toolchain here) |
 
+| `react-client` | `@statsig/react-bindings` | precomputed/cached | local-resolve React, server-precomputed/RSC (`@spotify-confidence/openfeature-server-provider-local` `/react-server` + `/react-client`) | client→server-precomputed (reads stay offline; resolution moves to the server) | ✅ `tsc --noEmit` against provider `0.14.2` + React 19 |
+
 All six local-resolve SDKs from `confidence-resolver` are now covered (JS, Java,
-Python, Go, Rust; Ruby exists too — not yet templated). ✅ = compiled/checked
-against the real package; 📄 = doc-verified against the provider README.
-
-### Planned (follow-up)
-
-| Fixture | Statsig SDK | Source mode | Confidence target | Change | Validation |
-|---------|-------------|-------------|-------------------|--------|------------|
-| `react-client` | `@statsig/react-bindings` | precomputed/cached | cached client / React provider | preserved | `tsc --noEmit` |
+Python, Go, Rust; Ruby exists too — not yet templated), plus the React
+client/RSC case. ✅ = compiled/checked against the real package; 📄 =
+doc-verified against the provider README.
 
 ## Resolve-mode coverage (target)
 
@@ -80,6 +77,14 @@ against the real package; 📄 = doc-verified against the provider README.
 - `statsig.initialize().await` readiness removed — the provider fetches initial state on construction (`ConfidenceProvider::new` + `set_provider`).
 - Requires Rust 1.70+, Tokio, OpenFeature Rust SDK 0.2.7+.
 
+### react-client
+- Targets the **local-resolve React** integration (server-precomputed / RSC), which the Confidence docs recommend for new React apps — the standalone Confidence React SDK (`@spotify-confidence/react`) is being phased out.
+- `<StatsigProvider sdkKey user>` → server-side `<ConfidenceProvider context={...} flags={[...]}>` (from `/react-server`); the Statsig `user` becomes the evaluation context. Resolution happens on the server.
+- Statsig hooks → `useFlag(path, default)` (from `/react-client`): `useGateValue("g")` → `useFlag("g.enabled", false)`; `useDynamicConfig("c").get(p,d)` / `useExperiment("e").get(p,d)` → `useFlag("c.<p>"/"e.<p>", d)`.
+- Ambient context — the per-component hooks take no user; context is set once on the server provider.
+- The provider must be registered once (`createConfidenceServerProvider` + `OpenFeature.setProviderAndWait`), same as `node-server`.
+- ⚠️ Resolve-mode shift: Statsig client-precomputed → Confidence server-precomputed. Client reads stay local/offline, but resolution moves to the server (needs an RSC server, e.g. Next.js App Router). For a pure SPA with no server, the alternative is the (deprecated) cached-client web SDK `@spotify-confidence/react`.
+
 ## Running the checks
 
 ```bash
@@ -95,4 +100,7 @@ cd java-server && mvn compile
 cd python-server && python3 -m py_compile src/*.py
 pip install --target /tmp/pylocal -r requirements.txt
 PYTHONPATH=/tmp/pylocal python3 verify_api.py
+
+# react-client (local-resolve React, server-precomputed/RSC)
+cd react-client && npm install && npm run typecheck
 ```
