@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <groupId>com.example</groupId>
+  <artifactId>statsig-to-confidence-java-server</artifactId>
+  <version>0.0.0</version>
+  <packaging>jar</packaging>
+
+  <!--
+    Reference fixture: Statsig Java server SDK -> Confidence Java LOCAL-resolve
+    (in-process). Only src/main/java (the migrated Confidence output) is
+    compiled; before/ holds the Statsig original for the diff and is NOT built.
+  -->
+
+  <properties>
+    <maven.compiler.release>17</maven.compiler.release>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+  </properties>
+
+  <dependencies>
+    <!-- Confidence local-resolve OpenFeature provider (spotify/confidence-resolver). -->
+    <dependency>
+      <groupId>com.spotify.confidence</groupId>
+      <artifactId>openfeature-provider-local</artifactId>
+      <version>0.15.1</version>
+    </dependency>
+  </dependencies>
+</project>
