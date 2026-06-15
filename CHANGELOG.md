@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.4.0](https://github.com/spotify/confidence-ai-plugins/compare/v0.3.0...v0.4.0) (2026-06-15)
+
+
+### Features
+
+* add onboarding skill and command ([#19](https://github.com/spotify/confidence-ai-plugins/issues/19)) ([2da1d97](https://github.com/spotify/confidence-ai-plugins/commit/2da1d97dfb319335d9d85f9da8c090c82d296a60))
+* **migrate-eppo:** standalone Eppo→Confidence migration kit (flags + code) ([#17](https://github.com/spotify/confidence-ai-plugins/issues/17)) ([11a45aa](https://github.com/spotify/confidence-ai-plugins/commit/11a45aaafeb23d999999ad9365090738a3dd932e))
+* **migrate-statsig:** Statsig→Confidence migration kit — Phase 1: flag definitions ([#23](https://github.com/spotify/confidence-ai-plugins/issues/23)) ([6dbef8d](https://github.com/spotify/confidence-ai-plugins/commit/6dbef8d77019887abac46e43b1a87761e328a41c))
+
 ## [0.3.0](https://github.com/spotify/confidence-ai-plugins/compare/v0.2.3...v0.3.0) (2026-06-10)
 
 
