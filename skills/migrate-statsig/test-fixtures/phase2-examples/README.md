@@ -23,13 +23,17 @@ Prioritizing the **local-resolve providers** in
 | `node-server` | `@statsig/statsig-node-core` | in-process eval | JS local-resolve (`@spotify-confidence/openfeature-server-provider-local`) | none (in-process → in-process) | ✅ `tsc --noEmit` against provider `0.14.2` + `@openfeature/server-sdk` `1.21.0` |
 | `java-server` | `com.statsig:serversdk` | in-process eval | Java local-resolve (`com.spotify.confidence:openfeature-provider-local`) | none (in-process → in-process) | ✅ `mvn compile` BUILD SUCCESS against provider `0.15.1` (+ OpenFeature Java SDK) |
 | `python-server` | `statsig` (Python) | in-process eval | Python local-resolve (`confidence-openfeature-provider`, alpha) | none (in-process → in-process) | ✅ `py_compile` + `verify_api.py` against provider `0.7.1` + `openfeature-sdk` |
+| `go-server` | `github.com/statsig-io/go-sdk` | in-process eval | Go local-resolve (`github.com/spotify/confidence-resolver/openfeature-provider/go`) | none (in-process → in-process) | 📄 doc-verified vs provider README (no Go toolchain here) |
+| `rust-server` | `statsig` crate | in-process eval | Rust local-resolve (`spotify-confidence-openfeature-provider-local`) | none (in-process → in-process) | 📄 doc-verified vs provider README (no Rust toolchain here) |
+
+All six local-resolve SDKs from `confidence-resolver` are now covered (JS, Java,
+Python, Go, Rust; Ruby exists too — not yet templated). ✅ = compiled/checked
+against the real package; 📄 = doc-verified against the provider README.
 
 ### Planned (follow-up)
 
 | Fixture | Statsig SDK | Source mode | Confidence target | Change | Validation |
 |---------|-------------|-------------|-------------------|--------|------------|
-| `go-server` | `statsig-go` | in-process eval | Go local-resolve provider | none | doc-verified (no Go toolchain) |
-| `rust-server` | `statsig-rust` | in-process eval | Rust local-resolve provider | none | doc-verified (no Rust toolchain) |
 | `react-client` | `@statsig/react-bindings` | precomputed/cached | cached client / React provider | preserved | `tsc --noEmit` |
 
 ## Resolve-mode coverage (target)
@@ -63,6 +67,18 @@ Prioritizing the **local-resolve providers** in
 - `StatsigUser` → `EvaluationContext(targeting_key=..., attributes={...})`, including only present attributes.
 - `statsig.initialize(secret)` readiness removed — handled by `set_provider_and_wait`.
 - Requires Python 3.10+ and `openfeature-sdk` 0.10.0+.
+
+### go-server
+- Go accessor shape: PascalCase, `ctx` FIRST, eval context LAST — `client.BooleanValue(ctx, "new-checkout.enabled", false, evalCtx)`; `StringValue` / `IntValue` / `FloatValue` / `ObjectValue`.
+- `statsig.User` → `openfeature.NewEvaluationContext(userID, attrs)`, attrs map including only non-empty values.
+- `statsig.Initialize(secret)` readiness removed → `openfeature.SetProviderAndWait`; `statsig.Shutdown()` → `openfeature.Shutdown()`.
+- Requires Go 1.24+ and OpenFeature Go SDK 1.16.0+.
+
+### rust-server
+- Async getters with `unwrap_or` defaults: `client.get_bool_value("...", Some(&ctx), None).await.unwrap_or(false)`; `get_string_value` / `get_int_value` / `get_float_value` / `get_struct_value`.
+- `StatsigUser` → `EvaluationContext::default().with_targeting_key(...).with_custom_field(...)`, added only when present.
+- `statsig.initialize().await` readiness removed — the provider fetches initial state on construction (`ConfidenceProvider::new` + `set_provider`).
+- Requires Rust 1.70+, Tokio, OpenFeature Rust SDK 0.2.7+.
 
 ## Running the checks
 
