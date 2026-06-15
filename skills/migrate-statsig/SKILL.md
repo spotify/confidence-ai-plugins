@@ -1936,12 +1936,48 @@ porting it. Drop Statsig's `disableExposureLog` plumbing and manual
 exposure logging (`logEvent` for exposures) — Confidence logs exposure
 automatically.
 
-**Layers caveat.** A Statsig `getLayer("l").get("p", d)` reads a
-parameter that, in Statsig, is owned by whichever experiment is
-currently allocated in that layer. Confidence has no layer; resolve the
-param through the specific experiment flag the Phase 1 plan created for
-it. If a layer parameter is shared across multiple experiments, surface
-it for review rather than guessing which flag owns it.
+**Layers.** A Statsig `getLayer("l").get("p", d)` reads a parameter that,
+in Statsig, is owned by whichever experiment is currently allocated in
+that layer. Confidence has no layer primitive — Phase 1 migrated each
+experiment in the layer to its own flag (made mutually exclusive via an
+exclusivity group). So each layer parameter resolves through the
+**experiment flag that owns it** (recorded in the Phase 1 plan):
+
+```
+getLayer("promo_layer").get("title", d)    → getStringValue("promo-experiment.title", d, ctx)
+getLayer("promo_layer").get("discount", d) → getNumberValue("promo-experiment.discount", d, ctx)
+```
+
+- If the layer spans multiple experiments (different params owned by
+  different experiments), resolve **each param through its own experiment
+  flag**.
+- If a single param could be served by more than one experiment in the
+  layer, the mapping is ambiguous — **surface it for human review** rather
+  than guessing.
+
+(See `phase2-examples/node-server/{before/statsig-layer.ts, src/layer.ts}`.)
+
+**Materialized segments & sticky assignments → enable a materialization
+store (cross-phase gotcha).** If Phase 1 migrated any flag using an
+`id_list`/materialized segment (the REST `materializedSegments` path) or
+relying on sticky assignments, the local-resolve provider returns the
+**default** for those flags unless it's configured with a materialization
+store. This is silent — the flag just looks "off". When Phase 1's plan
+shows any materialized segment or sticky/`materialization` usage, the
+provider setup MUST enable a store. The quickest option is the built-in
+remote store (adds a network call per affected resolve):
+
+| SDK | Enable remote materialization store |
+|-----|-------------------------------------|
+| JS | `createConfidenceServerProvider({ flagClientSecret, materializationStore: 'CONFIDENCE_REMOTE_STORE' })` |
+| Java | `LocalProviderConfig.builder().useRemoteMaterializationStore(true).build()` → `new OpenFeatureLocalResolveProvider(config, secret)` |
+| Go | `confidence.ProviderConfig{ ClientSecret, UseRemoteMaterializationStore: true }` |
+| Rust | `ProviderOptions::new(secret).with_confidence_materialization_store()` |
+| Python | check the provider version; if no store option is exposed yet (alpha), flag it for review |
+
+For lower latency at scale, implement a custom `MaterializationStore`
+(Redis/DynamoDB/etc.) per the provider README. Record in the plan whether
+a store is required so `execute` configures it.
 
 ### Step 5: Generate plan
 

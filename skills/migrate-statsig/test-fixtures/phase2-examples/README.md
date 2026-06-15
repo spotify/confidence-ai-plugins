@@ -53,6 +53,16 @@ After the fix, the live resolve matched the Phase-1 config exactly (spotify-emai
 gate → enabled; US config → "Hi USA"/20; JP → default "Welcome"). See
 `python-server/e2e_resolve.py` (needs a real backend secret; not run in CI).
 
+### Another cross-phase gotcha: materialized segments / sticky assignments
+
+If Phase 1 migrated a flag using an `id_list`/materialized segment or sticky
+assignments, the local-resolve provider returns **default** for it unless
+configured with a materialization store (e.g. JS
+`materializationStore: 'CONFIDENCE_REMOTE_STORE'`, Java/Go
+`useRemoteMaterializationStore`, Rust `with_confidence_materialization_store()`).
+Silent otherwise — the skill now documents this per-SDK. (Not exercised by a
+fixture; none of the seeded flags use materialized segments.)
+
 ## Transform points exercised
 
 ### node-server
@@ -64,6 +74,7 @@ gate → enabled; US config → "Hi USA"/20; JP → default "Welcome"). See
 - **Server SDK** ⇒ evaluation context passed **per call** (`StatsigUser` → `{ targetingKey, ...attrs }`).
 - **`undefined` context values must be omitted** — OpenFeature's `EvaluationContext` rejects `undefined`, so optional attributes are added conditionally, not set to `undefined`.
 - Statsig readiness (`new Statsig(secret)` + `initialize()`) removed — `OpenFeature.setProviderAndWait` blocks until the resolver state is ready.
+- **Layers** (`before/statsig-layer.ts` + `src/layer.ts`): `getLayer("promo_layer").get("title", d)` → `getStringValue("promo-experiment.title", d, ctx)` — each layer param resolves through the experiment flag that owns it (Confidence has no layer primitive). Multi-experiment layers resolve each param through its own flag; ambiguous params go to review.
 
 ### java-server
 - Same flag-key → dot-path normalization and per-call context as node-server.
