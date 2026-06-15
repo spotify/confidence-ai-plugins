@@ -1,0 +1,14 @@
+# Reference fixture (doc-verified, not built here). Versions per the provider
+# README; the Confidence Rust local-resolve provider requires Rust 1.70+, a
+# Tokio runtime, and the OpenFeature Rust SDK 0.2.7+.
+# Note: before/ lives outside src/, so Cargo never compiles it.
+[package]
+name = "statsig-to-confidence-rust-server"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+spotify-confidence-openfeature-provider-local = "0.1.0"
+open-feature = "0.2.7"
+tokio = { version = "1", features = ["full"] }
