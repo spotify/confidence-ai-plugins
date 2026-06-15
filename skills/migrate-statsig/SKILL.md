@@ -1678,10 +1678,17 @@ Preference"):
 
 | Target mode | Confidence SDKs | How evaluation works | Network profile |
 |-------------|-----------------|----------------------|-----------------|
-| **In-process** (local resolve) | backend **Java, Go, JS/Node, Rust** | Periodically fetch the resolver **state** (full ruleset); evaluate locally via WASM | No per-eval network call; network only for state refresh |
+| **In-process** (local resolve) | backend **Java, Go, JS/Node, Rust, Python** | Periodically fetch the resolver **state** (full ruleset); evaluate locally via WASM | No per-eval network call; network only for state refresh |
 | **Cached client** | **Android, iOS, web/browser JS, React, React Native** | Backend resolves; device **prefetches and caches resolved VALUES**. Reads are local + offline. Context change triggers a refetch | Network on init / context change / refresh — NOT per read |
 | **Server-precomputed** | server-rendered React/Next.js (RSC) | Server resolves for a bound subject; client reads resolved values offline | Resolution on the server; client reads are offline |
-| **Remote** (per-call) | backend **Python, Ruby, .NET** | Each resolve is a service call to Confidence | One call per resolve (with default-value fallback on failure) |
+| **Remote** (per-call) | backend **Ruby, .NET** (and Python only if you can't use the local-resolve provider) | Each resolve is a service call to Confidence | One call per resolve (with default-value fallback on failure) |
+
+> **Python now has a local-resolve provider** (`confidence-openfeature-provider`,
+> alpha — from `spotify/confidence-resolver`). Prefer it for Python backends
+> (in-process, no per-eval network call); fall back to the remote provider only
+> if the alpha provider isn't acceptable. The `getLocalResolveIntegrationGuide`
+> MCP tool currently only enumerates `JAVA/GO/JS/RUST`, so fetch the Python
+> provider details from PyPI / the repo README rather than that tool.
 
 Routing:
 
@@ -1693,8 +1700,13 @@ Routing:
     sdk: "JAVA" | "GO" | "JS" | "RUST"
   ```
 
+- Backend **Python** → **in-process** via the local-resolve provider
+  `confidence-openfeature-provider` (alpha). Get its API from PyPI / the
+  `spotify/confidence-resolver` Python provider README (not the
+  `getLocalResolveIntegrationGuide` tool, which omits Python).
 - Client app (mobile / browser / React Native) → **cached client**.
-  Backend **Python / Ruby / .NET** → **remote**. Either way fetch:
+  Backend **Ruby / .NET** (or Python if the alpha provider is unacceptable)
+  → **remote**. Either way fetch:
 
   ```
   mcp__confidence-docs__getCodeSnippetAndSdkIntegrationTips
@@ -1728,10 +1740,11 @@ Map the Statsig SDK in use to a source mode by surface:
 
 Then the Step 2b transitions apply:
 
-- Statsig server → Confidence **in-process** (Java/Go/JS/Rust):
-  unchanged.
-- Statsig server → Confidence **remote** (Python/Ruby/.NET): ⚠️
-  in-process → remote — each resolve becomes a service call.
+- Statsig server → Confidence **in-process** (Java/Go/JS/Rust, and
+  **Python** via the alpha local-resolve provider): unchanged.
+- Statsig server → Confidence **remote** (Ruby/.NET, or Python only if not
+  using the local-resolve provider): ⚠️ in-process → remote — each resolve
+  becomes a service call.
 - Statsig client (precomputed) → Confidence **cached client**: ✅ similar
   model — backend resolves, client reads cached values offline; reads
   stay local/fast.
@@ -1843,10 +1856,16 @@ SDK guide):
   `evalCtx := openfeature.NewEvaluationContext(user.UserID, attrsMap)`.
 - **Java**: build a `MutableContext(userID)` + `ctx.add(...)`:
   `client.getBooleanValue("g.enabled", false, ctx)`.
-- **Python (REMOTE target)**: snake_case `get_<type>_value`, context
-  last: `client.get_boolean_value("g.enabled", False, EvaluationContext(targeting_key=user_id, attributes=attrs))`.
-  Use `api.set_provider(ConfidenceOpenFeatureProvider(Confidence(client_secret=...)))`
-  (NOT `set_provider_and_wait`) and delete Statsig's `initialize()` wait.
+- **Python (in-process, local-resolve — preferred)**: snake_case
+  `get_<type>_value`, context last:
+  `client.get_boolean_value("g.enabled", False, EvaluationContext(targeting_key=user_id, attributes=attrs))`.
+  Init with `from confidence import ConfidenceProvider` +
+  `api.set_provider_and_wait(ConfidenceProvider(client_secret=...))`, then
+  `api.get_client()`; delete Statsig's `statsig.initialize()` wait.
+  (Verified against `confidence-openfeature-provider==0.7.1` in
+  `phase2-examples/python-server`.)
+- **Python (REMOTE target — fallback only)**: same getters, but init with the
+  remote provider via `api.set_provider(...)` (NOT `set_provider_and_wait`).
 
 **Client-target mapping (ambient context):** the per-call site drops its
 user argument; emit a one-time context setup instead.
