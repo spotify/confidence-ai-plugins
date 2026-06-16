@@ -1957,6 +1957,54 @@ The result is typically a **one- or few-file change** at the bootstrap /
 provider module, plus the flag re-creation — independent of how many call
 sites read flags.
 
+### Re-homing custom-provider semantics (prefer the flag model over code)
+
+A hand-written provider (or facade) often **computes** a value at read
+time instead of passing the flag through — e.g. exposing a boolean
+feature as an on/off **string**, or reading a variable **only if** the
+feature is enabled. Don't port that logic verbatim into a new wrapper if
+you can avoid it: push it into the **Confidence flag model** so the
+swapped-in provider needs no special-casing.
+
+- **Boolean feature exposed as an on/off string** → model the Confidence
+  flag with a `string` property whose variants are the literal strings the
+  call site expects (e.g. `"on"` / `"off"`), plus a targeting rule
+  (in-audience → `on`, otherwise → `off`). The call site's
+  `useFlag` / `get<Type>Value` is unchanged.
+- **Conditional variable read** ("return variable X only if the feature is
+  enabled, else a default") → fold the condition into variant values: the
+  matched variant carries X's value, the default/off variant carries the
+  fallback. "Only if enabled" becomes "only the matched variant has the
+  value."
+
+Then **delete** the special-casing from the old provider rather than
+re-homing it as code.
+
+> **Confirm before folding.** This only works when the logic is **static /
+> enumerable** as variants + targeting. If the value is computed from
+> runtime inputs that can't be expressed as targeting (arbitrary
+> client-side math, values derived from non-context state), keep a **thin
+> wrapper** over the Confidence provider for that flag and note it in the
+> plan.
+
+### Live-update / change-observer APIs
+
+If the app or facade exposes a flag-change/observer API — an `onChange`
+callback that fires when a flag's state changes without a restart — wire
+it to OpenFeature's **provider events** instead of the old vendor's
+flag-update callback: register a handler for the
+`PROVIDER_CONFIGURATION_CHANGED` event on the OpenFeature client/provider
+(`addHandler(...)`) and re-fire the app's callback from there. The
+Confidence provider refreshes resolver state on its poll interval and
+surfaces that as a configuration-changed event.
+
+> **Confirm before relying on it.** Verify the target Confidence provider
+> for this platform actually emits a configuration-changed event, and at
+> what **granularity**. If it signals a whole-state refresh (not per-flag)
+> while the source callback fired only on a *specific* flag's change, the
+> wrapper must diff that flag's value across the event to preserve the
+> original granularity. Record the decision in the plan.
+
 ### Source providers you may be swapping out
 
 The app's current OpenFeature provider can be an official vendor package or
