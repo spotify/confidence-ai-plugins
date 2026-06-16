@@ -1398,6 +1398,13 @@ with:
 **Each flag = one PR.** The code migration creates a separate pull
 request for each flag, keeping changes small and reviewable.
 
+**If the plan's Migration style is `provider swap` (already on
+OpenFeature) or `facade re-point`,** there is no per-flag call-site work.
+Do a single PR that swaps the registered provider (or repoints the
+facade's internal provider) to Confidence per "Already on OpenFeature →
+provider swap", leaving call sites unchanged, then verify. The per-flag
+loop below applies only to the `call-site rewrite` style.
+
 ```
 1. READ the plan file
 2. SDK SETUP (Section 1 of plan) — one-time, before any flag
@@ -1547,10 +1554,10 @@ verifies the waterfall (`rule_priorities`) order is preserved.
 
 ## Plan Code: Steps
 
-The code phase has 5 steps: Step 1 detect language/framework, Step 2
-fetch the Confidence SDK guide (and signal any resolve-mode change),
-Step 3 scan the codebase for Optimizely usage, Step 4 generate transform
-rules, Step 5 generate the plan.
+The code phase has 5 steps: Step 1 detect language/framework **and the
+migration style**, Step 2 fetch the Confidence SDK guide (and signal any
+resolve-mode change), Step 3 scan the codebase for Optimizely usage, Step
+4 generate transform rules, Step 5 generate the plan.
 
 ### Step 1: Detect language & framework
 
@@ -1559,6 +1566,44 @@ Grep: pattern="<Optimizely import/symbol patterns from Step 3>"  → Find Optimi
 Glob: pattern="package.json" or "build.gradle" or "*.csproj" or "go.mod" or "pyproject.toml"/"requirements.txt" or "Gemfile" etc
 Read: dependency file  → Determine language/framework AND which Optimizely SDK package
 ```
+
+### Step 1b: Detect the migration style (provider swap vs call-site rewrite)
+
+**This is the FIRST branch in the code phase — it changes everything
+below.** Before scanning for Optimizely calls, determine whether the app
+talks to Optimizely **directly** or **already through OpenFeature**.
+
+```
+Grep -i: pattern="@openfeature/|dev\.openfeature|open-feature/go-sdk|openfeature" → already on OpenFeature?
+Grep -i: pattern="OpenFeature\.(setProvider|setProviderAndWait)|SetProviderAndWait|getClient\(|useFlag\(" → OpenFeature wiring
+Grep -i: pattern="implements (Feature)?Provider|: Provider|class \w+Provider" → a custom OpenFeature provider class
+```
+
+Two styles result:
+
+| Style | When | Phase 2 work |
+|-------|------|--------------|
+| **Provider swap** | App **already uses OpenFeature** (standard `useFlag` / `get*Value` call sites; Optimizely is hidden behind a registered OpenFeature provider, official or custom) | Swap the **registered provider** to Confidence; **call sites do NOT change**. See "Already on OpenFeature → provider swap". |
+| **Call-site rewrite** | App calls the **Optimizely SDK directly** (`decide`, `isFeatureEnabled`, `getFeatureVariable*`, `activate`) | Rewrite call sites to OpenFeature + Confidence (Steps 2–5 below). |
+
+> **Why this matters.** A team already on OpenFeature did the hard part —
+> their call sites are vendor-neutral. Migrating them to Confidence is a
+> one-file provider swap, not a codebase-wide rewrite. Detecting this
+> first avoids needlessly rewriting `useFlag('x', false)` into itself.
+>
+> **Facade caveat.** Some teams hide the SDK behind a **home-grown facade**
+> (not OpenFeature) — e.g. an `ExperimentManager` exposing
+> `isFeatureEnabled(...)`. That is NOT the provider-swap case: the facade
+> is vendor-specific. The migration there is to repoint the facade's
+> internal provider at Confidence (a localized change inside the facade),
+> while its public API and call sites stay put. Treat it like a provider
+> swap scoped to the facade's implementation, and record the facade entry
+> point in the plan.
+
+If the style is **provider swap**, skip the call-site transform tables in
+Step 4 and follow "Already on OpenFeature → provider swap" instead. Step 2
+(SDK guide + resolve mode) and Phase 1 (flags must exist in Confidence)
+still apply.
 
 ### Step 2: Fetch SDK guide from `confidence-docs` MCP
 
@@ -1865,6 +1910,88 @@ using the template below.
 - **Flags are structs — read a property, not the bare key** (`<flag>.<property>`).
 - **Client SDKs use ambient context; server SDKs pass it per call.**
 
+---
+
+## Already on OpenFeature → provider swap
+
+When Step 1b found the app **already uses OpenFeature**, do NOT run the
+call-site transform. The call sites (`useFlag`, `get<Type>Value`,
+`get<Type>Evaluation`) are vendor-neutral and stay exactly as they are.
+The migration is to replace the **registered provider** with Confidence's
+OpenFeature provider, plus Phase 1 (the flags must exist in Confidence).
+
+### The swap, step by step
+
+```
+1. LOCATE the provider wiring:
+   - the registration call: OpenFeature.setProvider / setProviderAndWait /
+     SetProviderAndWait (JS/Java/Go), api.set_provider[_and_wait] (Python),
+     OpenFeatureAPI.getInstance().setProviderAndWait (Java), the
+     <OpenFeatureProvider> boundary (React)
+   - any CUSTOM provider class the team wrote (e.g. `class FooProvider
+     implements Provider`) wrapping the old vendor SDK
+2. REPLACE the provider with Confidence's, picking the package/mode from
+   Step 2a's routing (server in-process / browser cached / React / remote):
+   - Official vendor provider package → swap the import + the constructor
+     line for the Confidence provider.
+   - Hand-written custom provider (wraps a vendor SDK directly, like Nike
+     NMP's OptimizelyProvider) → replace the class with the Confidence
+     provider. If that class encodes BUSINESS SEMANTICS (e.g. on/off-string
+     modelling, anonymous-context suppression, per-flag special-casing),
+     re-home that logic into a thin wrapper or hooks layered ON TOP of the
+     Confidence provider — do not silently drop it. Flag each such behavior
+     in the plan.
+3. KEEP all call sites unchanged.
+4. CONTEXT: OpenFeature evaluation context is already standard. Only adjust
+   if attribute names differ from the Confidence flag's targeting (e.g. a
+   custom targetingKey or attribute rename). Usually nothing to do.
+5. DELETE vendor scaffolding the old provider carried: datafile polling,
+   vendor event/decision listeners, SDK-key plumbing — Confidence's
+   provider handles state refresh and exposure logging itself.
+6. Phase 1: re-create the flags + audiences in Confidence so the new
+   provider resolves them (this is the same Phase 1 as the rewrite path).
+```
+
+The result is typically a **one- or few-file change** at the bootstrap /
+provider module, plus the flag re-creation — independent of how many call
+sites read flags.
+
+### Source providers you may be swapping out
+
+The app's current OpenFeature provider can be an official vendor package or
+a hand-written class. Recognize it, then swap it for the Confidence
+provider regardless of which one it is. Common sources (package names are
+indicative — confirm against the repo's manifest):
+
+| Current provider | Typical package / shape | Swap to (Confidence) |
+|------------------|-------------------------|----------------------|
+| Optimizely (custom) | hand-written `class …Provider implements Provider` wrapping `@optimizely/optimizely-sdk` | Confidence provider for the platform/mode (Step 2a) |
+| LaunchDarkly | `@launchdarkly/openfeature-server-provider` / `…-client-provider`, `launchdarkly-openfeature-*` | ″ |
+| Flagsmith | `@flagsmith/openfeature-*`, `flagsmith-openfeature` | ″ |
+| Split | `@splitsoftware/openfeature-provider-*` | ″ |
+| Unleash | `@unleash/openfeature` / community provider | ″ |
+| ConfigCat | `@configcat/openfeature-*` | ″ |
+| DevCycle | `@devcycle/openfeature-*` | ″ |
+| GO Feature Flag | `@openfeature/go-feature-flag-provider` | ″ |
+| flagd (reference) | `@openfeature/flagd-provider` / `dev.openfeature.contrib…flagd` | ″ |
+| Statsig / PostHog | community OpenFeature providers | ″ |
+| In-house / custom | any `Provider` / `FeatureProvider` implementation | ″ |
+
+In every case the **call sites and the OpenFeature client API are
+identical** — only the registered provider changes. The
+language/mode-specific Confidence provider (and its `setProviderAndWait` /
+`set_provider` init) comes from the Step 2 SDK guide.
+
+### Verify
+
+- Confirm the flags referenced by call sites exist in Confidence (Phase 1)
+  with matching resolve paths (`<flag>.<property>`).
+- Re-run the app's existing flag tests/usages — because call sites are
+  unchanged, the existing assertions should hold once the provider resolves
+  the migrated flags.
+- Spot-check a positive and a negative context (same as the rewrite path's
+  resolve verification).
+
 ## Plan Code: Template
 
 ```markdown
@@ -1874,6 +2001,7 @@ using the template below.
 **Scope:** Code transformation only
 **Language:** <detected>
 **Framework:** <detected>
+**Migration style:** <provider swap (already on OpenFeature) | call-site rewrite (direct Optimizely SDK) | facade re-point (home-grown facade)>
 
 ---
 

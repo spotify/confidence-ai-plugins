@@ -17,6 +17,22 @@ line up: `product_sort` (struct flag with variables), `beta_feature`
 | `react-client/` | `@optimizely/react-sdk` | Decide + legacy | client | `<OptimizelyProvider>`, `useDecision`, `<OptimizelyFeature>` → ambient context + `useFlag` |
 | `java-server/` | `com.optimizely.ab:core-api` | Decide API | server | `createUserContext` + `decide`, `decision.getVariables().getValue(..)`, `MutableContext` (in-process → in-process, mode preserved) |
 | `python-server/` | `optimizely-sdk` | Decide API | server | `create_user_context` + `decide`, `decision.variables[..]` → prefer the **local-resolve** provider `confidence-openfeature-provider` (Alpha; `ConfidenceProvider` + `set_provider_and_wait`, in-process → in-process). Remote `spotify-confidence-sdk` is the fallback (⚠️ resolve-mode change) |
+| `openfeature-provider-swap/` | `@openfeature/*` + custom `OptimizelyProvider` | **already on OpenFeature** | client (React) | **Provider swap, NOT a rewrite** (the Nike NMP pattern): `useFlag` call sites are untouched; only `provider.ts` + the `OpenFeature.setProvider(...)` registration change. Exercises re-homing the custom provider's on/off-string + anonymous-suppression semantics on top of the Confidence provider |
+
+## Two migration styles
+
+- **Call-site rewrite** — the app calls the Optimizely SDK directly
+  (`decide`, `isFeatureEnabled`, …). The transform rewrites call sites to
+  OpenFeature + Confidence. This is the `node-*`, `java-server`,
+  `python-server`, and `react-client` examples.
+- **Provider swap** — the app is *already* on OpenFeature (standard
+  `useFlag` / `get*Value` call sites, Optimizely hidden behind a
+  registered provider). Migration only swaps the registered provider to
+  Confidence; **call sites don't change**. This is the
+  `openfeature-provider-swap` example (the Nike NMP pattern).
+
+`/migrate-optimizely plan code` detects which style applies (Step 1b) and
+plans accordingly.
 
 ## Expected transform (summary)
 
