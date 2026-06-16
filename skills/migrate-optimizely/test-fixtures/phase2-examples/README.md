@@ -16,7 +16,7 @@ line up: `product_sort` (struct flag with variables), `beta_feature`
 | `node-legacy-fullstack/` | `@optimizely/optimizely-sdk` (Node) | legacy Full Stack | server | `isFeatureEnabled`, `getFeatureVariable*`, `activate` (variation-key switch — flagged for review), `track`, notification listener (delete) |
 | `react-client/` | `@optimizely/react-sdk` | Decide + legacy | client | `<OptimizelyProvider>`, `useDecision`, `<OptimizelyFeature>` → ambient context + `useFlag` |
 | `java-server/` | `com.optimizely.ab:core-api` | Decide API | server | `createUserContext` + `decide`, `decision.getVariables().getValue(..)`, `MutableContext` (in-process → in-process, mode preserved) |
-| `python-server/` | `optimizely-sdk` | Decide API | server | `create_user_context` + `decide`, `decision.variables[..]` → **remote** provider (⚠️ in-process → remote, a resolve-mode change) |
+| `python-server/` | `optimizely-sdk` | Decide API | server | `create_user_context` + `decide`, `decision.variables[..]` → prefer the **local-resolve** provider `confidence-openfeature-provider` (Alpha; `ConfidenceProvider` + `set_provider_and_wait`, in-process → in-process). Remote `spotify-confidence-sdk` is the fallback (⚠️ resolve-mode change) |
 
 ## Expected transform (summary)
 
