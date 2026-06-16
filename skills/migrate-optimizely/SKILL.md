@@ -1593,6 +1593,13 @@ Routing:
     sdk: "<detected>"
   ```
 
+  > **Python note.** The documented Confidence Python OpenFeature
+  > provider (`spotify-confidence-sdk`) is the **remote** provider and is
+  > in maintenance mode; an experimental local-resolve Python provider
+  > exists (`spotify/confidence-resolver`). Default to the remote provider
+  > unless the user opts into the experimental one — and if so, flag it as
+  > experimental in the plan.
+
 - **Server-rendered React / Next.js (RSC)** → **server-precomputed**.
   Use Confidence's React local-resolve provider (`<ConfidenceProvider>`
   + `useFlag`); fetch `getLocalResolveIntegrationGuide sdk: "JS"`.

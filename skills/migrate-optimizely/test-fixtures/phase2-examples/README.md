@@ -12,9 +12,11 @@ line up: `product_sort` (struct flag with variables), `beta_feature`
 
 | Example | SDK / package | API generation | Side | Exercises |
 |---------|---------------|----------------|------|-----------|
-| `node-decide-server/` | `@optimizely/optimizely-sdk` (Node) | Decide API | server | `createUserContext` + `decide`, `decision.enabled` / `decision.variables`, `trackEvent`, `onReady` wait → server per-call context |
+| `node-decide-server/` | `@optimizely/optimizely-sdk` (Node) | Decide API | server | `createUserContext` + `decide`, `decision.enabled` / `decision.variables`, `trackEvent`, `onReady` wait → server per-call context (in-process → in-process, mode preserved) |
 | `node-legacy-fullstack/` | `@optimizely/optimizely-sdk` (Node) | legacy Full Stack | server | `isFeatureEnabled`, `getFeatureVariable*`, `activate` (variation-key switch — flagged for review), `track`, notification listener (delete) |
 | `react-client/` | `@optimizely/react-sdk` | Decide + legacy | client | `<OptimizelyProvider>`, `useDecision`, `<OptimizelyFeature>` → ambient context + `useFlag` |
+| `java-server/` | `com.optimizely.ab:core-api` | Decide API | server | `createUserContext` + `decide`, `decision.getVariables().getValue(..)`, `MutableContext` (in-process → in-process, mode preserved) |
+| `python-server/` | `optimizely-sdk` | Decide API | server | `create_user_context` + `decide`, `decision.variables[..]` → **remote** provider (⚠️ in-process → remote, a resolve-mode change) |
 
 ## Expected transform (summary)
 
