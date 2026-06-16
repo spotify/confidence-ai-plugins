@@ -186,6 +186,14 @@ Then run `/confidence:migrate-optimizely plan flags` against the standard
 base URLs with your project id and the `development` environment, and
 compare the plan with `python3 verify_migration.py`.
 
+## Phase 2 (code transformation) fixtures
+
+`phase2-examples/` holds small example apps that use the Optimizely SDKs
+(Decide API, legacy Full Stack API, and the React SDK) the way real
+codebases do. They give `/migrate-optimizely plan code` something
+concrete to scan and transform. Their flag keys match the Phase 1
+fixtures so the two phases line up. See `phase2-examples/README.md`.
+
 ## What this does NOT test
 
 - **Real Optimizely evaluation.** This server is config-only; it never

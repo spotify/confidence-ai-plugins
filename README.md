@@ -104,6 +104,7 @@ This plugin provides access to Confidence tools across these categories:
 > /confidence:migrate-statsig plan flag
 > /confidence:migrate-statsig plan code
 > /confidence:migrate-optimizely plan flags
+> /confidence:migrate-optimizely plan code
 ```
 
 ## MCP Servers

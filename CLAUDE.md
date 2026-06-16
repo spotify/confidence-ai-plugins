@@ -7,7 +7,7 @@ This plugin integrates Confidence with Claude Code, providing tools for feature 
 - `/confidence:migrate-posthog <plan flag | plan code | execute <plan-file>>` — Migrate feature flags from PostHog to Confidence SDK
 - `/confidence:migrate-eppo <plan flag | plan code | execute <plan-file>>` — Migrate feature flags from Eppo to Confidence SDK
 - `/confidence:migrate-statsig <plan flag | plan code | execute <plan-file>>` — Migrate feature flags from Statsig to Confidence SDK
-- `/confidence:migrate-optimizely <plan flags | execute <plan-file>>` — Migrate feature flag definitions from Optimizely Feature Experimentation to Confidence (Phase 1; code transformation ships separately)
+- `/confidence:migrate-optimizely <plan flags | plan code | execute <plan-file>>` — Migrate feature flags from Optimizely Feature Experimentation to Confidence SDK (flags + code)
 - `/confidence:onboard-confidence <create-account | invite-user | create-client | setup-wizard | setup-warehouse | learn | status>` — Create accounts, onboard users, set up SDK clients, configure warehouses, and learn experimentation concepts
 
 ## Skills

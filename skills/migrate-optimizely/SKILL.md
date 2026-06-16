@@ -1,5 +1,5 @@
 ---
-description: Migrate feature flag definitions from Optimizely to Confidence. Use when the user says /migrate-optimizely or asks to migrate Optimizely flags/rollouts/experiments to Confidence.
+description: Migrate feature flags from Optimizely to Confidence SDK. Use when the user says /migrate-optimizely, asks to migrate Optimizely flags/rollouts/experiments, or transform Optimizely SDK code to Confidence.
 ---
 
 # Optimizely to Confidence Migration
@@ -9,6 +9,16 @@ Experimentation to Confidence. This skill is fully self-contained: it
 defines both the Optimizely-specific migration logic AND all the
 Confidence-side conventions it relies on (payload formats, naming rules,
 the flag setup sequence, the execute flow, etc.).
+
+## SDK Preference
+
+**ALWAYS prefer OpenFeature with local resolve.**
+
+| Priority | Approach | When to use |
+|----------|----------|-------------|
+| 1st | Local resolve | Default for all new integrations |
+| 2nd | Remote resolve | Only if local resolve not supported for platform |
+| Avoid | Direct SDK | Being phased out |
 
 ## Plan Philosophy
 
@@ -26,14 +36,15 @@ the flag setup sequence, the execute flow, etc.).
 | Command | Description |
 |---------|-------------|
 | `/migrate-optimizely plan flags` | Phase 1: plan flag definitions migration |
+| `/migrate-optimizely plan code` | Phase 2: plan code transformation |
 | `/migrate-optimizely execute <plan-file>` | Execute a plan interactively |
 
 ---
 
-## Migration Overview (MUST display at start of `plan flags`)
+## Migration Overview (MUST display at start of `plan flags` or `plan code`)
 
-**Every time** the user runs `plan flags`, display this overview FIRST
-— before doing any work.
+**Every time** the user runs `plan flags` or `plan code`, display this
+overview FIRST — before doing any work.
 
 ```
 ═══════════════════════════════════════════════════════════════
@@ -59,11 +70,20 @@ the flag setup sequence, the execute flow, etc.).
   │                                                        │
   │  Result: All flags live in Confidence, ready to resolve│
   ├─────────────────────────────────────────────────────────┤
-  │  PHASE 2 — Code Transformation (ships separately)      │
+  │  PHASE 2 — Code Transformation                         │
   │                                                        │
-  │  Once flags exist in Confidence, the code that         │
-  │  evaluates them is migrated flag-by-flag, one PR each. │
-  │  Phase 2 is delivered as a follow-up to this skill.    │
+  │  Once flags exist in Confidence, migrate the code that │
+  │  evaluates them. Each flag = one PR.                   │
+  │                                                        │
+  │  Steps:                                                │
+  │    1. Detect language & framework                      │
+  │    2. Fetch Confidence SDK guide                       │
+  │    3. Scan codebase for Optimizely usage               │
+  │    4. Generate transform rules (Optimizely→Confidence) │
+  │    5. Generate plan grouped by flag                    │
+  │    6. Execute: transform code flag by flag, one PR each│
+  │                                                        │
+  │  Result: Code uses Confidence SDK, Optimizely removed  │
   └─────────────────────────────────────────────────────────┘
 
   Why flags first?
@@ -76,8 +96,15 @@ the flag setup sequence, the execute flow, etc.).
 ═══════════════════════════════════════════════════════════════
 ```
 
-After displaying the overview, say: "Starting **Phase 1** — Flag
-Definitions", then proceed with the normal workflow.
+After displaying the overview, indicate which phase the user is about
+to enter:
+
+- For `plan flags`: "Starting **Phase 1** — Flag Definitions"
+- For `plan code`: "Starting **Phase 2** — Code Transformation.
+  Make sure Phase 1 (flag definitions) is complete first — the flags
+  need to exist in Confidence before the code can resolve them."
+
+Then proceed with the normal workflow for that phase.
 
 ---
 
@@ -90,6 +117,17 @@ Test: `mcp__confidence__listClients`
 If not available, install it:
 ```
 claude mcp add confidence --transport http --url https://mcp.confidence.dev/mcp/flags
+```
+
+The user will be prompted to authenticate via OAuth in their browser.
+
+### Confidence Docs MCP (required for `plan code` only)
+
+Test: `mcp__confidence-docs__searchDocumentation`
+
+If not available, install it:
+```
+claude mcp add confidence-docs --transport http --url https://mcp.confidence.dev/mcp/docs
 ```
 
 The user will be prompted to authenticate via OAuth in their browser.
@@ -458,8 +496,8 @@ Example after Step 1 completes:
 
 ## Plan Files: Resume Check & Progressive Updates
 
-`plan flags` uses a progressive plan file. Created at Step 1, updated
-after each step, so a closed session can resume.
+Both `plan flags` and `plan code` use a progressive plan file. Created
+at Step 1, updated after each step, so a closed session can resume.
 
 ### Resume check (MUST do first)
 
@@ -467,6 +505,7 @@ Before starting any plan workflow, check for an existing in-progress
 plan:
 
 - `plan flags` → `.claude/plans/optimizely-flag-migration-*.md`
+- `plan code`  → `.claude/plans/optimizely-code-migration-*.md`
 
 If a plan file exists, read its `## Generation Status` section:
 
@@ -1354,6 +1393,32 @@ with:
    - Show summary: created vs skipped
 ```
 
+### For code plans
+
+**Each flag = one PR.** The code migration creates a separate pull
+request for each flag, keeping changes small and reviewable.
+
+```
+1. READ the plan file
+2. SDK SETUP (Section 1 of plan) — one-time, before any flag
+   - Show install command from plan
+   - ASK: "Install SDK now? [Yes / Skip / I already did]"
+   - Show wrapper file path + API surface from plan
+   - ASK: "Create the Confidence wrapper now? [Yes / Skip / I already did]"
+   - If the plan flags a resolve-mode CHANGE, re-surface it here and get
+     an explicit acknowledgement before touching code
+3. FOR EACH FLAG in the files list:
+   a. Create a branch: `migrate/<flag-key>-to-confidence`
+   b. Show flag name + all files using it
+   c. ASK: "Transform this flag's files? [Yes / Skip / Pause]"
+   d. If Yes → apply transform rules from plan to all files for this flag
+   e. Run lint + typecheck on changed files
+   f. Commit changes
+   g. Create PR titled: "feat: migrate <flag-key> from Optimizely to Confidence"
+   h. CHECKPOINT: "PR created. [Continue to next flag / Pause]?"
+4. COMPLETION — show summary + list all PRs created
+```
+
 ### Flag Setup Sequence (MUST complete all steps before resolving)
 
 **Pick the backend from the flag's `Backend` field first.** The sequence
@@ -1480,15 +1545,412 @@ verifies the waterfall (`rule_priorities`) order is preserved.
 
 ---
 
+## Plan Code: Steps
+
+The code phase has 5 steps: Step 1 detect language/framework, Step 2
+fetch the Confidence SDK guide (and signal any resolve-mode change),
+Step 3 scan the codebase for Optimizely usage, Step 4 generate transform
+rules, Step 5 generate the plan.
+
+### Step 1: Detect language & framework
+
+```
+Grep: pattern="<Optimizely import/symbol patterns from Step 3>"  → Find Optimizely usage
+Glob: pattern="package.json" or "build.gradle" or "*.csproj" or "go.mod" or "pyproject.toml"/"requirements.txt" or "Gemfile" etc
+Read: dependency file  → Determine language/framework AND which Optimizely SDK package
+```
+
+### Step 2: Fetch SDK guide from `confidence-docs` MCP
+
+**Step 2a — pick the target resolve mode.** Confidence has FOUR modes,
+not a local/remote binary. Pick from the language/framework detected in
+Step 1, honoring the "prefer local resolve" policy (see "SDK
+Preference"):
+
+| Target mode | Confidence SDKs | How evaluation works | Network profile |
+|-------------|-----------------|----------------------|-----------------|
+| **In-process** (local resolve) | backend **Java, Go, JS/Node, Rust** | Periodically fetch the resolver **state** (full ruleset); evaluate locally via WASM | No per-eval network call; network only for state refresh |
+| **Cached client** | **Android, iOS, web/browser JS, React, React Native** | Backend resolves; device **prefetches and caches resolved VALUES** (not the ruleset). Reads are local + offline. Context change triggers a refetch | Network on init / context change / refresh — NOT per read |
+| **Server-precomputed** | server-rendered React/Next.js (RSC) | Server resolves for a bound subject; client reads resolved values offline | Resolution on the server; client reads are offline |
+| **Remote** (per-call) | backend **Python, Ruby, .NET** | Each resolve is a service call to Confidence | One call per resolve (with default-value fallback on failure) |
+
+Routing:
+
+- Backend **and** language ∈ {Java, Go, JS/Node, Rust} → **in-process**.
+  Fetch the local-resolve guide (server-only; the JS WASM provider is
+  **not** for browsers):
+
+  ```
+  mcp__confidence-docs__getLocalResolveIntegrationGuide
+    sdk: "JAVA" | "GO" | "JS" | "RUST"
+  ```
+
+- Client app (mobile / browser / React Native) → **cached client**.
+  Backend **Python / Ruby / .NET** → **remote**. Either way fetch:
+
+  ```
+  mcp__confidence-docs__getCodeSnippetAndSdkIntegrationTips
+    sdk: "<detected>"
+  ```
+
+- **Server-rendered React / Next.js (RSC)** → **server-precomputed**.
+  Use Confidence's React local-resolve provider (`<ConfidenceProvider>`
+  + `useFlag`); fetch `getLocalResolveIntegrationGuide sdk: "JS"`.
+
+> **PHP / Flutter / edge.** Optimizely ships PHP, Flutter, and edge
+> (Edge Worker / Agent) SDKs that Confidence does not match 1:1. If the
+> detected stack has no Confidence SDK, STOP and surface it: the flags
+> still migrate (Phase 1), but the code transform must be done manually
+> or the app re-platformed onto a supported Confidence SDK. Record this
+> in the plan rather than inventing an API.
+
+**CRITICAL:** Include the ACTUAL MCP response in the plan, not a
+reference to fetch it. Plans are self-sufficient.
+
+**Step 2b — signal any resolve-mode CHANGE.** Compare the source mode
+(defined in "Source resolve mode (Optimizely)" below) to the target mode
+from 2a and, if it shifts, tell the user precisely what changes. Record
+the decision and any change notice in the plan's SDK Setup section and
+re-surface it at execute time before touching code. If unchanged, state
+that explicitly so the user knows it was considered.
+
+### Source resolve mode (Optimizely) — feeds the Step 2b signal
+
+**Optimizely SDKs evaluate locally off a downloaded datafile — but
+"local" means different things on server vs client; the Agent is the
+exception.** Map the source surface to a mode:
+
+- **Optimizely backend SDK** (Node/Python/Ruby/PHP/Java/Go/.NET, datafile
+  in-process) → source mode = **in-process eval**.
+- **Optimizely client SDK** (Swift/Android/JS browser/React/React Native,
+  datafile on device) → source mode = **on-device eval** (the device
+  holds the full datafile and evaluates locally).
+- **Optimizely Agent** (the REST microservice exposing `/v1/decide`) →
+  source mode = **remote** (per-call service eval).
+- **Optimizely Edge / Cloudflare Worker** → source mode = **in-process at
+  edge**.
+
+Then the Step 2b transitions apply:
+
+- Optimizely backend → Confidence **in-process** (Java/Go/JS/Rust): unchanged.
+- Optimizely backend → Confidence **remote** (Python/Ruby/.NET): ⚠️ in-process
+  → remote — each resolve becomes a service call.
+- Optimizely client → Confidence **cached client** (mobile/web): ⚠️ on-device
+  → cached client. Reads stay local/offline and fast (NOT per-call
+  network), but evaluation moves to the backend: the device caches
+  resolved values instead of the datafile, targeting changes apply on the
+  next fetch, a cold first run may return defaults, and the full ruleset
+  is no longer shipped to the client (a security/payload win over
+  Optimizely's on-device datafile).
+- Optimizely Agent (remote) → Confidence **in-process** or **remote**: note
+  whether per-call network goes away (Agent → in-process) or stays
+  (Agent → remote).
+- Optimizely server-rendered React/Next.js → Confidence React
+  **local-resolve** provider: ✅ architecture preserved (server-precomputed
+  → server-precomputed). Surface as "no resolve-mode change".
+
+### Plan-file path
+
+`.claude/plans/optimizely-code-migration-<date>.md`
+
+### Step 3: Scan codebase for Optimizely usage
+
+Optimizely has **two API generations** — the modern **Decide API** and
+the **legacy Full Stack API**. Scan for both:
+
+```
+Grep: pattern="optimizely|Optimizely|@optimizely" → Find Optimizely imports/packages
+Grep: pattern="createInstance|OptimizelyFactory|createUserContext" → Find SDK init + user context
+Grep: pattern="\.decide(All|ForKeys)?\(" → Find the DECIDE API (current FX)
+Grep: pattern="isFeatureEnabled|getFeatureVariable(Boolean|String|Integer|Double|JSON)?|getAllFeatureVariables" → Find LEGACY feature API
+Grep: pattern="\.activate\(|getVariation\(" → Find LEGACY experiment API (returns a variation key)
+Grep: pattern="useDecision|useFeature|withOptimizely|OptimizelyProvider|OptimizelyFeature|OptimizelyExperiment" → Find REACT SDK usage
+Grep: pattern="\.track\(|trackEvent\(|addNotificationListener|NotificationCenter" → Find event tracking + notification listeners
+```
+
+Run greps **case-insensitively** (`rg -i` / `Grep -i`); method casing
+varies by language (Go `Decide`, Python `decide`, Java `decide`).
+
+**The Decide API (current).** A decision is fetched per flag:
+
+```
+user = optimizely.createUserContext(userId, attributes)
+decision = user.decide("flag_key")
+decision.enabled            // boolean
+decision.variables["var"]   // typed variable value (map; older SDKs: decision.getVariableValue("var"))
+decision.variationKey       // which variation (string) — for experiments
+decision.ruleKey            // which rule matched (no Confidence equivalent)
+```
+
+**The legacy Full Stack API.** Pre-`decide`, evaluation is per call with
+`userId` + `attributes` passed each time:
+
+```
+optimizely.isFeatureEnabled("feature_key", userId, attributes)                       // boolean
+optimizely.getFeatureVariableString("feature_key", "var", userId, attributes)        // typed variable
+optimizely.activate("experiment_key", userId, attributes)                            // → variation key (logs impression)
+optimizely.getVariation("experiment_key", userId, attributes)                        // → variation key (no impression)
+```
+
+**Classify the SDK as client-side or server-side** — this decides the
+evaluation-context model in Step 4:
+
+| Optimizely package | Side |
+|--------------------|------|
+| `@optimizely/react-sdk`, `@optimizely/optimizely-sdk` (browser usage), `OptimizelySwiftSDK`/`Optimizely` (iOS), `com.optimizely.ab:android-sdk`, React Native, `optimizely_flutter_sdk` | **client** |
+| `@optimizely/optimizely-sdk` (Node), `optimizely-sdk` (Python/Ruby), `optimizely/optimizely-sdk` (PHP), `com.optimizely.ab:core-api` (Java), `github.com/optimizely/go-sdk`, `Optimizely.SDK` (.NET), Optimizely Agent (REST) | **server** |
+
+`@optimizely/optimizely-sdk` is dual-use — disambiguate by where it runs
+(Node entrypoint = server; bundled into a browser/React app = client).
+
+Group files by **flag key** they reference (the first arg to `decide`,
+the first arg to `isFeatureEnabled` / `getFeatureVariable*`; for
+`activate`/`getVariation` the arg is an **experiment key** — resolve it to
+its parent flag via the Phase 1 plan, since FX experiments live inside a
+flag's ruleset).
+
+For each evaluation site, record:
+- Flag key (and, for `activate`/`getVariation`, the experiment key →
+  parent flag from Phase 1)
+- **Client vs server side** (from the table above)
+- API generation (**decide** vs **legacy**) and the value TYPE read
+  (`enabled` → boolean; each variable by its declared type)
+- The `userId`/user-context argument (→ `targetingKey`)
+- The `attributes` argument (→ evaluation context)
+- The default value (carried over to the Confidence call)
+- The **Confidence resolve path** (`<confidence-flag>.<property>`) — take
+  the Confidence flag key (Phase 1 normalized underscores → hyphens) and
+  property from the Phase 1 plan's "Confidence resolve path" line.
+  `decision.enabled` → `<flag>.enabled`; `decision.variables["x"]` /
+  `getFeatureVariable*(.., "x", ..)` → `<flag>.x`. If the flag is NOT in
+  the Phase 1 plan, surface it — do not invent a path.
+
+### Step 4: Generate transform rules
+
+Based on the SDK guide from `confidence-docs` MCP: extract install
+commands, initialization, the flag-evaluation API, and generate
+find/replace rules.
+
+**Two things are NOT 1:1 line replacements — get them right first:**
+
+1. **Flag key → resolve path.** Confidence flags are structs; every read
+   uses `<confidence-flag>.<property>` (see Step 3). The Confidence flag
+   key may differ from the Optimizely flag key (underscore→hyphen
+   normalization in Phase 1) — use the Phase 1 mapping everywhere.
+2. **Evaluation-context model depends on client vs server** (from Step 3):
+   - **Server SDKs** pass context **per call** — fold the `userId` +
+     `attributes` into the evaluation-context argument of each resolve.
+   - **Client SDKs** use **ambient** context — hoist `userId` +
+     `attributes` ONCE into a
+     `setEvaluationContext`/`setEvaluationContextAndWait` (where the
+     Optimizely code called `createUserContext` / set attributes), and the
+     per-call site becomes a bare `get<Type>Value(path, default)`.
+
+**Decide API → OpenFeature (server target, per-call context):**
+
+| Optimizely | OpenFeature |
+|------------|-------------|
+| `user = optimizely.createUserContext(uid, attrs)` | (no user object — build an evaluation context `{ targetingKey: uid, ...attrs }` per call) |
+| `user.decide("k").enabled` | `client.getBooleanValue("k.enabled", default, { targetingKey: uid, ...attrs })` |
+| `user.decide("k").variables["v"]` (string) | `client.getStringValue("k.v", default, ctx)` |
+| `user.decide("k").variables["v"]` (int/double) | `client.getNumberValue("k.v", default, ctx)` |
+| `user.decide("k").variables["v"]` (json) | `client.getObjectValue("k.v", default, ctx)` |
+
+**Legacy Full Stack API → OpenFeature (server target):**
+
+| Optimizely | OpenFeature |
+|------------|-------------|
+| `optimizely.isFeatureEnabled("k", uid, attrs)` | `client.getBooleanValue("k.enabled", false, { targetingKey: uid, ...attrs })` |
+| `optimizely.getFeatureVariableBoolean("k", "v", uid, attrs)` | `client.getBooleanValue("k.v", default, ctx)` |
+| `optimizely.getFeatureVariableString("k", "v", uid, attrs)` | `client.getStringValue("k.v", default, ctx)` |
+| `optimizely.getFeatureVariableInteger/Double("k", "v", uid, attrs)` | `client.getNumberValue("k.v", default, ctx)` |
+| `optimizely.getFeatureVariableJSON("k", "v", uid, attrs)` | `client.getObjectValue("k.v", default, ctx)` |
+| `optimizely.getAllFeatureVariables("k", uid, attrs)` | one `get<Type>Value("k.<v>", …)` per variable (Confidence has no "all variables" call) |
+
+**Client target (ambient context):** the per-call site drops its
+`uid`/`attrs` arguments; emit a one-time
+`setEvaluationContext({ targetingKey: uid, ...attrs })` where the source
+called `createUserContext` / set attributes (or at login/init).
+
+The accessor name AND signature are language-specific — use the Step 2
+SDK guide for the exact form:
+- **Go**: PascalCase, no `get` prefix, `ctx` first, context last:
+  `client.BooleanValue(ctx, "k.enabled", default, evalCtx)`; numeric →
+  `FloatValue`, integer → `IntValue`, JSON → `ObjectValue`.
+- **Java**: build a `MutableContext(uid)` + `ctx.add(...)` and pass it
+  last: `client.getBooleanValue("k.enabled", default, ctx)`,
+  `client.getDoubleValue("k.v", default, ctx)`, `getObjectValue(...)`.
+- **Python (REMOTE target)**: snake_case `get_<type>_value`, numeric →
+  `get_float_value`, JSON → `get_object_value`, context last:
+  `client.get_boolean_value("k.enabled", False, EvaluationContext(targeting_key=uid, attributes=attrs))`.
+  Use `api.set_provider(ConfidenceOpenFeatureProvider(Confidence(client_secret=...)))`
+  (NOT `set_provider_and_wait`) and delete Optimizely's datafile-ready wait.
+
+**`activate` / `getVariation` (legacy experiment API).** These return a
+**variation key** (string) for an *experiment*, and the impression is
+logged automatically by Confidence (so `activate`'s logging side effect
+is implicit). Map by how the result is used:
+- If the code **branches on the variation key string** (e.g.
+  `if (v === "treatment")`), expose the decision via the flag the
+  experiment belongs to: read the variable(s) that drive behavior
+  (`get<Type>Value("<flag>.<var>", …)`) instead of switching on the key,
+  OR — if a raw variant label is genuinely needed — read a string
+  property carrying it. Surface these sites for human review in the plan;
+  a key-switch is rarely a clean 1:1.
+- `getVariation` (no impression) has no separate Confidence form —
+  Confidence logs exposure on resolve. Note the behavior change.
+
+**React SDK mapping.** `@optimizely/react-sdk` →
+`@spotify-confidence/react` (or the React local-resolve provider for
+RSC; fetch the JS guide in Step 2):
+
+| Optimizely React | Confidence React |
+|------------------|------------------|
+| `<OptimizelyProvider optimizely={client} user={{ id, attributes }}>` | `<ConfidenceProvider>` with evaluation context `{ targetingKey: id, ...attributes }` |
+| `const [decision] = useDecision("k")` → `decision.enabled` / `decision.variables.v` | `useFlag("k.enabled", default)` / `useFlag("k.v", default)` |
+| `<OptimizelyFeature feature="k">{(enabled, variables) => …}</OptimizelyFeature>` | read via `useFlag("k.enabled", default)` (and `useFlag("k.v", …)` per variable) inside the component |
+| `<OptimizelyExperiment experiment="k">{(variation) => …}</OptimizelyExperiment>` | resolve the underlying flag's variable(s) with `useFlag`; branching on a raw variation key needs review (see `activate` above) |
+
+**Event tracking has no OpenFeature equivalent.**
+`optimizely.track(eventKey, userId, attrs, tags)` /
+`user.trackEvent(eventKey, tags)` map to Confidence's **track** API
+(`confidence.track(eventKey, data)`), NOT to OpenFeature (which has no
+track). Use the Confidence SDK's `track` from the Step 2 guide; the
+evaluation context / subject carries through. Keep the event keys.
+
+**Delete Optimizely scaffolding that Confidence handles automatically:**
+- **Notification listeners** (`addNotificationListener`, `DECISION` /
+  `NotificationCenter`, custom impression bridges) — Confidence logs
+  exposure automatically. Delete them.
+- **Datafile management** (`datafileOptions`, polling intervals,
+  `OptimizelyConfig`, manual datafile fetch) — Confidence's provider
+  refresh replaces it.
+- **Event dispatcher / batch event processor** config — Confidence
+  handles event delivery internally.
+- **Readiness scaffolding** (`onReady()`, `await optimizely.onReady()`,
+  Android handler delays) — Confidence's
+  `setProviderAndWait` / `setEvaluationContextAndWait` already block until
+  flags are ready; delete the hand-rolled wait.
+
+**Bandits.** Optimizely multi-armed and contextual bandits (CMAB) are
+**rule types** read through the normal `decide` API — the adaptive
+allocation lives server-side (already snapshotted in Phase 1). So the
+code transform for a bandit flag is the same as any `decide` read; just
+note in the plan that the live split was adaptive and no longer auto-tunes
+after migration. (This differs from sources that expose a separate
+bandit-action call.)
+
+### Step 5: Generate plan
+
+Save the plan to `.claude/plans/optimizely-code-migration-<date>.md`
+using the template below.
+
+**Two Confidence-wide truths every code transform must honor:**
+
+- **Flags are structs — read a property, not the bare key** (`<flag>.<property>`).
+- **Client SDKs use ambient context; server SDKs pass it per call.**
+
+## Plan Code: Template
+
+```markdown
+# Optimizely to Confidence Code Migration Plan
+
+**Created:** <date>
+**Scope:** Code transformation only
+**Language:** <detected>
+**Framework:** <detected>
+
+---
+
+## Generation Status
+
+| Step | Status | Result |
+|------|--------|--------|
+| 1. Detect language | ○ not started | |
+| 2. Fetch SDK guide | ○ not started | |
+| 3. Scan codebase | ○ not started | |
+| 4. Transform rules | ○ not started | |
+| 5. Group by flag | ○ not started | |
+
+**Overall:** in progress
+
+---
+
+## 1. SDK Setup
+
+### Resolve mode
+
+| | |
+|---|---|
+| **Source mode** | <in-process eval / on-device eval / remote (Agent) — per surface> |
+| **Target mode** | <in-process / cached client / server-precomputed / remote — from Step 2a> |
+| **Change** | <unchanged / ⚠️ in-process → remote / ⚠️ on-device → cached client / …> |
+
+<If changed: one-paragraph notice of what actually shifts. If unchanged: "Resolve mode is preserved.">
+
+### Install
+
+<install commands from MCP response>
+
+### API Reference (from MCP: confidence-docs)
+
+<code examples from MCP response>
+
+### Create Confidence Wrapper
+
+**File:** <appropriate path for detected framework>
+
+**Must match source API surface:**
+
+| Method | Signature |
+|--------|-----------|
+<detected from source SDK usage>
+
+---
+
+## 2. Transform Rules
+
+### Source Files
+
+| Find | Replace |
+|------|---------|
+| <Optimizely import> | <Confidence import> |
+| <Optimizely usage (decide / legacy)> | <Confidence usage> |
+
+### Test Files
+
+| Find | Replace |
+|------|---------|
+| <Optimizely mock> | <Confidence mock> |
+
+---
+
+## 3. Files to Transform
+
+<list from codebase scan, grouped by flag key (experiment keys resolved to their parent flag); note any sites flagged for human review — activate/getVariation key-switches, event tracking, unsupported SDKs>
+
+---
+
+## 4. Progress
+
+| # | Item | Status |
+|---|------|--------|
+| 0 | SDK Setup | :white_circle: |
+```
+
+---
+
 ## Required Prerequisites
 
-This skill needs the Confidence MCP listed in "Prerequisites: Confidence
-Side" above, plus the Optimizely REST API — no MCP, just `curl` with
-`Authorization: Bearer $OPTIMIZELY_API_TOKEN`.
+This skill needs the Confidence-side MCPs listed in "Prerequisites:
+Confidence Side" above (`confidence` for `plan flags`/`execute`,
+`confidence-docs` for `plan code`), plus the Optimizely REST API — no
+MCP, just `curl` with `Authorization: Bearer $OPTIMIZELY_API_TOKEN`.
 
 | Source | What's used |
 |--------|-------------|
 | Confidence MCP | `listClients`, `createClient`, `getContextSchema`, `addContextField`, `createFlag`, `addFlagToClient`, `unarchiveFlag`, `addTargetingRule`, `resolveFlag` |
+| Confidence Docs MCP (`plan code`) | `getLocalResolveIntegrationGuide`, `getCodeSnippetAndSdkIntegrationTips`, `searchDocumentation`, `getFullSource` |
 | Confidence REST API (`CONFIDENCE_TOKEN`, OPTIONAL — full-fidelity Phase 1) | `POST /v1/segments` + `:allocate`, `POST /v1/flags/{flag}/rules` + `PATCH …?updateMask=enabled`; token via `POST https://iam.confidence.dev/v1/oauth/token` |
 | Optimizely Flags API (`OPTIMIZELY_API_TOKEN`) | `GET /flags/v1/projects/{id}/flags[/{key}]`, `GET …/flags/{key}/variations`, `GET …/flags/{key}/environments/{env}/ruleset` |
 | Optimizely Platform API v2 (`OPTIMIZELY_API_TOKEN`) | `GET /v2/audiences[/{id}]`, `GET /v2/environments`, `GET /v2/projects` |

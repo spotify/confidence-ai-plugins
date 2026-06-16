@@ -1,7 +1,7 @@
 ---
 name: migrate-optimizely
 description: Migrate feature flags from Optimizely to Confidence
-argument-hint: [plan flags | execute <plan-file>]
+argument-hint: [plan flags | plan code | execute <plan-file>]
 ---
 
 All migration instructions are maintained in `skills/migrate-optimizely/SKILL.md` to prevent divergence.
