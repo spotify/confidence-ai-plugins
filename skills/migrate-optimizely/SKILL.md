@@ -1934,9 +1934,10 @@ OpenFeature provider, plus Phase 1 (the flags must exist in Confidence).
    Step 2a's routing (server in-process / browser cached / React / remote):
    - Official vendor provider package → swap the import + the constructor
      line for the Confidence provider.
-   - Hand-written custom provider (wraps a vendor SDK directly, like Nike
-     NMP's OptimizelyProvider) → replace the class with the Confidence
-     provider. If that class encodes BUSINESS SEMANTICS (e.g. on/off-string
+   - Hand-written custom provider (a class wrapping a vendor SDK directly,
+     e.g. a custom `OptimizelyProvider` wrapping `@optimizely/optimizely-sdk`)
+     → replace the class with the Confidence provider. If that class encodes
+     BUSINESS SEMANTICS (e.g. on/off-string
      modelling, anonymous-context suppression, per-flag special-casing),
      re-home that logic into a thin wrapper or hooks layered ON TOP of the
      Confidence provider — do not silently drop it. Flag each such behavior

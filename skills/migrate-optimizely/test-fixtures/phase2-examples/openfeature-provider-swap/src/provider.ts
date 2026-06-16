@@ -1,6 +1,7 @@
 /**
  * A hand-written OpenFeature provider wrapping the Optimizely SDK
- * (the Nike NMP pattern). This is the ONLY file the provider-swap
+ * (a common pattern: a custom provider behind the OpenFeature global
+ * API). This is the ONLY file the provider-swap
  * migration touches: replace this class + its registration with the
  * Confidence OpenFeature provider. The call sites in App.tsx (useFlag)
  * do NOT change.
