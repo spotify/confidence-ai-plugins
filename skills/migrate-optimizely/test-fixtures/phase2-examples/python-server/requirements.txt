@@ -1,0 +1,2 @@
+# Phase 2 fixture: Python server using the Optimizely Decide API.
+optimizely-sdk==5.1.0
