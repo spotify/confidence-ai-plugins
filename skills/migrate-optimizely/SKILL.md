@@ -480,6 +480,14 @@ Example after Step 1 completes:
   Optimizely flag keys often use `snake_case` (`new_checkout_flow`);
   normalize to hyphens (`new-checkout-flow`) and record the mapping in
   the plan so the code phase can find the right replacement.
+  - **Normalization MUST be injective.** Some flags (commonly experiments
+    created in the UI) have opaque, case-sensitive keys
+    (`b3MAcM5bzLAXbFqyzux82i`). Lowercasing + hyphenating can map two
+    distinct source keys to the **same** Confidence key. Detect collisions
+    across the whole project's key set and disambiguate deterministically
+    (append `-2`, `-3`, … by source-key sort order, or a short hash of the
+    original); record every original → Confidence key pair in the plan's
+    key map. Never silently merge two flags.
 - **Entity references:** Confidence entity names do NOT support underscores.
   The entity reference (e.g. `entities/company`) is separate from the context
   field name (e.g. `company_id`). When creating entity fields with
@@ -657,6 +665,17 @@ re-ask, listing the choices again.
 
 **After client selected:** Write the "Default Client" section to the
 plan file and update Generation Status step 2 to `✓ complete`.
+
+**Forked apps (shared code, independent flag sets).** Some apps are
+**forks** of another app — they share a codebase but each fork is its own
+Optimizely project with its **own, independent flag set** (often only
+partially overlapping keys). Migrate **each fork's project to its own
+Confidence client**; do NOT de-duplicate or merge keys across forks even
+when the keys match. The Phase 2 code transform is shared (run once on the
+shared repo) — which client a build resolves against is **build config**
+(the client/SDK secret per fork), not code. A flag present in the shared
+code but absent from a given fork's set resolves to the **call-site
+default** (fail-safe), the same as before. Run `plan flags` once per fork.
 
 ### Step 3: Map Bucketing ID (Optimizely-specific)
 
@@ -1846,6 +1865,24 @@ evaluation context / subject carries through. Keep the event keys.
   Android handler delays) — Confidence's
   `setProviderAndWait` / `setEvaluationContextAndWait` already block until
   flags are ready; delete the hand-rolled wait.
+
+**PRESERVE local control layers (do NOT delete).** Only delete
+*vendor-coupling* scaffolding (the bullets above). Many apps wrap the
+flag read in *vendor-neutral* control layers that sit ON TOP of whatever
+backend resolves the flag — these must survive the migration untouched:
+- **Local kill-switch / override** (a local preference or remote-config
+  toggle that short-circuits the flag read) — keep it; only the underlying
+  read changes from Optimizely to Confidence.
+- **Local/dev flag sources** (e.g. an in-memory provider reading a
+  `dev-flags.json` in dev/localhost) — vendor-neutral already; keep it and
+  swap only the *production* provider. An OpenFeature `InMemoryProvider`
+  carries over as-is.
+- **QA impersonation** (override cookies/headers/env that force a
+  group/segment for testers) — keep it; it feeds the evaluation context,
+  not the backend.
+
+When in doubt: delete things bound to the *old vendor's* SDK; keep things
+that would make sense regardless of which backend resolves the flag.
 
 **Bandits.** Optimizely multi-armed and contextual bandits (CMAB) are
 **rule types** read through the normal `decide` API — the adaptive
