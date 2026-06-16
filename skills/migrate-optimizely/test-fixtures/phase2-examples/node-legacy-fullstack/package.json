@@ -1,0 +1,13 @@
+{
+  "name": "optimizely-legacy-fullstack-example",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Phase 2 fixture: Node server using the legacy Optimizely Full Stack API.",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js"
+  },
+  "dependencies": {
+    "@optimizely/optimizely-sdk": "^4.10.0"
+  }
+}
