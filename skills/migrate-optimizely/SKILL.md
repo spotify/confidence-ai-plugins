@@ -1569,10 +1569,10 @@ Preference"):
 
 | Target mode | Confidence SDKs | How evaluation works | Network profile |
 |-------------|-----------------|----------------------|-----------------|
-| **In-process** (local resolve) | backend **Java, Go, JS/Node, Rust** | Periodically fetch the resolver **state** (full ruleset); evaluate locally via WASM | No per-eval network call; network only for state refresh |
+| **In-process** (local resolve) | backend **Java, Go, JS/Node, Rust**, **Python** (Alpha provider) | Periodically fetch the resolver **state** (full ruleset); evaluate locally via WASM | No per-eval network call; network only for state refresh |
 | **Cached client** | **Android, iOS, web/browser JS, React, React Native** | Backend resolves; device **prefetches and caches resolved VALUES** (not the ruleset). Reads are local + offline. Context change triggers a refetch | Network on init / context change / refresh — NOT per read |
 | **Server-precomputed** | server-rendered React/Next.js (RSC) | Server resolves for a bound subject; client reads resolved values offline | Resolution on the server; client reads are offline |
-| **Remote** (per-call) | backend **Python, Ruby, .NET** | Each resolve is a service call to Confidence | One call per resolve (with default-value fallback on failure) |
+| **Remote** (per-call) | backend **Ruby, .NET**, **Python** (remote fallback) | Each resolve is a service call to Confidence | One call per resolve (with default-value fallback on failure) |
 
 Routing:
 
@@ -1585,20 +1585,26 @@ Routing:
     sdk: "JAVA" | "GO" | "JS" | "RUST"
   ```
 
+- Backend **Python** → prefer **in-process** (local resolve). Per the
+  "prefer local resolve" policy, default to the
+  **`confidence-openfeature-provider`** package (`from confidence import
+  ConfidenceProvider` + `api.set_provider_and_wait(provider)`; local WASM
+  eval). It is **Alpha** — flag that in the plan. The
+  `getLocalResolveIntegrationGuide` tool does not list Python yet, so use
+  the provider repo README (`spotify/confidence-resolver`,
+  `openfeature-provider/python`) for the exact API. Fall back to the
+  **remote** provider (`spotify-confidence-sdk` →
+  `ConfidenceOpenFeatureProvider` + `api.set_provider`, maintenance mode)
+  only if the user declines the Alpha provider; for that form fetch
+  `getCodeSnippetAndSdkIntegrationTips sdk: "python"`.
+
 - Client app (mobile / browser / React Native) → **cached client**.
-  Backend **Python / Ruby / .NET** → **remote**. Either way fetch:
+  Backend **Ruby / .NET** → **remote**. Fetch:
 
   ```
   mcp__confidence-docs__getCodeSnippetAndSdkIntegrationTips
     sdk: "<detected>"
   ```
-
-  > **Python note.** The documented Confidence Python OpenFeature
-  > provider (`spotify-confidence-sdk`) is the **remote** provider and is
-  > in maintenance mode; an experimental local-resolve Python provider
-  > exists (`spotify/confidence-resolver`). Default to the remote provider
-  > unless the user opts into the experimental one — and if so, flag it as
-  > experimental in the plan.
 
 - **Server-rendered React / Next.js (RSC)** → **server-precomputed**.
   Use Confidence's React local-resolve provider (`<ConfidenceProvider>`
@@ -1639,9 +1645,11 @@ exception.** Map the source surface to a mode:
 
 Then the Step 2b transitions apply:
 
-- Optimizely backend → Confidence **in-process** (Java/Go/JS/Rust): unchanged.
-- Optimizely backend → Confidence **remote** (Python/Ruby/.NET): ⚠️ in-process
-  → remote — each resolve becomes a service call.
+- Optimizely backend → Confidence **in-process** (Java/Go/JS/Rust, or
+  **Python** via the Alpha local-resolve provider): unchanged.
+- Optimizely backend → Confidence **remote** (Ruby/.NET, or Python on the
+  remote-fallback provider): ⚠️ in-process → remote — each resolve becomes
+  a service call.
 - Optimizely client → Confidence **cached client** (mobile/web): ⚠️ on-device
   → cached client. Reads stay local/offline and fast (NOT per-call
   network), but evaluation moves to the backend: the device caches
