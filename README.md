@@ -6,28 +6,8 @@ Official Confidence plugin for AI coding tools. Access feature flags, experiment
 
 ### Claude Code
 
-1. Add the Confidence marketplace:
-    ```bash
-    claude marketplace add spotify/confidence-ai-plugins
-    ```
-
-2. Install the plugin:
-    ```bash
-    claude plugin install confidence
-    ```
-
-3. Authenticate via OAuth:
-    ```bash
-    claude
-    # Then use /mcp to connect to the Confidence MCP servers
-    /mcp
-    ```
-    Follow the browser prompts to log in.
-
-#### Updating
-
 ```bash
-claude plugin update confidence:confidence
+claude plugin install confidence
 ```
 
 ### Cursor
@@ -118,7 +98,7 @@ This plugin provides access to Confidence tools across these categories:
 
 | Client | Config | Marketplace |
 |--------|--------|-------------|
-| Claude Code | `.claude-plugin/` | Community marketplace |
+| Claude Code | `.claude-plugin/` | Official plugin |
 | Cursor | `.cursor-plugin/` | Cursor Marketplace |
 | Codex | `.codex-plugin/` | Via marketplace command |
 | Gemini CLI | `gemini-extension.json` | Direct from repo |
