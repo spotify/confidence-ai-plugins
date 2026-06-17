@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.4.0](https://github.com/spotify/confidence-ai-plugins/compare/v0.3.0...v0.4.0) (2026-06-17)
+
+
+### Features
+
+* add agent telemetry to onboarding skill ([#32](https://github.com/spotify/confidence-ai-plugins/issues/32)) ([b8d0f81](https://github.com/spotify/confidence-ai-plugins/commit/b8d0f81d62133800f5264a5b9cf7533e99b2f7f0))
+* add onboarding skill and command ([#19](https://github.com/spotify/confidence-ai-plugins/issues/19)) ([2da1d97](https://github.com/spotify/confidence-ai-plugins/commit/2da1d97dfb319335d9d85f9da8c090c82d296a60))
+* **migrate-eppo:** standalone Eppo→Confidence migration kit (flags + code) ([#17](https://github.com/spotify/confidence-ai-plugins/issues/17)) ([11a45aa](https://github.com/spotify/confidence-ai-plugins/commit/11a45aaafeb23d999999ad9365090738a3dd932e))
+* **migrate-optimizely:** Optimizely→Confidence migration kit (flags + code) ([#27](https://github.com/spotify/confidence-ai-plugins/issues/27)) ([4c337a6](https://github.com/spotify/confidence-ai-plugins/commit/4c337a6e17bbc1b72168a4d62110f752e72b02ff))
+* **migrate-statsig:** Phase 2 — code transformation (plan code) ([068a9b5](https://github.com/spotify/confidence-ai-plugins/commit/068a9b50e1b30431a171ebe3b2b7574a2fb5e941))
+* **migrate-statsig:** Statsig→Confidence migration — Phase 2: code transformation ([#25](https://github.com/spotify/confidence-ai-plugins/issues/25)) ([068a9b5](https://github.com/spotify/confidence-ai-plugins/commit/068a9b50e1b30431a171ebe3b2b7574a2fb5e941))
+* **migrate-statsig:** Statsig→Confidence migration kit — Phase 1: flag definitions ([#23](https://github.com/spotify/confidence-ai-plugins/issues/23)) ([6dbef8d](https://github.com/spotify/confidence-ai-plugins/commit/6dbef8d77019887abac46e43b1a87761e328a41c))
+* OpenFeature provider-swap path for Phase 2 (eppo, posthog, statsig) ([#31](https://github.com/spotify/confidence-ai-plugins/issues/31)) ([9dd5e0b](https://github.com/spotify/confidence-ai-plugins/commit/9dd5e0b92ec487eabc666b86cf6a728f4b33481f))
+
+
+### Bug Fixes
+
+* Fix MCP Servers table — use the working mcp.confidence.dev host ([#26](https://github.com/spotify/confidence-ai-plugins/issues/26)) ([4854807](https://github.com/spotify/confidence-ai-plugins/commit/4854807c4461dba686f2b8b69d0955a83ac6ff7e))
+
 ## [0.3.0](https://github.com/spotify/confidence-ai-plugins/compare/v0.2.3...v0.3.0) (2026-06-10)
 
 
