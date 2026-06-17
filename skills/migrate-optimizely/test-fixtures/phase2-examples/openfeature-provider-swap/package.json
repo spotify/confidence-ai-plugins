@@ -1,0 +1,14 @@
+{
+  "name": "openfeature-provider-swap-example",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Phase 2 fixture: app ALREADY on OpenFeature with a custom Optimizely provider. Migration = provider swap, call sites unchanged.",
+  "dependencies": {
+    "@openfeature/web-sdk": "^1.6.2",
+    "@openfeature/react-sdk": "^1.0.1",
+    "@openfeature/core": "^1.9.1",
+    "@optimizely/optimizely-sdk": "^6.1.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  }
+}
