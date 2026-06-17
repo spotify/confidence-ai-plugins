@@ -318,6 +318,40 @@ Glob: pattern="package.json" or "build.gradle" or "Cargo.toml" etc
 Read: dependency file -> Determine language/framework
 ```
 
+### Step 1b: Detect the migration style (provider swap vs call-site rewrite)
+
+**This is the FIRST branch in the code phase — it changes everything
+below.** Before scanning for PostHog calls, determine whether the app
+talks to PostHog **directly** or **already through OpenFeature**.
+
+```
+Grep -i: pattern="@openfeature/|dev\.openfeature|open-feature/go-sdk|openfeature" -> already on OpenFeature?
+Grep -i: pattern="OpenFeature\.(setProvider|setProviderAndWait)|SetProviderAndWait|getClient\(|useFlag\(" -> OpenFeature wiring
+Grep -i: pattern="implements (Feature)?Provider|: Provider|class \w+Provider" -> a custom OpenFeature provider class
+```
+
+Two styles result:
+
+| Style | When | Phase 2 work |
+|-------|------|--------------|
+| **Provider swap** | App **already uses OpenFeature** (standard `useFlag` / `get*Value` call sites; the vendor is hidden behind a registered OpenFeature provider, official or custom) | Swap the **registered provider** to Confidence; **call sites do NOT change**. See "Already on OpenFeature -> provider swap". |
+| **Call-site rewrite** | App calls the **PostHog SDK directly** (`isFeatureEnabled`, `getFeatureFlag`, `getFeatureFlagPayload`, `useFeatureFlagEnabled`) | Rewrite call sites to OpenFeature + Confidence (Steps 2-5 below). |
+
+> **Why this matters.** A team already on OpenFeature did the hard part —
+> their call sites are vendor-neutral. Migrating them to Confidence is a
+> one-file provider swap, not a codebase-wide rewrite.
+>
+> **Facade caveat.** Some teams hide the SDK behind a **home-grown facade**
+> (not OpenFeature). That is NOT the provider-swap case: the facade is
+> vendor-specific. The migration there is to repoint the facade's internal
+> provider at Confidence, while its public API and call sites stay put.
+> Treat it like a provider swap scoped to the facade's implementation, and
+> record the facade entry point in the plan.
+
+If the style is **provider swap**, skip the call-site transform rules in
+Step 4 and follow "Already on OpenFeature -> provider swap" instead. Step 2
+(SDK guide) and Phase 1 (flags must exist in Confidence) still apply.
+
 ### Step 2: Fetch SDK Guide from MCP
 
 **Query confidence-docs MCP based on detected language:**
@@ -361,6 +395,130 @@ Save to `.claude/plans/posthog-code-migration-<date>.md`
 
 ---
 
+## Already on OpenFeature -> provider swap
+
+When Step 1b found the app **already uses OpenFeature**, do NOT run the
+call-site transform. The call sites (`useFlag`, `get<Type>Value`,
+`get<Type>Evaluation`) are vendor-neutral and stay exactly as they are.
+The migration is to replace the **registered provider** with Confidence's
+OpenFeature provider, plus Phase 1 (the flags must exist in Confidence).
+
+### The swap, step by step
+
+```
+1. LOCATE the provider wiring:
+   - the registration call: OpenFeature.setProvider / setProviderAndWait /
+     SetProviderAndWait (JS/Java/Go), api.set_provider[_and_wait] (Python),
+     OpenFeatureAPI.getInstance().setProviderAndWait (Java), the
+     <OpenFeatureProvider> boundary (React)
+   - any CUSTOM provider class the team wrote (e.g. `class FooProvider
+     implements Provider`) wrapping the old vendor SDK
+2. REPLACE the provider with Confidence's, picking the package/mode from
+   Step 2's routing (server in-process / browser cached / React / remote):
+   - Official vendor provider package -> swap the import + the constructor
+     line for the Confidence provider.
+   - Hand-written custom provider (a class wrapping a vendor SDK directly,
+     e.g. a custom `PostHogProvider` wrapping `posthog-node` / `posthog-js`)
+     -> replace the class with the Confidence provider. If that class
+     encodes BUSINESS SEMANTICS (e.g. on/off-string modelling,
+     anonymous-context suppression, per-flag special-casing), re-home that
+     logic into a thin wrapper or hooks layered ON TOP of the Confidence
+     provider — do not silently drop it. Flag each such behavior in the plan.
+3. KEEP all call sites unchanged.
+4. CONTEXT: OpenFeature evaluation context is already standard. Only adjust
+   if attribute names differ from the Confidence flag's targeting (e.g. a
+   custom targetingKey or attribute rename). Usually nothing to do.
+5. DELETE vendor scaffolding the old provider carried: config polling,
+   vendor event listeners, project-API-key plumbing — Confidence's provider
+   handles state refresh and exposure logging itself.
+6. Phase 1: re-create the flags in Confidence so the new provider resolves
+   them (this is the same Phase 1 as the rewrite path).
+```
+
+The result is typically a **one- or few-file change** at the bootstrap /
+provider module, plus the flag re-creation — independent of how many call
+sites read flags.
+
+### Re-homing custom-provider semantics (prefer the flag model over code)
+
+A hand-written provider (or facade) often **computes** a value at read
+time instead of passing the flag through — e.g. exposing a boolean
+feature as an on/off **string**, or reading a payload **only if** the flag
+is enabled. Don't port that logic verbatim into a new wrapper if you can
+avoid it: push it into the **Confidence flag model** so the swapped-in
+provider needs no special-casing.
+
+- **Boolean flag exposed as an on/off string** -> model the Confidence
+  flag with a `string` property whose variants are the literal strings the
+  call site expects (e.g. `"on"` / `"off"`), plus a targeting rule. The
+  call site's `useFlag` / `get<Type>Value` is unchanged.
+- **Conditional payload read** ("return the payload only if the flag is
+  enabled, else a default") -> fold the condition into variant values: the
+  matched variant carries the payload, the default/off variant carries the
+  fallback.
+
+Then **delete** the special-casing from the old provider rather than
+re-homing it as code.
+
+> **Confirm before folding.** This only works when the logic is **static /
+> enumerable** as variants + targeting. If the value is computed from
+> runtime inputs that can't be expressed as targeting, keep a **thin
+> wrapper** over the Confidence provider for that flag and note it in the
+> plan.
+
+### Live-update / change-observer APIs
+
+If the app or facade exposes a flag-change/observer API — an `onChange`
+callback that fires when a flag's state changes without a restart — wire
+it to OpenFeature's **provider events** instead of the old vendor's
+callback: register a handler for the `PROVIDER_CONFIGURATION_CHANGED` event
+on the OpenFeature client/provider (`addHandler(...)`) and re-fire the
+app's callback from there. The Confidence provider refreshes resolver
+state on its poll interval and surfaces that as a configuration-changed
+event.
+
+> **Confirm before relying on it.** Verify the target Confidence provider
+> for this platform actually emits a configuration-changed event, and at
+> what **granularity**. If it signals a whole-state refresh (not per-flag)
+> while the source callback fired only on a *specific* flag's change, the
+> wrapper must diff that flag's value across the event to preserve the
+> original granularity. Record the decision in the plan.
+
+### Source providers you may be swapping out
+
+The app's current OpenFeature provider can be an official vendor package or
+a hand-written class. Recognize it, then swap it for the Confidence
+provider regardless of which one it is. Common sources (package names are
+indicative — confirm against the repo's manifest):
+
+| Current provider | Typical package / shape | Swap to (Confidence) |
+|------------------|-------------------------|----------------------|
+| PostHog (custom) | hand-written `class …Provider implements Provider` wrapping `posthog-node` / `posthog-js` | Confidence provider for the platform/mode (Step 2) |
+| LaunchDarkly | `@launchdarkly/openfeature-server-provider` / `…-client-provider`, `launchdarkly-openfeature-*` | ″ |
+| Flagsmith | `@flagsmith/openfeature-*`, `flagsmith-openfeature` | ″ |
+| Split | `@splitsoftware/openfeature-provider-*` | ″ |
+| Unleash | `@unleash/openfeature` / community provider | ″ |
+| ConfigCat | `@configcat/openfeature-*` | ″ |
+| DevCycle | `@devcycle/openfeature-*` | ″ |
+| GO Feature Flag | `@openfeature/go-feature-flag-provider` | ″ |
+| flagd (reference) | `@openfeature/flagd-provider` / `dev.openfeature.contrib…flagd` | ″ |
+| Eppo / Statsig / Optimizely | community / custom OpenFeature providers | ″ |
+| In-house / custom | any `Provider` / `FeatureProvider` implementation | ″ |
+
+In every case the **call sites and the OpenFeature client API are
+identical** — only the registered provider changes.
+
+### Verify
+
+- Confirm the flags referenced by call sites exist in Confidence (Phase 1)
+  with matching resolve paths (`<flag>.<property>`).
+- Re-run the app's existing flag tests/usages — because call sites are
+  unchanged, the existing assertions should hold once the provider resolves
+  the migrated flags.
+- Spot-check a positive and a negative context.
+
+---
+
 ## Plan Code: Template
 
 ```markdown
@@ -370,6 +528,7 @@ Save to `.claude/plans/posthog-code-migration-<date>.md`
 **Scope:** Code transformation only
 **Language:** <detected>
 **Framework:** <detected>
+**Migration style:** <provider swap (already on OpenFeature) | call-site rewrite (direct PostHog SDK) | facade re-point (home-grown facade)>
 
 ---
 
@@ -984,6 +1143,13 @@ During execution, each flag will be created one by one, interactively.
 
 **Each flag = one PR.** The code migration creates a separate pull
 request for each flag, keeping changes small and reviewable.
+
+**If the plan's Migration style is `provider swap` (already on
+OpenFeature) or `facade re-point`,** there is no per-flag call-site work.
+Do a single PR that swaps the registered provider (or repoints the
+facade's internal provider) to Confidence per "Already on OpenFeature ->
+provider swap", leaving call sites unchanged, then verify. The per-flag
+loop below applies only to the `call-site rewrite` style.
 
 ```
 1. READ the plan file
