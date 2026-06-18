@@ -19,6 +19,16 @@
           "type": "json",
           "path": ".claude-plugin/marketplace.json",
           "jsonpath": "$.plugins[0].version"
+        },
+        {
+          "type": "json",
+          "path": ".cursor-plugin/marketplace.json",
+          "jsonpath": "$.version"
+        },
+        {
+          "type": "json",
+          "path": ".cursor-plugin/marketplace.json",
+          "jsonpath": "$.plugins[0].version"
         }
       ]
     }
