@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.1](https://github.com/spotify/confidence-ai-plugins/compare/v0.4.0...v0.4.1) (2026-06-18)
+
+
+### Bug Fixes
+
+* add Cursor marketplace.json with correct description ([#35](https://github.com/spotify/confidence-ai-plugins/issues/35)) ([9e491a4](https://github.com/spotify/confidence-ai-plugins/commit/9e491a471ce4c271783ed7529d2aef6354e59039))
+
 ## [0.4.0](https://github.com/spotify/confidence-ai-plugins/compare/v0.3.0...v0.4.0) (2026-06-17)
 
 
