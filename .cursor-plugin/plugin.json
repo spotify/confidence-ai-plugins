@@ -1,7 +1,7 @@
 {
   "name": "confidence",
   "displayName": "Confidence",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "description": "Access Confidence feature flags, experiments, and migration tools directly from Cursor.",
   "author": {
     "name": "Spotify Confidence",

@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.2](https://github.com/spotify/confidence-ai-plugins/compare/v0.4.1...v0.4.2) (2026-06-24)
+
+
+### Bug Fixes
+
+* use original logo.svg filename with Confidence logo ([#38](https://github.com/spotify/confidence-ai-plugins/issues/38)) ([c8162f4](https://github.com/spotify/confidence-ai-plugins/commit/c8162f40d5656ac4997bf12eef7bc017b0d28c44))
+
 ## [0.4.1](https://github.com/spotify/confidence-ai-plugins/compare/v0.4.0...v0.4.1) (2026-06-18)
 
 
