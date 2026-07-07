@@ -38,9 +38,15 @@ Python 3.10+ stdlib, no dependencies.
 ```bash
 python3 server.py
 # Fake Optimizely REST API listening on http://127.0.0.1:4100
-#   14 flags (13 non-archived), 11 audiences, 2 environments
-#   Project ID: 4100100100
+#   Project 4100100100 (curated operator-mapping fixtures): 14 flags (13 non-archived), 11 audiences, 2 environments
+#   Project 5551000001 (summary export scenario): 6 flags (6 non-archived), 0 audiences, 1 environment
 ```
+
+The server hosts **two Optimizely projects** on one port, selected by the
+project id in each request: the curated operator-mapping fixtures
+(`4100100100`) and a synthetic summary-export scenario (`5551000001`, see
+[Summary export scenario](#summary-export-scenario-option-b2-flattened-export)
+below).
 
 Override the port if 4100 is taken:
 
@@ -111,6 +117,66 @@ Pick a throwaway Confidence client and map the Optimizely user ID to a
 | 9 `Internal staff` | `is_internal exact true` | used NEGATED in a combo |
 | 10 `Has plan` | `plan exists` | BLOCKED — no working presence operator |
 | 11 `Chrome users` | `browser exact gc` | non-custom_attribute → BLOCKED |
+
+## Summary export scenario (Option B2: flattened export)
+
+Project `5551000001` is a **synthetic** account modeling a real-world
+support pattern: an account whose export tool/token could only produce
+rule *summaries* (`has_restricted_permissions: true`, no full rulesets).
+All flag names, keys, and ids in this scenario are made up — this is not
+any real account's data. A matching synthetic export file is checked in
+at [`summary-export-sample.json`](./summary-export-sample.json). This is
+the reference example for the skill's **Option B2** input method (see
+`SKILL.md` → "Prerequisites: Optimizely Side" → "Option B: Exported JSON
+files").
+
+**Test the file-input path directly (Option B):** run
+`/migrate-optimizely plan flags` and, when asked for an input method,
+point it at `summary-export-sample.json` — no server, no token needed.
+This exercises the skill's B2 detection and gap-filling logic.
+
+**Test the same data via the live-API path (Option A) for comparison:**
+run the fake server and drive the skill against project `5551000001` over
+HTTP instead:
+
+```
+export OPTIMIZELY_API_TOKEN=fake-token-for-testing
+```
+
+Then run `/migrate-optimizely plan flags`, answer `http://127.0.0.1:4100`
+for the base URL, project id `5551000001`, and the `production`
+environment. (The server reconstructs full rulesets for this project —
+see "Reconstruction assumptions" below — so this path exercises normal
+Step 1c/1d extraction rather than the B2 gap-filling logic itself.)
+
+### What this scenario exercises
+
+| Trait | In the export | Why it matters for the migration |
+|---|---|---|
+| `type: a/b` with **no flag variables** | variations are bare names (`control`/`treatment`, `layout_a`/`layout_b`, `variation_1`/`variation_2`, etc.) | Code branches on the **variation key**, not on flag variables — the a/b rule still folds into one Confidence targeting rule with a bare variant per arm (no separate "experiment" migration path; see SKILL.md "Optimizely's flag model") |
+| Every experiment **paused / disabled** | `enabled: false`, `status: paused` | Flags migrate **OFF** (rules created but not live) |
+| **No audiences** | `audience_ids: []` | Each rule targets everyone (no gap) |
+| `has_restricted_permissions: true` | present on every config | The tell for Option B2: a restricted token could only export rule **summaries** — no per-variation split, variable values, or audience conditions |
+
+### Reconstruction assumptions (fake-server / Option A comparison path only)
+
+The export only carries rule *summaries* (`traffic_allocation` +
+`variation_names`). For the **Option A comparison path** above, `server.py`
+fills the gaps with Optimizely's documented defaults to serve a complete
+ruleset over HTTP (the skill's own **Option B2 gap-filling** — used when
+you point it at `summary-export-sample.json` directly — makes and
+documents the same assumptions in the generated plan instead):
+
+- **Split:** `distribution_mode: manual` with N arms → an even split
+  (2 arms = 50/50). The real live split isn't in the export.
+- **Variables:** none — each arm becomes a bare Confidence variant. The
+  arm identity (the variation key) is what code reads.
+- **`off` variation:** `default_variation_key: "off"` implies an implicit
+  `off` variation served when the (disabled) rule doesn't apply.
+
+If a real account later shares the full `/ruleset` and `/variations`
+responses (Option B1), the skill uses those directly with no fidelity
+loss — see "Option B: Exported JSON files" in `SKILL.md`.
 
 ## What a successful test looks like
 

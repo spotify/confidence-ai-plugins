@@ -195,10 +195,36 @@ operator names.
 
 ## Prerequisites: Optimizely Side
 
-Optimizely does not publish a Claude MCP server, so the migration talks
-to Optimizely's **REST API** directly using `curl` from the Bash tool.
+Optimizely does not publish a Claude MCP server, so the migration reads
+Optimizely data through one of two **input methods** — pick per the
+user's access:
 
-### Required
+| Method | Use when | How Step 1 reads data |
+|--------|----------|------------------------|
+| **A — Live REST API** (default) | The user has (or can create) an API token | `curl` against `api.optimizely.com` |
+| **B — Exported JSON files** | The user's account can't produce a working API token (older/legacy Optimizely product, a token scoped to summary-only exports, no self-serve API access, etc.) | Read local files with the Read tool — no network calls |
+
+Both methods feed the **same extraction step** (Step 1c/1d below) with
+the same field names; only the data source differs. Ask the user which
+they have; don't assume.
+
+### ASK the user (only if not already provided)
+
+> To read your Optimizely flags, rollouts, and experiments, I need
+> either:
+> 1. An Optimizely **API token** (Account Settings > API Access — a
+>    Personal Access Token is fine, with read access) plus your
+>    **Project ID** (the number in the app URL, e.g.
+>    `app.optimizely.com/v2/projects/<PROJECT_ID>/flags/list`), **or**
+> 2. If you can't generate a working token (e.g. an older Optimizely
+>    product, or your export tool only gives summary data): a path to
+>    exported flag/experiment JSON file(s) instead.
+>
+> Paste the token here, or set it in your shell as `OPTIMIZELY_API_TOKEN`
+> before continuing, and tell me the project ID — or tell me where the
+> exported file(s) are.
+
+### Option A: Live REST API
 
 1. An **Optimizely API token** (a Personal Access Token, or a Service
    Account token). Created in the Optimizely app under **Account
@@ -217,30 +243,17 @@ to Optimizely's **REST API** directly using `curl` from the Bash tool.
 **Authentication header (both APIs):**
 - `Authorization: Bearer <api-token>`
 
-### ASK the user (only if not already provided)
+**Storing the token.** Once provided, store the token for the session in
+the environment variable `OPTIMIZELY_API_TOKEN` (export it in the Bash
+session the agent uses) and reference it via `$OPTIMIZELY_API_TOKEN` in
+every `curl` call — never hardcode the token into the plan file, the
+conversation output, or any committed file. If the user pastes a token
+inline, scrub it from the plan file and only keep a placeholder like
+`<your-optimizely-api-token>`. (See also the "never echo secrets" rule in
+the User-Facing Communication Rules above.) The project ID is not a
+secret and may be written to the plan.
 
-> To read your Optimizely flags, rollouts, and experiments, I need:
-> 1. An Optimizely **API token** (Account Settings > API Access — a
->    Personal Access Token is fine, with read access).
-> 2. Your **Project ID** (the number in the app URL, e.g.
->    `app.optimizely.com/v2/projects/<PROJECT_ID>/flags/list`).
->
-> Paste the token here, or set it in your shell as `OPTIMIZELY_API_TOKEN`
-> before continuing, and tell me the project ID.
-
-### Storing the token
-
-Once provided, store the token for the session in the environment
-variable `OPTIMIZELY_API_TOKEN` (export it in the Bash session the agent
-uses) and reference it via `$OPTIMIZELY_API_TOKEN` in every `curl` call —
-never hardcode the token into the plan file, the conversation output, or
-any committed file. If the user pastes a token inline, scrub it from the
-plan file and only keep a placeholder like `<your-optimizely-api-token>`.
-(See also the "never echo secrets" rule in the User-Facing Communication
-Rules above.) The project ID is not a secret and may be written to the
-plan.
-
-### Smoke test before scanning
+**Smoke test before scanning:**
 
 ```bash
 curl -sS -H "Authorization: Bearer $OPTIMIZELY_API_TOKEN" \
@@ -251,16 +264,90 @@ curl -sS -H "Authorization: Bearer $OPTIMIZELY_API_TOKEN" \
 If this returns a `401`/`403` or an HTML error page, stop and surface
 the error to the user — do not start scanning.
 
+### Option B: Exported JSON files
+
+Ask the user for a **file path or directory**. Read files with the Read
+tool (never `curl`, never guess at data). Two shapes are recognized —
+detect which one you have by inspecting the JSON, and say which you
+detected before proceeding:
+
+**B1 — Raw API response dumps (preferred, full fidelity).** One or more
+files that are verbatim saves of the endpoints in "Optimizely REST API
+Reference" below (e.g. `flags.json` = the List Flags response,
+`ruleset-<flag>-<env>.json` = a Get Ruleset response, `audiences.json` =
+List Audiences, etc.). These carry every field Step 1c/1d expects
+(variation-level `percentage_included`, full `audience_conditions`), so
+migration proceeds with **no fidelity loss** versus Option A — just
+substitute "read this file" for the matching `curl` call in Step 1.
+
+**B2 — Flattened per-flag summary export.** A single JSON array, one
+entry per `(flag, environment)`:
+
+```json
+{
+  "name": "<flag name>", "key": "<flag key>", "description": "<...>",
+  "environment": "<env key>",
+  "config": {
+    "enabled": <bool>, "default_variation_key": "<key>",
+    "default_variation_name": "<name>",
+    "rules_detail": [
+      {
+        "key": "<rule key>", "type": "a/b" | "targeted_delivery" | "...",
+        "enabled": <bool>, "traffic_allocation": <basis points>,
+        "variation_names": ["<arm1>", "<arm2>", ...],
+        "audience_ids": [<id>, ...]
+      }
+    ]
+  }
+}
+```
+
+This is what a restricted/summary-only export token typically produces
+(look for `has_restricted_permissions: true` in the payload as a tell).
+Map it onto the same internal model Step 1c/1d builds, with these
+**known gaps** — call each one out explicitly in the plan as a note next
+to the affected flag, don't silently guess and stay silent about it:
+
+- **No flag `variable_definitions`.** Treat the flag as variable-less;
+  each `variation_names` entry becomes a bare Confidence variant (not a
+  struct property). If the customer's code reads variable values (not
+  just the variation key) for these flags, ASK — Option B2 can't tell
+  you either way.
+- **No per-variation split**, only the rule-level `traffic_allocation`.
+  Default to an **even split** across `variation_names` (remainder to
+  the last variant) and flag it in the plan: "Split not in the export —
+  assumed even; confirm against Optimizely before executing." Prefer
+  asking the customer for the fuller `/ruleset` response (Option B1) if
+  exact splits matter.
+- **No audience conditions**, only `audience_ids`. If a rule's
+  `audience_ids` is empty, it targets everyone (no gap). If non-empty,
+  the plan **cannot** express that targeting — mark the rule BLOCKED
+  pending the audience detail and ask the user for the `/v2/audiences`
+  export (or a live token) to resolve it rather than guessing "everyone."
+- **Ignore** experiment-reporting metadata that isn't part of the flag
+  model: `layer_experiment_id`, `primary_metric`, `days_running`,
+  `fetch_results_ui_url`, `created_by_user_email`,
+  `has_restricted_permissions`, `custom_fields`. None of it affects the
+  Confidence targeting rule.
+- A `config.enabled: false` (or rule `enabled: false`) means the exact
+  same thing as the live-API case: migrate the flag, keep it OFF.
+
 ### Local testing (no Optimizely account needed)
 
 For development and CI smoke tests, this skill ships with a fake
 Optimizely REST API server under
 `skills/migrate-optimizely/test-fixtures/`. It implements the read
 endpoints with curated fixtures that exercise every operator-mapping
-branch. See that directory's `README.md` for usage — short version is
-`python3 server.py`, then point this skill at `http://127.0.0.1:4100`
-when prompted for the base URL (the fake server serves both the
-`/flags/v1` and `/v2` routes on one port).
+branch, plus a second (synthetic) project modeling the Option-B2
+(summary-export) pattern. See that directory's `README.md` for usage —
+short version is `python3 server.py`, then point this skill at
+`http://127.0.0.1:4100` when prompted for the base URL (the fake server
+serves both the `/flags/v1` and `/v2` routes on one port).
+
+To exercise **Option B** specifically without a live account, point the
+skill at
+`skills/migrate-optimizely/test-fixtures/summary-export-sample.json`
+(a synthetic B2-shaped export) when it asks for a file path.
 
 ---
 
@@ -269,7 +356,8 @@ when prompted for the base URL (the fake server serves both the
 The migration uses these endpoints. All require
 `-H "Authorization: Bearer $OPTIMIZELY_API_TOKEN"`. `PROJECT_ID` is the
 project being migrated; `ENV_KEY` is an environment key (e.g.
-`production`).
+`production`). **Option B1 files** are verbatim saves of these same
+response bodies — the field names and shapes below apply unchanged.
 
 > **Source of truth.** Field names and shapes here are taken from
 > Optimizely's published API docs at
@@ -542,6 +630,14 @@ bucketing ID, Step 4 generate the MCP commands.
 `.claude/plans/optimizely-flag-migration-<date>.md`
 
 ### Step 1: Scan Optimizely
+
+**If using Option B (exported files):** every `curl` call below is
+replaced by reading the matching local file with the Read tool — same
+field names, same extraction logic. For B2 (flattened summary export),
+`environment` is already given per entry (skip 1a's environment listing
+if every entry names one), and 1c/1d's fetches collapse into "read the
+one file and extract the fields listed", applying the Option B2 gap
+handling above.
 
 **Step 1a — pick the environment.** Optimizely keeps a separate ruleset
 per environment (e.g. `development`, `production`). List environments and
