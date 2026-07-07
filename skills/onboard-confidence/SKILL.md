@@ -1,5 +1,5 @@
 ---
-description: Create Confidence accounts and onboard users. Use when the user asks to create an account, invite users, onboard to Confidence, or check account status.
+description: Create Confidence accounts and onboard users. Use when the user asks to create an account, log in, log out, invite users, onboard to Confidence, or check account status.
 ---
 
 # Confidence Onboarding
@@ -19,6 +19,8 @@ Do NOT show a menu of sub-commands. Do NOT offer "Setup Wizard" as a choice — 
 
 | Command | Description |
 |---------|-------------|
+| `/onboard-confidence login` | Log in to an existing Confidence account |
+| `/onboard-confidence logout` | Log out and clear the Confidence session |
 | `/onboard-confidence create-account` | Create a new Confidence account |
 | `/onboard-confidence invite-user` | Invite a user to an account |
 | `/onboard-confidence create-client` | Create an SDK client and generate credentials |
@@ -74,22 +76,23 @@ lsof -ti:8084 | xargs kill -9 2>/dev/null; python3 <SKILL_BASE_DIR>/auth.py 2fG3
 **Key details:**
 - Port is fixed at **8084** (must match Auth0 Allowed Callback URLs)
 - For signup (`create-account`): omit ORGANIZATION arg → adds `screen_hint=signup` + `prompt=login`
-- For existing account (all other commands): pass `ORGANIZATION=<org_id>` → auto-completes if browser session exists
+- **For existing account (all other commands): ORGANIZATION is REQUIRED.** The regular client ID (`2fG3H4RhlAbIZm9Rfn32zTaILH7w1X4w`) will fail with `AUTH_ERROR:invalid_request` if called without the ORGANIZATION arg. **Always ask the user for their workspace name (login ID) BEFORE calling auth.py** with this client ID. The ORGANIZATION value is the workspace's `loginId` (e.g., `confidence`, `my-company`).
 - After `create-account`, automatically re-auth with org param to get org-scoped token (browser auto-redirects, no interaction)
 - All network commands require `dangerouslyDisableSandbox: true` and `timeout: 130000`
 
 ### Token management
 
-Tokens live in two places:
+Tokens live in three places (checked in this order):
 
-- `$TMPDIR/confidence_token` — the working cache read by curl calls and the MCP proxy. Fast, but wiped on reboot/cleanup.
-- `~/.confidence/session.json` (chmod 600) — the persistent session: `{"access_token": "...", "refresh_token": "...", "client_id": "..."}`. This is what keeps the user logged in across sessions and reboots. Write it after every successful auth, recording the client ID that performed the auth (refresh requires the same client).
+1. `.claude/settings.local.json` `env.CONFIDENCE_API_KEY` — the MCP server reads this as the `Authorization: Bearer` header. This is the primary token source. Write it after every successful auth.
+2. `$TMPDIR/confidence_token` — the working cache read by curl calls in the skill. Fast, but wiped on reboot/cleanup.
+3. `~/.confidence/session.json` (chmod 600) — the persistent session: `{"access_token": "...", "refresh_token": "...", "client_id": "..."}`. This is what keeps the user logged in across sessions and reboots. Used for silent token refresh.
 
-The plugin's `confidence-flags` MCP server (bundled `scripts/confidence-mcp-proxy.mjs`) reads the `$TMPDIR` cache on every request, falls back to `~/.confidence/session.json`, and refreshes expired access tokens itself using the stored refresh token. After a successful login, the flag MCP tools become available automatically within a few seconds — no MCP authenticate flow or reconnect is needed, so never ask the user to authenticate the MCP manually.
+The plugin's `confidence-flags` MCP server connects directly to `mcp.confidence.dev` via HTTP transport, using the `CONFIDENCE_API_KEY` env var as the Bearer token. After writing the env var, the user may need to reconnect the MCP server via `/mcp` for the new token to take effect.
 
 **CRITICAL: TMPDIR differs between sandboxed and non-sandboxed Bash calls.** Sandboxed calls use a path like `/tmp/claude-501/`, while `dangerouslyDisableSandbox: true` calls use the system TMPDIR (e.g., `/var/folders/.../T/`). If tokens are written in a sandboxed call but read in a non-sandboxed curl call, the curl will read a stale or missing token. **ALL token writes and reads MUST use `dangerouslyDisableSandbox: true`** to ensure a consistent TMPDIR path. This includes the auth script call (already non-sandboxed for network), the token save, the token validity check, and all curl calls.
 
-**After every successful auth**, write the token cache and the persistent session — **in the same `dangerouslyDisableSandbox: true` Bash call** as the auth script or curl that produced it:
+**After every successful auth**, write the token to all three locations — **in the same `dangerouslyDisableSandbox: true` Bash call** as the auth script or curl that produced it:
 ```bash
 # Parse TOKEN/REFRESH_TOKEN from auth.py stdout and persist (same Bash call, same TMPDIR)
 echo "<TOKEN_VALUE>" > "$TMPDIR/confidence_token"
@@ -99,20 +102,34 @@ p = os.path.expanduser('~/.confidence/session.json')
 json.dump({'access_token': '<TOKEN_VALUE>', 'refresh_token': '<REFRESH_VALUE>', 'client_id': '<CLIENT_ID_USED>'}, open(p, 'w'), indent=2)
 os.chmod(p, 0o600)
 "
+# Write token as CONFIDENCE_API_KEY env var to settings.local.json (used by MCP HTTP header)
+python3 -c "
+import json, os
+p = os.path.join(os.getcwd(), '.claude', 'settings.local.json')
+try:
+    s = json.load(open(p))
+except Exception:
+    s = {}
+s.setdefault('env', {})['CONFIDENCE_API_KEY'] = '<TOKEN_VALUE>'
+os.makedirs(os.path.dirname(p), exist_ok=True)
+json.dump(s, open(p, 'w'), indent=2)
+"
 ```
 (Omit `refresh_token` from the JSON if auth.py did not print one.)
 
-**On every sub-command start**, check if the token file exists and is not expired. **This Bash call MUST use `dangerouslyDisableSandbox: true`** so it reads from the same TMPDIR that curl will use:
+**On every sub-command start**, check if a token is available and not expired. Check `CONFIDENCE_API_KEY` env var first, then fall back to the token file. **This Bash call MUST use `dangerouslyDisableSandbox: true`** so it reads from the same TMPDIR that curl will use:
 
 ```bash
 # dangerouslyDisableSandbox: true
 python3 -c "
 import json, base64, time, os
-p = os.path.join(os.environ.get('TMPDIR', '/tmp'), 'confidence_token')
-try:
-    t = open(p).read().strip()
-except FileNotFoundError:
-    print('MISSING'); exit(0)
+t = os.environ.get('CONFIDENCE_API_KEY', '').strip()
+if not t:
+    p = os.path.join(os.environ.get('TMPDIR', '/tmp'), 'confidence_token')
+    try:
+        t = open(p).read().strip()
+    except FileNotFoundError:
+        pass
 if not t:
     print('MISSING'); exit(0)
 parts = t.split('.')[1]
@@ -155,15 +172,24 @@ if d.get('refresh_token'):
 json.dump(s, open(p, 'w'), indent=2)
 os.chmod(p, 0o600)
 open(os.path.join(os.environ.get('TMPDIR', '/tmp'), 'confidence_token'), 'w').write(d['access_token'])
+# Also update CONFIDENCE_API_KEY in settings.local.json
+sp = os.path.join(os.getcwd(), '.claude', 'settings.local.json')
+try:
+    sl = json.load(open(sp))
+except Exception:
+    sl = {}
+sl.setdefault('env', {})['CONFIDENCE_API_KEY'] = d['access_token']
+os.makedirs(os.path.dirname(sp), exist_ok=True)
+json.dump(sl, open(sp, 'w'), indent=2)
 print('REFRESHED')
 "
 ```
 
 `REFRESHED` means the token cache is valid again — continue. `NO_SESSION` or `REFRESH_FAILED` means run the browser auth flow and write the new token + session files.
 
-**In curl calls**, read from the file instead of a shell variable:
+**In curl calls**, prefer the env var, fall back to the file:
 ```bash
-curl -s ... -H "Authorization: Bearer $(cat $TMPDIR/confidence_token)"
+curl -s ... -H "Authorization: Bearer ${CONFIDENCE_API_KEY:-$(cat $TMPDIR/confidence_token)}"
 ```
 
 Use the `REGION` value (lowercased) for URL prefixes: `iam.eu.confidence.dev`, `flags.eu.confidence.dev`, etc.
@@ -269,6 +295,50 @@ curl -s -X POST "https://events.${REGION}.confidence.dev/v1/events:publish" \
 **Step Tracker:** Display a visual step tracker at every phase transition. Update and re-display it each time you move to a new step.
 
 **Use AskUserQuestion for all choices.** Present options as selectable items (up/down/enter) — never numbered lists in plain text. Only ask the user to type when collecting free-text input like names or emails.
+
+---
+
+## Sub-command: login
+
+Log in to an existing Confidence account. This is the standalone auth flow — use it when the user just wants to authenticate without running the full setup wizard or create-account flow.
+
+### Flow
+
+**Steps 1–2 are silent** — run both in the background without showing intermediate status to the user. Only communicate the final outcome: already logged in, session restored, or need to log in via browser.
+
+1. **Check existing token** — run the token validity check (see Token management). If `VALID`, tell the user they're already logged in, show the account name and region, and stop.
+
+2. **Try silent refresh** — if `EXPIRED` or `MISSING`, try the silent refresh from `~/.confidence/session.json`. If `REFRESHED`, tell the user their session was restored and stop. **Do NOT tell the user "session expired" or "no session found" — these are internal states, not user-facing messages.**
+
+3. **Ask for workspace name** — if refresh fails (`NO_SESSION` or `REFRESH_FAILED`), ask the user for their workspace name (login ID). This is the short identifier that appears in their login URL (e.g., `my-company`, `confidence`). **This must happen BEFORE calling auth.py** — the regular client ID requires the ORGANIZATION parameter and will fail with `AUTH_ERROR:invalid_request` without it.
+
+4. **Run browser auth** — call auth.py with the regular client ID and workspace name:
+```bash
+lsof -ti:8084 | xargs kill -9 2>/dev/null; python3 <SKILL_BASE_DIR>/auth.py 2fG3H4RhlAbIZm9Rfn32zTaILH7w1X4w <WORKSPACE_NAME>
+```
+
+5. **Save token and session** — parse TOKEN and REFRESH_TOKEN from stdout. Save both to `$TMPDIR/confidence_token` and `~/.confidence/session.json` in a single `dangerouslyDisableSandbox: true` Bash call (see Token management).
+
+6. **Confirm** — tell the user they're logged in, show the workspace name and region extracted from the token claims. The MCP flag tools will appear automatically within a few seconds — do NOT suggest running `/mcp` to reconnect.
+
+---
+
+## Sub-command: logout
+
+Log out of Confidence by clearing the session token and persistent session file.
+
+### Flow
+
+1. **Clear session files** — remove both the token cache and the persistent session in a single `dangerouslyDisableSandbox: true` Bash call:
+```bash
+rm -f "$TMPDIR/confidence_token" && rm -f ~/.confidence/session.json
+```
+
+2. **Confirm** — tell the user they've been logged out:
+> You've been logged out of Confidence.
+> Run `/onboard-confidence login` to sign in again.
+
+No telemetry, no token checks, no questions. Just clear and confirm.
 
 ---
 
