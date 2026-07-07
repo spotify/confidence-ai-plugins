@@ -82,6 +82,8 @@ lsof -ti:8084 | xargs kill -9 2>/dev/null; python3 <SKILL_BASE_DIR>/auth.py 2fG3
 
 Tokens are persisted to `$TMPDIR/confidence_token` (and optionally `$TMPDIR/confidence_refresh_token`). This avoids re-exporting the JWT on every Bash tool call. **NEVER write tokens to `~/.confidence/` or anywhere outside `$TMPDIR`.**
 
+The plugin's `confidence-flags` MCP server reads the same `$TMPDIR/confidence_token` file on every request (via the bundled `scripts/confidence-mcp-proxy.mjs`). After a successful login, the flag MCP tools become available automatically within a few seconds — no MCP authenticate flow or reconnect is needed, so never ask the user to authenticate the MCP manually.
+
 **CRITICAL: TMPDIR differs between sandboxed and non-sandboxed Bash calls.** Sandboxed calls use a path like `/tmp/claude-501/`, while `dangerouslyDisableSandbox: true` calls use the system TMPDIR (e.g., `/var/folders/.../T/`). If tokens are written in a sandboxed call but read in a non-sandboxed curl call, the curl will read a stale or missing token. **ALL token writes and reads MUST use `dangerouslyDisableSandbox: true`** to ensure a consistent TMPDIR path. This includes the auth script call (already non-sandboxed for network), the token save, the token validity check, and all curl calls.
 
 **After every successful auth**, write the token to file — **in the same `dangerouslyDisableSandbox: true` Bash call** as the auth script or curl that produced it:

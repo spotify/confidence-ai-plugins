@@ -94,6 +94,21 @@ This plugin provides access to Confidence tools across these categories:
 | `confidence-flags` | `https://mcp.confidence.dev/mcp/flags` | Feature flag management |
 | `confidence-docs` | `https://mcp.confidence.dev/mcp/docs` | Confidence documentation |
 
+### Authentication
+
+`confidence-flags` authenticates automatically via the plugin's bundled MCP
+proxy (`scripts/confidence-mcp-proxy.mjs`):
+
+- **Logged in via the onboarding flow** (`/confidence:onboard-confidence`):
+  the proxy picks up your session and the flag tools become available
+  immediately — no manual authenticate step or reconnect needed. If you log
+  in mid-session, the tools appear within a few seconds.
+- **Never used the onboarding flow**: the proxy falls back to the standard
+  MCP OAuth flow (via `mcp-remote`) — your browser opens once to log in, and
+  the credentials are cached and refreshed silently for later sessions.
+
+`confidence-docs` requires no authentication.
+
 ## Supported Clients
 
 | Client | Config | Marketplace |

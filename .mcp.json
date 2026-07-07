@@ -1,11 +1,12 @@
 {
   "mcpServers": {
     "confidence-flags": {
-      "type": "http",
-      "url": "https://mcp.confidence.dev/mcp/flags",
-      "headers": {
-        "x-confidence-mcp-consumer": "plugin"
-      }
+      "type": "stdio",
+      "command": "node",
+      "args": [
+        "${CLAUDE_PLUGIN_ROOT:-.}/scripts/confidence-mcp-proxy.mjs",
+        "flags"
+      ]
     },
     "confidence-docs": {
       "type": "http",
