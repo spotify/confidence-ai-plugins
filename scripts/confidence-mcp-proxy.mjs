@@ -25,10 +25,10 @@
 //
 // Requires Node 18+ (built-in fetch).
 
-import { readFileSync, existsSync } from 'fs';
+import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs';
 import { spawn } from 'child_process';
-import { tmpdir } from 'os';
-import { join } from 'path';
+import { homedir, tmpdir } from 'os';
+import { dirname, join } from 'path';
 import { createInterface } from 'readline';
 
 const service = process.argv[2] || 'flags';
@@ -36,6 +36,8 @@ const url =
   process.env[`CONFIDENCE_MCP_${service.toUpperCase()}_URL`] ||
   `https://mcp.confidence.dev/mcp/${service}`;
 const tokenPath = join(process.env.TMPDIR || tmpdir(), 'confidence_token');
+const sessionPath = join(homedir(), '.confidence', 'session.json');
+const AUTH_TOKEN_URL = 'https://auth.confidence.dev/oauth/token';
 
 const NOT_AUTHENTICATED_MESSAGE =
   'Confidence session expired or not established. Run the onboarding flow ' +
@@ -50,15 +52,114 @@ const LOCAL_INITIALIZE_RESULT = {
   serverInfo: { name: `confidence-${service}-proxy`, version: '1.0.0' },
 };
 
-function currentToken() {
+function asValidJwt(t) {
   try {
-    const t = readFileSync(tokenPath, 'utf8').trim();
     const { exp } = JSON.parse(Buffer.from(t.split('.')[1], 'base64').toString());
     if (exp && exp * 1000 < Date.now() + 30_000) return null;
     return t;
   } catch {
     return null;
   }
+}
+
+function readTmpToken() {
+  try {
+    return asValidJwt(readFileSync(tokenPath, 'utf8').trim());
+  } catch {
+    return null;
+  }
+}
+
+function readSession() {
+  try {
+    return JSON.parse(readFileSync(sessionPath, 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
+function writeSession(session) {
+  try {
+    mkdirSync(dirname(sessionPath), { recursive: true });
+    writeFileSync(sessionPath, JSON.stringify(session, null, 2) + '\n', { mode: 0o600 });
+  } catch {
+    /* best effort */
+  }
+}
+
+// Keep the skill's $TMPDIR cache in sync so its curl calls also benefit
+// from refreshed tokens.
+function syncTmpToken(token) {
+  try {
+    writeFileSync(tokenPath, token + '\n');
+  } catch {
+    /* best effort */
+  }
+}
+
+// Synchronous snapshot of the current login state (no refresh attempt) —
+// used by the poll loop to detect login changes cheaply.
+function currentToken() {
+  const tmp = readTmpToken();
+  if (tmp) return tmp;
+  const session = readSession();
+  return session?.access_token ? asValidJwt(session.access_token) : null;
+}
+
+let refreshPromise = null;
+let refreshFailedAt = 0;
+
+async function refreshSession(session) {
+  const res = await fetch(AUTH_TOKEN_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      grant_type: 'refresh_token',
+      client_id: session.client_id,
+      refresh_token: session.refresh_token,
+    }),
+  });
+  if (!res.ok) return null;
+  const data = await res.json();
+  if (!data.access_token) return null;
+  writeSession({
+    ...session,
+    access_token: data.access_token,
+    // Auth0 rotates refresh tokens; keep the newest one.
+    refresh_token: data.refresh_token || session.refresh_token,
+  });
+  syncTmpToken(data.access_token);
+  return data.access_token;
+}
+
+// Resolve a usable access token: $TMPDIR cache, then the persistent session,
+// then a refresh-token exchange. Returns null when not logged in.
+async function resolveToken() {
+  const tmp = readTmpToken();
+  if (tmp) return tmp;
+
+  const session = readSession();
+  if (!session) return null;
+
+  const persisted = session.access_token ? asValidJwt(session.access_token) : null;
+  if (persisted) {
+    syncTmpToken(persisted);
+    return persisted;
+  }
+
+  if (!session.refresh_token || !session.client_id) return null;
+  if (Date.now() - refreshFailedAt < 60_000) return null; // cooldown after failure
+
+  refreshPromise ??= refreshSession(session)
+    .catch(() => null)
+    .then(token => {
+      if (!token) refreshFailedAt = Date.now();
+      return token;
+    })
+    .finally(() => {
+      refreshPromise = null;
+    });
+  return refreshPromise;
 }
 
 function parseBody(text) {
@@ -118,9 +219,10 @@ function stopChild() {
 // Mode selection and switching
 // ---------------------------------------------------------------------------
 
-// Token file present (even expired) => the user logs in via the onboarding
-// skill; never pop an OAuth browser at them. Absent => classic OAuth flow.
-let mode = existsSync(tokenPath) ? 'session' : 'oauth';
+// Token file or persisted session present (even expired) => the user logs in
+// via the onboarding skill; never pop an OAuth browser at them. Neither
+// exists => classic OAuth flow.
+let mode = existsSync(tokenPath) || existsSync(sessionPath) ? 'session' : 'oauth';
 if (mode === 'oauth') startChild();
 
 let lastToken = currentToken();
@@ -155,7 +257,7 @@ function respondLocally(msg) {
 }
 
 async function handleSessionMode(line, msg, isRequest) {
-  const token = currentToken();
+  const token = await resolveToken();
 
   // No valid login right now: answer protocol methods locally instead of
   // forwarding — upstream rejects unauthenticated requests.

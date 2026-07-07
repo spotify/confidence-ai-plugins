@@ -80,17 +80,27 @@ lsof -ti:8084 | xargs kill -9 2>/dev/null; python3 <SKILL_BASE_DIR>/auth.py 2fG3
 
 ### Token management
 
-Tokens are persisted to `$TMPDIR/confidence_token` (and optionally `$TMPDIR/confidence_refresh_token`). This avoids re-exporting the JWT on every Bash tool call. **NEVER write tokens to `~/.confidence/` or anywhere outside `$TMPDIR`.**
+Tokens live in two places:
 
-The plugin's `confidence-flags` MCP server reads the same `$TMPDIR/confidence_token` file on every request (via the bundled `scripts/confidence-mcp-proxy.mjs`). After a successful login, the flag MCP tools become available automatically within a few seconds — no MCP authenticate flow or reconnect is needed, so never ask the user to authenticate the MCP manually.
+- `$TMPDIR/confidence_token` — the working cache read by curl calls and the MCP proxy. Fast, but wiped on reboot/cleanup.
+- `~/.confidence/session.json` (chmod 600) — the persistent session: `{"access_token": "...", "refresh_token": "...", "client_id": "..."}`. This is what keeps the user logged in across sessions and reboots. Write it after every successful auth, recording the client ID that performed the auth (refresh requires the same client).
+
+The plugin's `confidence-flags` MCP server (bundled `scripts/confidence-mcp-proxy.mjs`) reads the `$TMPDIR` cache on every request, falls back to `~/.confidence/session.json`, and refreshes expired access tokens itself using the stored refresh token. After a successful login, the flag MCP tools become available automatically within a few seconds — no MCP authenticate flow or reconnect is needed, so never ask the user to authenticate the MCP manually.
 
 **CRITICAL: TMPDIR differs between sandboxed and non-sandboxed Bash calls.** Sandboxed calls use a path like `/tmp/claude-501/`, while `dangerouslyDisableSandbox: true` calls use the system TMPDIR (e.g., `/var/folders/.../T/`). If tokens are written in a sandboxed call but read in a non-sandboxed curl call, the curl will read a stale or missing token. **ALL token writes and reads MUST use `dangerouslyDisableSandbox: true`** to ensure a consistent TMPDIR path. This includes the auth script call (already non-sandboxed for network), the token save, the token validity check, and all curl calls.
 
-**After every successful auth**, write the token to file — **in the same `dangerouslyDisableSandbox: true` Bash call** as the auth script or curl that produced it:
+**After every successful auth**, write the token cache and the persistent session — **in the same `dangerouslyDisableSandbox: true` Bash call** as the auth script or curl that produced it:
 ```bash
-# Parse TOKEN from auth.py stdout and persist (same Bash call, same TMPDIR)
+# Parse TOKEN/REFRESH_TOKEN from auth.py stdout and persist (same Bash call, same TMPDIR)
 echo "<TOKEN_VALUE>" > "$TMPDIR/confidence_token"
+mkdir -p ~/.confidence && python3 -c "
+import json, os, sys
+p = os.path.expanduser('~/.confidence/session.json')
+json.dump({'access_token': '<TOKEN_VALUE>', 'refresh_token': '<REFRESH_VALUE>', 'client_id': '<CLIENT_ID_USED>'}, open(p, 'w'), indent=2)
+os.chmod(p, 0o600)
+"
 ```
+(Omit `refresh_token` from the JSON if auth.py did not print one.)
 
 **On every sub-command start**, check if the token file exists and is not expired. **This Bash call MUST use `dangerouslyDisableSandbox: true`** so it reads from the same TMPDIR that curl will use:
 
@@ -119,7 +129,37 @@ print('ACCOUNT=' + d.get('https://confidence.dev/account_name', ''))
 
 Output is multi-line: first line is `VALID`/`EXPIRED`/`MISSING`, followed by `REGION=EU`, `ORG=...`, `ACCOUNT=...` if valid.
 
-If expired or missing, run the browser auth flow and write the new token to the file.
+If expired or missing, **try a silent refresh first** using the persistent session — only fall back to the browser auth flow if the refresh fails:
+
+```bash
+# dangerouslyDisableSandbox: true — silent refresh from ~/.confidence/session.json
+python3 -c "
+import json, os, sys, urllib.request
+p = os.path.expanduser('~/.confidence/session.json')
+try:
+    s = json.load(open(p))
+except Exception:
+    print('NO_SESSION'); sys.exit(0)
+if not s.get('refresh_token') or not s.get('client_id'):
+    print('NO_SESSION'); sys.exit(0)
+body = json.dumps({'grant_type': 'refresh_token', 'client_id': s['client_id'], 'refresh_token': s['refresh_token']}).encode()
+req = urllib.request.Request('https://auth.confidence.dev/oauth/token', data=body, headers={'Content-Type': 'application/json'})
+try:
+    with urllib.request.urlopen(req) as resp:
+        d = json.loads(resp.read())
+except Exception as e:
+    print(f'REFRESH_FAILED:{e}'); sys.exit(0)
+s['access_token'] = d['access_token']
+if d.get('refresh_token'):
+    s['refresh_token'] = d['refresh_token']
+json.dump(s, open(p, 'w'), indent=2)
+os.chmod(p, 0o600)
+open(os.path.join(os.environ.get('TMPDIR', '/tmp'), 'confidence_token'), 'w').write(d['access_token'])
+print('REFRESHED')
+"
+```
+
+`REFRESHED` means the token cache is valid again — continue. `NO_SESSION` or `REFRESH_FAILED` means run the browser auth flow and write the new token + session files.
 
 **In curl calls**, read from the file instead of a shell variable:
 ```bash
@@ -258,13 +298,18 @@ Run the bundled auth script with the **signup client ID** (`82qMvwZvqd3t3S0gRDvs
 Tell the user:
 > Opening your browser to log in. Sign up with Google or create an account with email and password.
 
-Write `TOKEN` to `$TMPDIR/confidence_token` and `REFRESH_TOKEN` to `$TMPDIR/confidence_refresh_token`. **The token save and all subsequent reads MUST use `dangerouslyDisableSandbox: true`** to ensure consistent TMPDIR paths (see Token management section).
+Write `TOKEN` to `$TMPDIR/confidence_token` and `REFRESH_TOKEN` to `$TMPDIR/confidence_refresh_token`, and persist the session to `~/.confidence/session.json` with the signup client ID (see Token management section). **The token save and all subsequent reads MUST use `dangerouslyDisableSandbox: true`** to ensure consistent TMPDIR paths.
 
 If login fails, show the error in plain English and offer to retry.
 
-**After successful login**, immediately extract the user's email by calling the Auth0 userinfo endpoint — **combine the token save and userinfo curl in a single `dangerouslyDisableSandbox: true` Bash call**:
+**After successful login**, immediately extract the user's email by calling the Auth0 userinfo endpoint — **combine the token save, session persist, and userinfo curl in a single `dangerouslyDisableSandbox: true` Bash call**:
 ```bash
-echo "<TOKEN_VALUE>" > "$TMPDIR/confidence_token" && echo "<REFRESH_VALUE>" > "$TMPDIR/confidence_refresh_token" && curl -s "https://konfidens.eu.auth0.com/userinfo" -H "Authorization: Bearer $(cat $TMPDIR/confidence_token)"
+echo "<TOKEN_VALUE>" > "$TMPDIR/confidence_token" && echo "<REFRESH_VALUE>" > "$TMPDIR/confidence_refresh_token" && mkdir -p ~/.confidence && python3 -c "
+import json, os
+p = os.path.expanduser('~/.confidence/session.json')
+json.dump({'access_token': '<TOKEN_VALUE>', 'refresh_token': '<REFRESH_VALUE>', 'client_id': '82qMvwZvqd3t3S0gRDvs8R53TehQXSJY'}, open(p, 'w'), indent=2)
+os.chmod(p, 0o600)
+" && curl -s "https://konfidens.eu.auth0.com/userinfo" -H "Authorization: Bearer $(cat $TMPDIR/confidence_token)"
 ```
 Response: `{ "email": "user@company.com", "name": "...", ... }`
 
@@ -411,8 +456,15 @@ lsof -ti:8084 | xargs kill -9 2>/dev/null; python3 <SKILL_BASE_DIR>/auth.py 2fG3
 The response token will contain `org_id`, `account_name`, and `region` claims. Parse the TOKEN and REFRESH_TOKEN from stdout, then **save them in a separate `dangerouslyDisableSandbox: true` Bash call**:
 
 ```bash
-echo "<ORG_SCOPED_TOKEN>" > "$TMPDIR/confidence_token" && echo "<REFRESH_TOKEN>" > "$TMPDIR/confidence_refresh_token"
+echo "<ORG_SCOPED_TOKEN>" > "$TMPDIR/confidence_token" && echo "<REFRESH_TOKEN>" > "$TMPDIR/confidence_refresh_token" && mkdir -p ~/.confidence && python3 -c "
+import json, os
+p = os.path.expanduser('~/.confidence/session.json')
+json.dump({'access_token': '<ORG_SCOPED_TOKEN>', 'refresh_token': '<REFRESH_TOKEN>', 'client_id': '2fG3H4RhlAbIZm9Rfn32zTaILH7w1X4w'}, open(p, 'w'), indent=2)
+os.chmod(p, 0o600)
+"
 ```
+
+The org-scoped session (regular client) replaces the signup-client session in `~/.confidence/session.json` — this is the session that persists across restarts and that refresh uses.
 
 **This save call MUST use `dangerouslyDisableSandbox: true`** — even though it doesn't need network access — so that `$TMPDIR` resolves to the same path that future curl calls will use. A sandboxed save writes to a different TMPDIR and the token will be invisible to non-sandboxed curl calls.
 
@@ -463,7 +515,7 @@ Show a summary and next steps:
 
 Check if a token is available from a prior `create-account` run in this session.
 
-If not, run the bundled auth script with the **regular client ID** (`2fG3H4RhlAbIZm9Rfn32zTaILH7w1X4w`) — this user already has an account.
+If not, try the silent refresh from `~/.confidence/session.json` first (see Token management). If that fails, run the bundled auth script with the **regular client ID** (`2fG3H4RhlAbIZm9Rfn32zTaILH7w1X4w`) — this user already has an account — and persist the new session.
 
 Validate the token works by calling:
 ```bash
@@ -641,7 +693,7 @@ Otherwise (when entered directly via `/onboard-confidence setup-wizard`), use As
 Run the full `create-account` sub-command flow (Steps 1–6 from that section). This handles signup, workspace creation, and re-auth with an org-scoped token. Once complete, proceed to Step 2 of setup-wizard with the token and region already set.
 
 **If "Sign in to existing account":**
-Check if a token file exists at `$TMPDIR/confidence_token` and is valid. If not, run the bundled auth script with the **regular client ID** (`2fG3H4RhlAbIZm9Rfn32zTaILH7w1X4w`). Validate the token, extract the region, and proceed to Step 2.
+Check if a token file exists at `$TMPDIR/confidence_token` and is valid. If not, try the silent refresh from `~/.confidence/session.json` first (see Token management); only if that fails, run the bundled auth script with the **regular client ID** (`2fG3H4RhlAbIZm9Rfn32zTaILH7w1X4w`) and persist the new session. Validate the token, extract the region, and proceed to Step 2.
 
 Determine the region from the token — this sets the API base URLs:
 - EU: `flags.eu.confidence.dev`, `resolver.eu.confidence.dev`, `iam.eu.confidence.dev`
@@ -1358,7 +1410,7 @@ MCP tools are used for **flag and client operations only** — account creation,
 - **Port 8084 must be free** — the Auth0 callback server uses a fixed port. The auth script auto-kills any existing process on port 8084.
 - **Auth0 Allowed Callback URLs** — both Auth0 clients must have `http://localhost:8084/callback` in their Allowed Callback URLs, Allowed Logout URLs, and Allowed Web Origins.
 - **Auth script is bundled** — `auth.py` ships with the plugin in the skill directory. Never write auth scripts to disk; always use the bundled script.
-- **Token persistence and TMPDIR** — tokens are written to `$TMPDIR/confidence_token`. `$TMPDIR` resolves to DIFFERENT paths in sandboxed vs non-sandboxed (`dangerouslyDisableSandbox: true`) Bash calls (e.g., `/tmp/claude-501/` vs `/var/folders/.../T/`). ALL token writes and reads MUST use `dangerouslyDisableSandbox: true` to ensure consistency. Never write tokens outside `$TMPDIR`.
+- **Token persistence and TMPDIR** — the working token cache is `$TMPDIR/confidence_token`; the durable session is `~/.confidence/session.json` (chmod 600). `$TMPDIR` resolves to DIFFERENT paths in sandboxed vs non-sandboxed (`dangerouslyDisableSandbox: true`) Bash calls (e.g., `/tmp/claude-501/` vs `/var/folders/.../T/`). ALL token writes and reads MUST use `dangerouslyDisableSandbox: true` to ensure consistency.
 - **Learning API** — REST-only (gRPC on epx-onboarding). Course content is generated by the skill using docs MCP; the API only tracks progress indices.
 - **`learn` sub-command** — uses docs MCP for content. If MCP not connected, the skill can still teach using its own knowledge but won't have the latest docs.
 - **Region-specific API URLs** — flags/resolver APIs use region prefixes (`flags.eu.confidence.dev` vs `flags.us.confidence.dev`). Determine region from the JWT token or from the account creation step.
