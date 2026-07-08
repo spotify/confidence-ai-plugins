@@ -1,0 +1,254 @@
+[
+  {
+    "name": "Checkout Button Color",
+    "key": "flag-sample-checkout-btn",
+    "description": "",
+    "environment": "production",
+    "config": {
+      "key": "production",
+      "name": "Production",
+      "enabled": false,
+      "has_restricted_permissions": true,
+      "priority": 1,
+      "status": "paused",
+      "rules_summary": { "a/b": { "keys": ["checkout_button_color"] } },
+      "rules_detail": [
+        {
+          "primary_metric": "conversion_rate",
+          "status": "paused",
+          "enabled": false,
+          "traffic_allocation": 10000,
+          "key": "checkout_button_color",
+          "fetch_results_ui_url": null,
+          "days_running": null,
+          "layer_experiment_id": 10000000001,
+          "id": 20000001,
+          "variation_names": ["control", "treatment"],
+          "distribution_mode": "manual",
+          "created_time": "2023-04-25T04:59:36.925716Z",
+          "type": "a/b",
+          "name": "Checkout Button Color",
+          "created_by_user_email": "example@example.com",
+          "audience_ids": [],
+          "custom_fields": null,
+          "updated_time": "2024-09-04T22:49:43.832309Z"
+        }
+      ],
+      "default_variation_key": "off",
+      "default_variation_name": "Off",
+      "id": 5551000002,
+      "enable_url": "/projects/5551000001/flags/flag-sample-checkout-btn/environments/production/ruleset/enabled",
+      "created_time": "2018-04-18T15:56:19.000000Z"
+    }
+  },
+  {
+    "name": "Homepage Hero Layout",
+    "key": "flag-sample-homepage-hero",
+    "description": "Compare hero layout A with layout B for logged-out visitors",
+    "environment": "production",
+    "config": {
+      "key": "production",
+      "name": "Production",
+      "enabled": false,
+      "has_restricted_permissions": true,
+      "priority": 1,
+      "status": "paused",
+      "rules_summary": { "a/b": { "keys": ["homepage_hero_layout"] } },
+      "rules_detail": [
+        {
+          "primary_metric": "click_through_rate",
+          "status": "paused",
+          "enabled": false,
+          "traffic_allocation": 10000,
+          "key": "homepage_hero_layout",
+          "fetch_results_ui_url": null,
+          "days_running": null,
+          "layer_experiment_id": 10000000002,
+          "id": 20000002,
+          "variation_names": ["layout_a", "layout_b"],
+          "distribution_mode": "manual",
+          "created_time": "2023-02-22T13:24:13.084634Z",
+          "type": "a/b",
+          "name": "Homepage Hero Layout",
+          "created_by_user_email": "example@example.com",
+          "audience_ids": [],
+          "custom_fields": null,
+          "updated_time": "2024-09-04T22:49:39.485032Z"
+        }
+      ],
+      "default_variation_key": "off",
+      "default_variation_name": "Off",
+      "id": 5551000002,
+      "enable_url": "/projects/5551000001/flags/flag-sample-homepage-hero/environments/production/ruleset/enabled",
+      "created_time": "2018-04-18T15:56:19.000000Z"
+    }
+  },
+  {
+    "name": "Search Result Ranking",
+    "key": "flag-sample-search-rank",
+    "description": "",
+    "environment": "production",
+    "config": {
+      "key": "production",
+      "name": "Production",
+      "enabled": false,
+      "has_restricted_permissions": true,
+      "priority": 1,
+      "status": "paused",
+      "rules_summary": { "a/b": { "keys": ["search_result_ranking"] } },
+      "rules_detail": [
+        {
+          "primary_metric": null,
+          "status": "paused",
+          "enabled": false,
+          "traffic_allocation": 10000,
+          "key": "search_result_ranking",
+          "fetch_results_ui_url": null,
+          "days_running": null,
+          "layer_experiment_id": 10000000003,
+          "id": 20000003,
+          "variation_names": ["variation_1", "variation_2"],
+          "distribution_mode": "manual",
+          "created_time": "2021-04-14T00:13:51.959953Z",
+          "type": "a/b",
+          "name": "Search Result Ranking",
+          "created_by_user_email": "example@example.com",
+          "audience_ids": [],
+          "custom_fields": null,
+          "updated_time": "2024-09-04T22:49:35.101401Z"
+        }
+      ],
+      "default_variation_key": "off",
+      "default_variation_name": "Off",
+      "id": 5551000002,
+      "enable_url": "/projects/5551000001/flags/flag-sample-search-rank/environments/production/ruleset/enabled",
+      "created_time": "2018-04-18T15:56:19.000000Z"
+    }
+  },
+  {
+    "name": "Onboarding Flow Steps",
+    "key": "flag-sample-onboarding",
+    "description": "",
+    "environment": "production",
+    "config": {
+      "key": "production",
+      "name": "Production",
+      "enabled": false,
+      "has_restricted_permissions": true,
+      "priority": 1,
+      "status": "paused",
+      "rules_summary": { "a/b": { "keys": ["onboarding_flow_steps"] } },
+      "rules_detail": [
+        {
+          "primary_metric": "onboarding_completion_rate",
+          "status": "paused",
+          "enabled": false,
+          "traffic_allocation": 10000,
+          "key": "onboarding_flow_steps",
+          "fetch_results_ui_url": null,
+          "days_running": null,
+          "layer_experiment_id": 10000000004,
+          "id": 20000004,
+          "variation_names": ["three_step", "five_step"],
+          "distribution_mode": "manual",
+          "created_time": "2020-03-25T11:35:12.459501Z",
+          "type": "a/b",
+          "name": "Onboarding Flow Steps",
+          "created_by_user_email": "example@example.com",
+          "audience_ids": [],
+          "custom_fields": null,
+          "updated_time": "2024-09-04T22:49:30.716049Z"
+        }
+      ],
+      "default_variation_key": "off",
+      "default_variation_name": "Off",
+      "id": 5551000002,
+      "enable_url": "/projects/5551000001/flags/flag-sample-onboarding/environments/production/ruleset/enabled",
+      "created_time": "2018-04-18T15:56:19.000000Z"
+    }
+  },
+  {
+    "name": "Pricing Page Copy",
+    "key": "flag-sample-pricing-copy",
+    "description": "",
+    "environment": "production",
+    "config": {
+      "key": "production",
+      "name": "Production",
+      "enabled": false,
+      "has_restricted_permissions": true,
+      "priority": 1,
+      "status": "paused",
+      "rules_summary": { "a/b": { "keys": ["pricing_page_copy"] } },
+      "rules_detail": [
+        {
+          "primary_metric": null,
+          "status": "paused",
+          "enabled": false,
+          "traffic_allocation": 10000,
+          "key": "pricing_page_copy",
+          "fetch_results_ui_url": null,
+          "days_running": null,
+          "layer_experiment_id": 10000000005,
+          "id": 20000005,
+          "variation_names": ["variation_1", "variation_2"],
+          "distribution_mode": "manual",
+          "created_time": "2020-02-06T11:03:46.643255Z",
+          "type": "a/b",
+          "name": "Pricing Page Copy",
+          "created_by_user_email": "example@example.com",
+          "audience_ids": [],
+          "custom_fields": null,
+          "updated_time": "2024-09-04T22:49:26.311500Z"
+        }
+      ],
+      "default_variation_key": "off",
+      "default_variation_name": "Off",
+      "id": 5551000002,
+      "enable_url": "/projects/5551000001/flags/flag-sample-pricing-copy/environments/production/ruleset/enabled",
+      "created_time": "2018-04-18T15:56:19.000000Z"
+    }
+  },
+  {
+    "name": "Email Subject Line",
+    "key": "flag-sample-email-subject",
+    "description": "",
+    "environment": "production",
+    "config": {
+      "key": "production",
+      "name": "Production",
+      "enabled": false,
+      "has_restricted_permissions": true,
+      "priority": 1,
+      "status": "paused",
+      "rules_summary": { "a/b": { "keys": ["email_subject_line"] } },
+      "rules_detail": [
+        {
+          "primary_metric": "open_rate",
+          "status": "paused",
+          "enabled": false,
+          "traffic_allocation": 10000,
+          "key": "email_subject_line",
+          "fetch_results_ui_url": null,
+          "days_running": null,
+          "layer_experiment_id": 10000000006,
+          "id": 20000006,
+          "variation_names": ["subject_a", "subject_b"],
+          "distribution_mode": "manual",
+          "created_time": "2020-01-10T13:21:13.416624Z",
+          "type": "a/b",
+          "name": "Email Subject Line",
+          "created_by_user_email": "example@example.com",
+          "audience_ids": [],
+          "custom_fields": null,
+          "updated_time": "2024-09-04T22:49:21.551783Z"
+        }
+      ],
+      "default_variation_key": "off",
+      "default_variation_name": "Off",
+      "id": 5551000002,
+      "enable_url": "/projects/5551000001/flags/flag-sample-email-subject/environments/production/ruleset/enabled",
+      "created_time": "2018-04-18T15:56:19.000000Z"
+    }
+  }
+]

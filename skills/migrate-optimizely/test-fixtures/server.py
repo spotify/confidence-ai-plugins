@@ -31,8 +31,15 @@ Notable conventions:
     live in each AUDIENCE's `conditions` (a JSON-encoded string)
   * List endpoints wrap results under `items` with `page`/`total_pages`
 
-Fixtures are curated to exercise every branch of the skill's
-operator-mapping table and BLOCKED markers — see README.md.
+The server hosts two Optimizely projects on one port, selected by the
+project id in the request:
+
+  * {PROJECT_ID} — curated fixtures that exercise every branch of the
+    skill's operator-mapping table and BLOCKED markers (see README.md)
+  * {SUMMARY_EXPORT_PROJECT_ID} — a synthetic account modeling the
+    Option B2 flattened-summary-export pattern: legacy variable-less
+    a/b tests, all paused, no audiences (see README.md → "Summary
+    export scenario")
 
 Run:
     python3 server.py [--port 4100]
@@ -494,10 +501,125 @@ FLAGS_BY_KEY = {f["key"]: f for f in FLAGS}
 
 
 # ---------------------------------------------------------------------------
+# Summary-export scenario dataset (synthetic — models Option B2)
+# ---------------------------------------------------------------------------
+# Models an account whose export tool/token only produces rule *summaries*
+# (`traffic_allocation` + `variation_names` — the same shape a
+# `has_restricted_permissions: true` token returns). It does NOT include
+# per-variation split, flag variables, or audiences. We reconstruct a
+# faithful ruleset using Optimizely's documented defaults so the skill can
+# run end-to-end against a representative account of this shape:
+#   * manual N-way a/b split          → even split (2 arms = 50/50)
+#   * no flag variables               → variable-less flag; the SDK returns
+#                                        the variation KEY (getVariationKey),
+#                                        so each arm is a bare named variation
+#   * empty `audience_ids`            → targets everyone
+#   * every experiment paused         → ruleset disabled → migrate the flag OFF
+#   * `default_variation_key: "off"`  → implicit off variation plus the arms
+#
+# All flag names/keys/ids below are synthetic — this is not any real
+# account's data (see `summary-export-sample.json` for the matching
+# synthetic Option B2 file used to test file-based input directly).
+
+SUMMARY_EXPORT_PROJECT_ID = 5551000001
+SUMMARY_EXPORT_ACCOUNT_ID = 5551000000
+
+SUMMARY_EXPORT_ENVIRONMENTS = [
+    {"key": "production", "name": "Production", "id": 5551000002, "archived": False, "priority": 1},
+]
+
+
+def _bare_ab_variations(arms: list[str]) -> list[dict[str, Any]]:
+    """An `off` variation plus one bare (variable-less) variation per arm."""
+    variations = [{"key": "off", "name": "Off", "variables": {}}]
+    variations.extend({"key": arm, "name": arm, "variables": {}} for arm in arms)
+    return variations
+
+
+def _summary_export_ab_flag(flag_key: str, exp_name: str, exp_key: str, arms: list[str]) -> dict[str, Any]:
+    """A paused, variable-less a/b experiment targeting everyone, split evenly."""
+    n = len(arms)
+    base = 10000 // n
+    split = {arm: base for arm in arms}
+    split[arms[-1]] += 10000 - base * n  # give rounding remainder to the last arm
+    return {
+        "key": flag_key,
+        "name": exp_name,
+        "description": "",
+        "archived": False,
+        "variable_definitions": {},
+        "_variations": _bare_ab_variations(arms),
+        "_enabled": False,
+        "_default_variation_key": "off",
+        "_rule_priorities": [exp_key],
+        "_rules": {
+            exp_key: _rule(exp_key, exp_name, "a/b", variations=split, enabled=False),
+        },
+    }
+
+
+SUMMARY_EXPORT_FLAGS: list[dict[str, Any]] = [
+    _summary_export_ab_flag(
+        "flag-sample-checkout-btn", "Checkout Button Color",
+        "checkout_button_color", ["control", "treatment"],
+    ),
+    _summary_export_ab_flag(
+        "flag-sample-homepage-hero", "Homepage Hero Layout",
+        "homepage_hero_layout", ["layout_a", "layout_b"],
+    ),
+    _summary_export_ab_flag(
+        "flag-sample-search-rank", "Search Result Ranking",
+        "search_result_ranking", ["variation_1", "variation_2"],
+    ),
+    _summary_export_ab_flag(
+        "flag-sample-onboarding", "Onboarding Flow Steps",
+        "onboarding_flow_steps", ["three_step", "five_step"],
+    ),
+    _summary_export_ab_flag(
+        "flag-sample-pricing-copy", "Pricing Page Copy",
+        "pricing_page_copy", ["original", "variation"],
+    ),
+    _summary_export_ab_flag(
+        "flag-sample-email-subject", "Email Subject Line",
+        "email_subject_line", ["subject_a", "subject_b"],
+    ),
+]
+SUMMARY_EXPORT_FLAGS_BY_KEY = {f["key"]: f for f in SUMMARY_EXPORT_FLAGS}
+SUMMARY_EXPORT_AUDIENCES: list[dict[str, Any]] = []
+
+
+# ---------------------------------------------------------------------------
+# Datasets — the server serves one dataset per Optimizely project id, so both
+# the curated operator-mapping fixtures and the summary-export scenario are
+# reachable on the same port. The curated dataset stays the module-level
+# default so `verify_migration.py` / `seed_optimizely.py` keep importing
+# FLAGS/AUDIENCES.
+# ---------------------------------------------------------------------------
+
+class Dataset:
+    def __init__(self, project_id, account_id, flags, audiences, environments):
+        self.project_id = project_id
+        self.account_id = account_id
+        self.flags = flags
+        self.flags_by_key = {f["key"]: f for f in flags}
+        self.audiences = audiences
+        self.audiences_by_id = {a["id"]: a for a in audiences}
+        self.environments = environments
+
+
+DEFAULT_DATASET = Dataset(PROJECT_ID, ACCOUNT_ID, FLAGS, AUDIENCES, ENVIRONMENTS)
+SUMMARY_EXPORT_DATASET = Dataset(
+    SUMMARY_EXPORT_PROJECT_ID, SUMMARY_EXPORT_ACCOUNT_ID,
+    SUMMARY_EXPORT_FLAGS, SUMMARY_EXPORT_AUDIENCES, SUMMARY_EXPORT_ENVIRONMENTS,
+)
+DATASETS = {ds.project_id: ds for ds in (DEFAULT_DATASET, SUMMARY_EXPORT_DATASET)}
+
+
+# ---------------------------------------------------------------------------
 # Response shaping
 # ---------------------------------------------------------------------------
 
-def _flag_public(f: dict[str, Any], env_key: str = "production") -> dict[str, Any]:
+def _flag_public(ds: Dataset, f: dict[str, Any], env_key: str = "production") -> dict[str, Any]:
     """The flag object as the List/Fetch Flags endpoints return it."""
     rules_detail = [
         {
@@ -519,8 +641,8 @@ def _flag_public(f: dict[str, Any], env_key: str = "production") -> dict[str, An
         "variable_definitions": f["variable_definitions"],
         "id": abs(hash(f["key"])) % 10_000_000,
         "urn": f"flags.flags.optimizely.com::{f['key']}",
-        "project_id": PROJECT_ID,
-        "account_id": ACCOUNT_ID,
+        "project_id": ds.project_id,
+        "account_id": ds.account_id,
         "environments": {
             env["key"]: {
                 "key": env["key"],
@@ -532,17 +654,17 @@ def _flag_public(f: dict[str, Any], env_key: str = "production") -> dict[str, An
                 "rules_detail": rules_detail if env["key"] == "production" else [],
                 "id": env["id"],
             }
-            for env in ENVIRONMENTS
+            for env in ds.environments
         },
     }
 
 
-def _ruleset_public(f: dict[str, Any], env_key: str) -> dict[str, Any]:
+def _ruleset_public(ds: Dataset, f: dict[str, Any], env_key: str) -> dict[str, Any]:
     enabled = f["_enabled"] if env_key == "production" else False
     rules = f["_rules"] if env_key == "production" else {}
     priorities = f["_rule_priorities"] if env_key == "production" else []
     return {
-        "url": f"/projects/{PROJECT_ID}/flags/{f['key']}/environments/{env_key}/ruleset",
+        "url": f"/projects/{ds.project_id}/flags/{f['key']}/environments/{env_key}/ruleset",
         "rules": rules,
         "rule_priorities": priorities,
         "id": abs(hash(f["key"] + env_key)) % 10_000_000,
@@ -556,7 +678,7 @@ def _ruleset_public(f: dict[str, Any], env_key: str) -> dict[str, Any]:
     }
 
 
-def _audience_public(a: dict[str, Any]) -> dict[str, Any]:
+def _audience_public(ds: Dataset, a: dict[str, Any]) -> dict[str, Any]:
     return {
         "id": a["id"],
         "name": a["name"],
@@ -564,7 +686,7 @@ def _audience_public(a: dict[str, Any]) -> dict[str, Any]:
         "conditions": a["conditions"],
         "archived": False,
         "is_classic": False,
-        "project_id": PROJECT_ID,
+        "project_id": ds.project_id,
     }
 
 
@@ -610,6 +732,18 @@ class Handler(BaseHTTPRequestHandler):
     def _bool_param(self, query: dict[str, list[str]], name: str) -> bool:
         return name in query and query[name][0].lower() in ("true", "1", "yes")
 
+    def _dataset_for_pid(self, pid: str) -> "Dataset | None":
+        """Resolve the dataset for a path project id, 404-ing if unknown."""
+        ds = DATASETS.get(int(pid))
+        if ds is None:
+            self._send(404, {"message": f"project {pid} not found"})
+        return ds
+
+    def _dataset_for_query_pid(self, query: dict[str, list[str]]) -> "Dataset":
+        """Resolve the dataset for a `project_id` query param (v2 endpoints)."""
+        raw = query.get("project_id", [str(PROJECT_ID)])[0]
+        return DATASETS.get(int(raw), DEFAULT_DATASET)
+
     def _paginate(self, items: list, query: dict[str, list[str]], url: str) -> dict:
         per_page = int(query.get("per_page", [str(self.per_page_default)])[0])
         page = int(query.get("page", ["1"])[0])
@@ -635,16 +769,22 @@ class Handler(BaseHTTPRequestHandler):
 
         m = R_RULESET.match(path)
         if m:
-            f = FLAGS_BY_KEY.get(m["key"])
+            ds = self._dataset_for_pid(m["pid"])
+            if ds is None:
+                return
+            f = ds.flags_by_key.get(m["key"])
             if f is None:
                 self._send(404, {"message": f"flag {m['key']} not found"})
                 return
-            self._send(200, _ruleset_public(f, m["env"]))
+            self._send(200, _ruleset_public(ds, f, m["env"]))
             return
 
         m = R_FLAG_VARIATIONS.match(path)
         if m:
-            f = FLAGS_BY_KEY.get(m["key"])
+            ds = self._dataset_for_pid(m["pid"])
+            if ds is None:
+                return
+            f = ds.flags_by_key.get(m["key"])
             if f is None:
                 self._send(404, {"message": f"flag {m['key']} not found"})
                 return
@@ -653,42 +793,55 @@ class Handler(BaseHTTPRequestHandler):
 
         m = R_FLAG_ONE.match(path)
         if m and not path.rstrip("/").endswith("/flags"):
-            f = FLAGS_BY_KEY.get(m["key"])
+            ds = self._dataset_for_pid(m["pid"])
+            if ds is None:
+                return
+            f = ds.flags_by_key.get(m["key"])
             if f is None:
                 self._send(404, {"message": f"flag {m['key']} not found"})
                 return
-            self._send(200, _flag_public(f))
+            self._send(200, _flag_public(ds, f))
             return
 
         m = R_FLAGS_LIST.match(path)
         if m:
+            ds = self._dataset_for_pid(m["pid"])
+            if ds is None:
+                return
             include_archived = self._bool_param(query, "archived")
-            visible = [f for f in FLAGS if include_archived or not f["archived"]]
-            self._send(200, self._paginate([_flag_public(f) for f in visible], query, path))
+            visible = [f for f in ds.flags if include_archived or not f["archived"]]
+            self._send(200, self._paginate([_flag_public(ds, f) for f in visible], query, path))
             return
 
         m = R_AUDIENCE_ONE.match(path)
         if m:
-            a = AUDIENCES_BY_ID.get(int(m["id"]))
-            if a is None:
-                self._send(404, {"message": f"audience {m['id']} not found"})
-                return
-            self._send(200, _audience_public(a))
+            aid = int(m["id"])
+            for ds in DATASETS.values():
+                a = ds.audiences_by_id.get(aid)
+                if a is not None:
+                    self._send(200, _audience_public(ds, a))
+                    return
+            self._send(404, {"message": f"audience {m['id']} not found"})
             return
 
         m = R_AUDIENCES_LIST.match(path)
         if m:
-            self._send(200, self._paginate([_audience_public(a) for a in AUDIENCES], query, path))
+            ds = self._dataset_for_query_pid(query)
+            self._send(200, self._paginate([_audience_public(ds, a) for a in ds.audiences], query, path))
             return
 
         m = R_ENVIRONMENTS.match(path)
         if m:
-            self._send(200, {"items": ENVIRONMENTS, "count": len(ENVIRONMENTS)})
+            ds = self._dataset_for_query_pid(query)
+            self._send(200, {"items": ds.environments, "count": len(ds.environments)})
             return
 
         m = R_PROJECTS.match(path)
         if m:
-            self._send(200, {"items": [{"id": PROJECT_ID, "name": "Fixture project", "status": "active"}]})
+            self._send(200, {"items": [
+                {"id": ds.project_id, "name": f"Fixture project {ds.project_id}", "status": "active"}
+                for ds in DATASETS.values()
+            ]})
             return
 
         self._send(404, {"message": f"No route for {path}"})
@@ -706,11 +859,13 @@ def main() -> None:
 
     server = HTTPServer(("127.0.0.1", args.port), Handler)
     base = f"http://127.0.0.1:{args.port}"
-    n_active = sum(1 for f in FLAGS if not f["archived"])
     print(f"Fake Optimizely REST API listening on {base}")
-    print(f"  {len(FLAGS)} flags ({n_active} non-archived), {len(AUDIENCES)} audiences, "
-          f"{len(ENVIRONMENTS)} environments")
-    print(f"  Project ID: {PROJECT_ID}")
+    for ds in DATASETS.values():
+        n_active = sum(1 for f in ds.flags if not f["archived"])
+        label = "curated operator-mapping fixtures" if ds is DEFAULT_DATASET else "summary export scenario"
+        print(f"  Project {ds.project_id} ({label}): "
+              f"{len(ds.flags)} flags ({n_active} non-archived), "
+              f"{len(ds.audiences)} audiences, {len(ds.environments)} environments")
     print("  Point the migrate-optimizely skill at this base URL when prompted.")
     print("  Set OPTIMIZELY_API_TOKEN to anything (any Bearer value passes).")
     print("  Press Ctrl+C to stop.")
