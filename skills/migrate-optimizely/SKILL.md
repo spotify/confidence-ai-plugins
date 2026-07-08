@@ -365,11 +365,13 @@ Map it onto the same internal model Step 1c/1d builds, with these
 **known gaps** — call each one out explicitly in the plan as a note next
 to the affected flag, don't silently guess and stay silent about it:
 
-- **No flag `variable_definitions`.** Treat the flag as variable-less;
-  each `variation_names` entry becomes a bare Confidence variant (not a
-  struct property). If the customer's code reads variable values (not
-  just the variation key) for these flags, ASK — Option B2 can't tell
-  you either way.
+- **No flag `variable_definitions`.** Treat the flag as variable-less and
+  apply "Optimizely's flag model" above: boolean shape only if the
+  variation keys are exactly `on`/`off`, otherwise the named-variant
+  struct shape (`{ variant: string }`) — **never** force custom-named or
+  3+ arm variations into a boolean flag. If the customer's code reads
+  variable values (not just the variation key) for these flags, ASK —
+  Option B2 can't tell you either way.
 - **No per-variation split**, only the rule-level `traffic_allocation`.
   Default to an **even split** across `variation_names` (remainder to
   the last variant) and flag it in the plan: "Split not in the export —
@@ -449,10 +451,21 @@ ordered **ruleset**. All become Confidence flags:
 
 | Optimizely concept | What it is | Confidence flag shape |
 |--------------------|-----------|-----------------------|
-| **Flag** (no variables) | Boolean on/off feature | Boolean flag (`{ enabled }`); variations `on`/`off` |
+| **Flag** (no variables, 2 variations named exactly `on`/`off`) | Boolean on/off feature | Boolean flag (`{ enabled }`); variations `on`/`off` |
+| **Flag** (no variables, custom-named variations) | Named experiment arms with no payload (e.g. `control`/`treatment`, or 3+ arms) | Struct flag with **one `string` property** (e.g. `variant`); each variation → a variant whose `variant` value is its literal Optimizely key. **Do not force these into a boolean `{ enabled }` shape** — that's lossy for 2 differently-named arms and structurally impossible for 3+ arms. |
 | **Flag with variables** | Returns typed variable values | Struct flag; one property per variable; each **variation** → a variant carrying its variable values |
 | **Targeted delivery rule** | Roll a flag out to an audience at a % | One targeting rule: audience → payload, rollout % → variant split |
 | **A/B test rule** | Experiment with weighted variations | One targeting rule: audience → payload, variation split by `percentage_included` |
+
+**Which of the first two rows applies is a per-flag check, not a
+blanket "no variables → boolean" rule:** only use the boolean shape when
+`variable_definitions` is empty AND the variation keys are exactly
+`on`/`off` (or a single boolean variable). Any other variable-less flag —
+however many variations it has, whatever they're named — uses the named-
+variant struct shape. This is common: legacy/classic Optimizely
+experiments frequently declare no variables at all and rely purely on
+named variations (`variation_1`/`variation_2`, custom labels, even
+opaque UUIDs), and real accounts can have many such flags with 3+ arms.
 
 > **Groups (exclusion groups).** Optimizely can place several rules/
 > experiments in a **mutually exclusive group** sharing a traffic budget.
@@ -745,8 +758,11 @@ flags fetched so far are saved.
 Extract from each flag:
 
 - `key`, `name`, `description`
-- `variable_definitions` — determines the Confidence flag shape (boolean
-  vs struct; see "Optimizely's flag model")
+- `variable_definitions` — determines the Confidence flag shape: boolean
+  (empty, `on`/`off` variations only), named-variant struct (empty, any
+  other variation keys), or full struct (non-empty) — see "Optimizely's
+  flag model". Do not assume empty `variable_definitions` always means
+  boolean — check the variation keys too.
 - the variations and their variable values
 - the chosen environment's ruleset: `rule_priorities` (order),
   `default_variation_key`, and `enabled`
@@ -1023,7 +1039,11 @@ preserve it faithfully, emit it as an explicit **catch-all final rule**:
 For a **boolean flag**, the catch-all variant is `disabled` (`off`) —
 reached only by users who matched **no** rule. For a **flag with
 variables**, the catch-all variant carries the `default_variation`'s
-variable values (usually the `off` variation's values).
+variable values (usually the `off` variation's values). For a
+**variable-less, named-variant flag** (see "Optimizely's flag model"),
+the catch-all variant's `variant` property is the ruleset's
+`default_variation_key` itself (typically `off`) — the same literal
+string a caller branching on the raw variation key would have seen.
 
 ### Expression combinators
 
@@ -1502,11 +1522,11 @@ by `execute` — no implicit defaults.
 
 **Description:** <from Optimizely if available, otherwise empty>
 **Backend:** <MCP (default) / REST — REST is required for partial allocation with fall-through, reusable audiences, or exclusion-group exclusivity>
-**Confidence schema:** <e.g. `{ enabled: boolean }` for a boolean flag; the variable shape for a flag with variables>
-**Variants:** <variant list — e.g. "on, off" for a boolean flag; variation keys for a flag with variations, each carrying its variable values>
-**Confidence resolve path:** `<flag-key>.<property>` (Phase 2 reads this; `.enabled` for boolean flags, `.<variable>` per variable)
+**Confidence schema:** <e.g. `{ enabled: boolean }` for a boolean flag; `{ variant: string }` for a variable-less flag with custom-named variations (see "Optimizely's flag model"); the variable shape for a flag with variables>
+**Variants:** <variant list — e.g. "on, off" for a boolean flag; the literal Optimizely variation keys for a named-variant flag; variation keys carrying their variable values for a flag with variables>
+**Confidence resolve path:** `<flag-key>.<property>` (Phase 2 reads this; `.enabled` for boolean flags, `.variant` for named-variant flags, `.<variable>` per variable)
 **Unit:** Optimizely user id → entity `<entity>`
-**Enabled in Optimizely (env `<env>`):** <yes / no — if no, set every rule's on-share to 0 (boolean flag rules become `variantAllocations { off: 100 }`) so the flag stays OFF until intentionally enabled>
+**Enabled in Optimizely (env `<env>`):** <yes / no — if no, set every rule's variantAllocations to `{ "<default-variant-key>": 100 }` (whatever the flag's actual default variant is — `off` for boolean flags, `default_variation_key` for named-variant flags) so the flag stays OFF until intentionally enabled>
 **Rules (Optimizely, in priority order):**
   1. `<rule key>` (<targeted_delivery / a/b>) — <plain-English audience>, traffic <X>%, <variant split>
   2. ...
@@ -1697,9 +1717,9 @@ payload as written.
 environment has `enabled: false`, surface that during execute:
 
 > This flag is DISABLED in Optimizely (environment `<env>`). I'll create
-> it in Confidence but keep it OFF (every rule's on-share set to 0 —
-> boolean flag rules become `variantAllocations { off: 100 }`) until you
-> turn it on intentionally. Continue?
+> it in Confidence but keep it OFF (every rule's variantAllocations set
+> to `{ "<default-variant-key>": 100 }`) until you turn it on
+> intentionally. Continue?
 
 **Flag shape → Confidence schema (and the resolve-path handoff to Phase
 2).** A Confidence flag is a struct, not a bare scalar, so each flag needs
@@ -1707,15 +1727,21 @@ named **properties** that hold the migrated values:
 
 | Optimizely flag | Confidence schema (`schemaObject`) | Resolve path |
 |-----------------|------------------------------------|--------------|
-| **Boolean flag** (no variables) | `{ "enabled": "boolean" }` (the `createFlag` default) | `<flag>.enabled` |
+| **Boolean flag** (no variables, `on`/`off` variations) | `{ "enabled": "boolean" }` (the `createFlag` default) | `<flag>.enabled` |
+| **Named-variant flag** (no variables, custom-named variations — see "Optimizely's flag model") | `{ "variant": "string" }` | `<flag>.variant` |
 | **Flag with variables** | one property per `variable_definition` (typed by the variable's `type`) | `<flag>.<variable>` per variable |
 
 For boolean flags, variants are `on` (`{ enabled: true }`) and `off`
-(`{ enabled: false }`). For flags with variables, create one variant per
-Optimizely **variation**, each carrying that variation's variable values
-(`variable_definitions` give the `default_value`; the variation's
-`variables` map gives the per-variant overrides). Record the resolve path
-on the flag's plan entry — Phase 2's code transform reads it verbatim.
+(`{ enabled: false }`). For named-variant flags, create one variant per
+Optimizely **variation**, each carrying that variation's literal key as
+its `variant` string value (e.g. variation `control` → variant `control`
+with `{ variant: "control" }`) — do not collapse these into a boolean
+shape, even when there are only two variations. For flags with variables,
+create one variant per Optimizely **variation**, each carrying that
+variation's variable values (`variable_definitions` give the
+`default_value`; the variation's `variables` map gives the per-variant
+overrides). Record the resolve path on the flag's plan entry — Phase 2's
+code transform reads it verbatim.
 
 **Waterfall verification.** Because Optimizely flags often have multiple
 rules, the Flag Setup Sequence Step 4 (above) requires you to also resolve
@@ -2026,9 +2052,11 @@ is implicit). Map by how the result is used:
   `if (v === "treatment")`), expose the decision via the flag the
   experiment belongs to: read the variable(s) that drive behavior
   (`get<Type>Value("<flag>.<var>", …)`) instead of switching on the key,
-  OR — if a raw variant label is genuinely needed — read a string
-  property carrying it. Surface these sites for human review in the plan;
-  a key-switch is rarely a clean 1:1.
+  OR — if the flag was migrated as a named-variant flag (Phase 1's
+  `{ variant: string }` shape — see "Optimizely's flag model"), read
+  `get_string_value("<flag>.variant", …)` and branch on that. Surface
+  these sites for human review in the plan; a key-switch is rarely a
+  clean 1:1.
 - `getVariation` (no impression) has no separate Confidence form —
   Confidence logs exposure on resolve. Note the behavior change.
 
