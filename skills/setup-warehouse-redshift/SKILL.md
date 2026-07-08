@@ -4,6 +4,8 @@ description: Set up Redshift as a data warehouse for Confidence. Use when the us
 
 # Setup Warehouse: Redshift
 
+> **MCP Authentication Required:** This skill requires the `confidence-flags` MCP server to be authenticated. All Confidence API operations (validate, create warehouse, create connectors, create assignment table) use MCP tool calls instead of direct REST API calls. AWS-specific operations (aws CLI, Redshift, S3, IAM) remain as shell commands.
+
 Configure Redshift as the data warehouse for Confidence experimentation analytics. This skill handles the full end-to-end setup: set up or connect a Redshift cluster, create an S3 staging bucket with IAM, configure the schema, create the warehouse, set up connectors, create the assignment table, and verify the pipeline.
 
 ---
@@ -67,154 +69,9 @@ curl -s -X POST "https://events.${REGION}.confidence.dev/v1/events:publish" \
 
 ## Authentication
 
-**Browser-based Auth0 login.** The skill opens a browser for Auth0 login (Google, email/password, SSO) and captures the token automatically. The user never touches a token.
+Authentication is handled by the `confidence-flags` MCP server. The MCP server manages tokens, sessions, and region routing automatically. No manual token management is needed.
 
-### Session-only token management
-
-The token is kept in the current session only and is never saved to disk. If the session ends or the token expires, the skill will open your browser to log in again.
-
-On every sub-command start, check if the `TOKEN` variable is set and not expired:
-
-```bash
-if [ -n "$TOKEN" ]; then
-  PAYLOAD=$(echo "$TOKEN" | cut -d. -f2)
-  EXP=$(echo "$PAYLOAD" | python3 -c "
-import sys, json, base64
-p = sys.stdin.read().strip()
-p += '=' * (4 - len(p) % 4) if len(p) % 4 else ''
-d = json.loads(base64.b64decode(p))
-print(d.get('exp', 0))
-")
-  NOW=$(date +%s)
-  if [ "$EXP" -gt "$NOW" ]; then
-    echo "VALID"
-  else
-    echo "EXPIRED"
-    unset TOKEN
-  fi
-fi
-```
-
-If `TOKEN` is unset or expired, run the Auth0 login flow with the **regular client ID** (`2fG3H4RhlAbIZm9Rfn32zTaILH7w1X4w`) and the user's `organization` parameter. Store the result in the `TOKEN` shell variable only. **NEVER write the token to disk. NEVER reference `~/.confidence/`.**
-
-### Auth script
-
-Write the following to `$TMPDIR/confidence_auth.py` with CLIENT_ID=`2fG3H4RhlAbIZm9Rfn32zTaILH7w1X4w` and ORGANIZATION from the token. Run with `python3 $TMPDIR/confidence_auth.py`. Outputs `TOKEN:<jwt>` on success.
-
-```python
-import http.server, urllib.parse, json, sys, subprocess, hashlib, base64, secrets, string
-
-code_verifier = ''.join(secrets.choice(string.ascii_letters + string.digits + '-._~') for _ in range(43))
-code_challenge = base64.urlsafe_b64encode(hashlib.sha256(code_verifier.encode()).digest()).rstrip(b'=').decode()
-
-port = 8084
-CLIENT_ID = '<CLIENT_ID>'
-ORGANIZATION = '<ORG_ID>'
-REDIRECT_URI = f'http://localhost:{port}/callback'
-auth_code = None
-error = None
-
-class Handler(http.server.BaseHTTPRequestHandler):
-    def do_GET(self):
-        global auth_code, error
-        q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
-        self.send_response(200)
-        self.send_header('Content-Type', 'text/html')
-        self.end_headers()
-        if 'code' in q:
-            auth_code = q['code'][0]
-            self.wfile.write(b'<h1>Login successful!</h1><p>You can close this tab.</p>')
-        else:
-            error = q.get('error', ['unknown'])[0]
-            self.wfile.write(b'<h1>Login failed</h1><p>Please try again.</p>')
-    def log_message(self, format, *args):
-        pass
-
-params = {
-    'client_id': CLIENT_ID,
-    'redirect_uri': REDIRECT_URI,
-    'response_type': 'code',
-    'scope': 'openid profile email offline_access',
-    'audience': 'https://confidence.dev/',
-    'code_challenge': code_challenge,
-    'code_challenge_method': 'S256',
-}
-if ORGANIZATION:
-    params['organization'] = ORGANIZATION
-
-authorize_url = 'https://auth.confidence.dev/authorize?' + urllib.parse.urlencode(params)
-subprocess.Popen(['open', authorize_url])
-print('WAITING_FOR_LOGIN', flush=True)
-
-server = http.server.HTTPServer(('127.0.0.1', port), Handler)
-server.timeout = 120
-while auth_code is None and error is None:
-    server.handle_request()
-server.server_close()
-
-if error:
-    print(f'AUTH_ERROR:{error}', flush=True)
-    sys.exit(1)
-
-import urllib.request
-token_data = json.dumps({
-    'grant_type': 'authorization_code',
-    'client_id': CLIENT_ID,
-    'code': auth_code,
-    'redirect_uri': REDIRECT_URI,
-    'code_verifier': code_verifier
-}).encode()
-req = urllib.request.Request(
-    'https://auth.confidence.dev/oauth/token',
-    data=token_data,
-    headers={'Content-Type': 'application/json'}
-)
-try:
-    with urllib.request.urlopen(req) as resp:
-        token_response = json.loads(resp.read())
-    print(f'TOKEN:{token_response["access_token"]}', flush=True)
-except Exception as e:
-    print(f'TOKEN_ERROR:{e}', flush=True)
-    sys.exit(1)
-```
-
-### Extract region from token
-
-```bash
-REGION=$(echo "$PAYLOAD" | python3 -c "
-import sys, json, base64
-p = sys.stdin.read().strip()
-p += '=' * (4 - len(p) % 4) if len(p) % 4 else ''
-d = json.loads(base64.b64decode(p))
-print(d.get('https://confidence.dev/region', 'EU'))
-")
-```
-
-Then use `${REGION,,}` (lowercase) for URL prefix: `iam.eu.confidence.dev`, `metrics.eu.confidence.dev`, etc.
-
-### Common notes
-
-- Port is fixed at **8084** (must match Auth0 Allowed Callback URLs)
-- If port 8084 is busy: `lsof -ti:8084 | xargs kill -9 2>/dev/null`
-- All network commands require `dangerouslyDisableSandbox: true`
-- Never show the token value to the user
-- Always use region-specific URLs (e.g., `iam.eu.confidence.dev` not `iam.confidence.dev`)
-
-### Important: gRPC-REST transcoding rules
-
-The Confidence APIs use gRPC with REST transcoding. The `body` field in the proto HTTP binding determines the JSON structure:
-
-- **`body: "data_warehouse"`** -> send the data warehouse object directly: `{"config": {...}}`
-- **`body: "flag_applied_connection"`** -> send the connection object directly: `{"redshift": {...}}`
-- **`body: "event_connection"`** -> send the connection object directly: `{"redshift": {...}}`
-- **`body: "assignment_table"`** -> send the assignment table object directly: `{"displayName": "...", "sql": "...", ...}`
-- **`body: "*"`** -> send the full request message
-
-The body is the object directly, NOT wrapped in an outer key.
-
-Fields NOT in the body (like `flag_id`, `parent`) become **query parameters**.
-
-**Field names are `snake_case`** in requests. Responses may use `camelCase`.
+All Confidence API operations in this skill use MCP tool calls, which handle authentication transparently. AWS-specific operations (`aws` CLI, `gcloud`) still run as shell commands and require their own credentials.
 
 ---
 
@@ -517,29 +374,16 @@ Copy the SQL to clipboard for the user.
 
 ## Step 8: Validate
 
-```bash
-curl -s -w "\n%{http_code}" -X POST "https://metrics.${REGION}.confidence.dev/v1/dataWarehouseConfig:validate" \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "redshiftConfig": {
-      "clusterIdentifier": "<CLUSTER>",
-      "database": "<DATABASE>",
-      "schema": "<SCHEMA>",
-      "region": "<AWS_REGION>",
-      "roleArn": "<ROLE_ARN>"
-    }
-  }'
+Use the MCP tool to validate the warehouse configuration:
+
+```
+mcp__confidence-flags__validateWarehouseConfig({
+  warehouseType: "redshift",
+  configJson: '{"cluster":"<CLUSTER>","database":"<DATABASE>","roleArn":"<ROLE_ARN>","exposureSchema":"<SCHEMA>","region":"<AWS_REGION>"}'
+})
 ```
 
-**Response:**
-```json
-{
-  "validation": [{ "key": "...", "description": "...", "success": true/false, "error": "..." }],
-  "successful": true/false,
-  "configurationResponse": { /* type-specific */ }
-}
-```
+The tool returns a validation result with `successful` (true/false) and an array of validation checks, each with `key`, `description`, `success`, and `error` fields.
 
 If `successful` is true, move to Step 9.
 
@@ -561,23 +405,13 @@ Then show the relevant remediation steps:
 
 ## Step 9: Create warehouse
 
-**IMPORTANT:** The body is the data warehouse object directly (gRPC transcoding `body: "data_warehouse"`), NOT wrapped in a `dataWarehouse` key.
+Use the MCP tool to create the data warehouse:
 
-```bash
-curl -s -w "\n%{http_code}" -X POST "https://metrics.${REGION}.confidence.dev/v1/dataWarehouses" \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "config": {
-      "redshiftConfig": {
-        "clusterIdentifier": "<CLUSTER>",
-        "database": "<DATABASE>",
-        "schema": "<SCHEMA>",
-        "region": "<AWS_REGION>",
-        "roleArn": "<ROLE_ARN>"
-      }
-    }
-  }'
+```
+mcp__confidence-flags__createWarehouse({
+  warehouseType: "redshift",
+  configJson: '{"cluster":"<CLUSTER>","database":"<DATABASE>","roleArn":"<ROLE_ARN>","exposureSchema":"<SCHEMA>","region":"<AWS_REGION>"}'
+})
 ```
 
 Save the returned `name` (e.g., `dataWarehouses/...`) for reference.
@@ -586,70 +420,24 @@ Save the returned `name` (e.g., `dataWarehouses/...`) for reference.
 
 ## Step 10: Create connectors
 
-Create both connectors. Redshift connectors require `redshiftConfig`, `s3Config`, and `batchFileConfig`.
+Create both connectors using MCP tools.
 
 ### Flag Applied Connection (assignment data -> warehouse)
 
-**IMPORTANT:** The body is the connection object directly (gRPC transcoding `body: "flag_applied_connection"`), NOT wrapped.
-
-```bash
-curl -s -w "\n%{http_code}" -X POST "https://connectors.${REGION}.confidence.dev/v1/flagAppliedConnections" \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "redshift": {
-      "redshiftConfig": {
-        "clusterIdentifier": "<CLUSTER>",
-        "database": "<DATABASE>",
-        "schema": "<SCHEMA>",
-        "region": "<AWS_REGION>",
-        "roleArn": "<ROLE_ARN>"
-      },
-      "s3Config": {
-        "bucket": "<S3_BUCKET_NAME>",
-        "region": "<AWS_REGION>",
-        "roleArn": "<ROLE_ARN>"
-      },
-      "batchFileConfig": {
-        "maxEventsPerFile": 10000,
-        "maxFileAge": "300s",
-        "maxFileSize": 104857600
-      },
-      "table": "assignments"
-    }
-  }'
+```
+mcp__confidence-flags__createFlagAppliedConnection({
+  warehouseType: "redshift",
+  configJson: '{"cluster":"<CLUSTER>","roleArn":"<ROLE_ARN>","database":"<DATABASE>","schema":"<SCHEMA>","table":"confidence_flag_applied","region":"<AWS_REGION>","s3Bucket":"<S3_BUCKET_NAME>"}'
+})
 ```
 
 ### Event Connection (events -> warehouse)
 
-**IMPORTANT:** The body is the connection object directly (gRPC transcoding `body: "event_connection"`), NOT wrapped.
-
-```bash
-curl -s -w "\n%{http_code}" -X POST "https://connectors.${REGION}.confidence.dev/v1/eventConnections" \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "redshift": {
-      "redshiftConfig": {
-        "clusterIdentifier": "<CLUSTER>",
-        "database": "<DATABASE>",
-        "schema": "<SCHEMA>",
-        "region": "<AWS_REGION>",
-        "roleArn": "<ROLE_ARN>"
-      },
-      "s3Config": {
-        "bucket": "<S3_BUCKET_NAME>",
-        "region": "<AWS_REGION>",
-        "roleArn": "<ROLE_ARN>"
-      },
-      "batchFileConfig": {
-        "maxEventsPerFile": 10000,
-        "maxFileAge": "300s",
-        "maxFileSize": 104857600
-      },
-      "tablePrefix": "events_"
-    }
-  }'
+```
+mcp__confidence-flags__createEventConnection({
+  warehouseType: "redshift",
+  configJson: '{"cluster":"<CLUSTER>","roleArn":"<ROLE_ARN>","database":"<DATABASE>","schema":"<SCHEMA>","tablePrefix":"events_","region":"<AWS_REGION>","s3Bucket":"<S3_BUCKET_NAME>"}'
+})
 ```
 
 ---
@@ -658,26 +446,15 @@ curl -s -w "\n%{http_code}" -X POST "https://connectors.${REGION}.confidence.dev
 
 Create an assignment table so Confidence can analyze experiment assignments.
 
-**IMPORTANT:** The body is the assignment table object directly (gRPC transcoding `body: "assignment_table"`), NOT wrapped in an `assignmentTable` key.
-
-```bash
-curl -s -w "\n%{http_code}" -X POST "https://metrics.${REGION}.confidence.dev/v1/assignmentTables" \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "displayName": "Assignments",
-    "sql": "SELECT targeting_key, rule, assignment_id, assignment_time FROM <SCHEMA>.assignments",
-    "entityColumn": { "name": "targeting_key" },
-    "timestampColumn": { "name": "assignment_time" },
-    "exposureKeyColumn": { "name": "rule" },
-    "variantKeyColumn": { "name": "assignment_id" },
-    "dataDeliveredUntilUpdateStrategyConfig": {
-      "strategy": "AUTOMATIC",
-      "automaticUpdateConfig": {
-        "commitDelay": "300s"
-      }
-    }
-  }'
+```
+mcp__confidence-flags__createAssignmentTable({
+  displayName: "Flag Assignments",
+  sql: "SELECT targeting_key, rule, assignment_id, assignment_time FROM <SCHEMA>.assignments",
+  entityColumn: "targeting_key",
+  timestampColumn: "assignment_time",
+  exposureKeyColumn: "rule",
+  variantKeyColumn: "assignment_id"
+})
 ```
 
 ---
@@ -820,90 +597,27 @@ Otherwise, show queries for the Redshift query editor.
 
 ---
 
-## API Reference (agent-internal -- do NOT show to user)
+## MCP Tool Reference (agent-internal -- do NOT show to user)
 
-### Base URLs
+All Confidence API operations use the `confidence-flags` MCP server. The MCP server handles authentication, region routing, and request formatting automatically.
 
-All APIs require **region-specific URLs**. Extract region from the JWT token claim `https://confidence.dev/region` (value: `EU` or `US`), lowercase it, and use as prefix.
+### Warehouse operations
 
-```
-IAM_API:         https://iam.${region}.confidence.dev/v1
-RESOLVER_API:    https://resolver.${region}.confidence.dev/v1
-EVENTS_API:      https://events.${region}.confidence.dev/v1
-CONNECTORS_API:  https://connectors.${region}.confidence.dev/v1
-METRICS_API:     https://metrics.${region}.confidence.dev/v1
-```
+| Operation | MCP Tool |
+|-----------|----------|
+| Validate warehouse config | `mcp__confidence-flags__validateWarehouseConfig` |
+| Create data warehouse | `mcp__confidence-flags__createWarehouse` |
+| Create flag applied connection | `mcp__confidence-flags__createFlagAppliedConnection` |
+| Create event connection | `mcp__confidence-flags__createEventConnection` |
+| Create assignment table | `mcp__confidence-flags__createAssignmentTable` |
 
-### Endpoints
+### Verification endpoints (still use curl with client secret)
 
-**Validate warehouse config (Bearer token):**
-```
-POST ${METRICS_API}/dataWarehouseConfig:validate
-Body: { "redshiftConfig": { "clusterIdentifier": str, "database": str, "schema": str, "region": str, "roleArn": str } }
--> { "validation": [...], "successful": bool, "configurationResponse": {...} }
-```
+The pipeline verification step (Step 12) uses client-secret-authenticated endpoints that are not covered by MCP tools. These still use `curl`:
 
-**Check warehouse exists (Bearer token):**
-```
-GET ${METRICS_API}/dataWarehouses:exists
--> { "exists": bool }
-```
-
-**Create data warehouse (Bearer token, body: "data_warehouse"):**
-```
-POST ${METRICS_API}/dataWarehouses
-Body (direct object): { "config": { "redshiftConfig": { "clusterIdentifier": str, "database": str, "schema": str, "region": str, "roleArn": str } } }
--> DataWarehouse object
-```
-
-**Create flag applied connection (Bearer token, body: "flag_applied_connection"):**
-```
-POST ${CONNECTORS_API}/flagAppliedConnections
-Body (direct object): { "redshift": { "redshiftConfig": {...}, "s3Config": {...}, "batchFileConfig": {...}, "table": "assignments" } }
--> FlagAppliedConnection object
-```
-
-**Create event connection (Bearer token, body: "event_connection"):**
-```
-POST ${CONNECTORS_API}/eventConnections
-Body (direct object): { "redshift": { "redshiftConfig": {...}, "s3Config": {...}, "batchFileConfig": {...}, "tablePrefix": "events_" } }
--> EventConnection object
-```
-
-**Create assignment table (Bearer token, body: "assignment_table"):**
-```
-POST ${METRICS_API}/assignmentTables
-Body (direct object): { "displayName": str, "sql": str, "entityColumn": {...}, "timestampColumn": {...}, "exposureKeyColumn": {...}, "variantKeyColumn": {...}, "dataDeliveredUntilUpdateStrategyConfig": {...} }
--> AssignmentTable object
-```
-
-**List clients (Bearer token):**
-```
-GET ${IAM_API}/clients
--> { "clients": [...], "nextPageToken": string }
-```
-
-**Create client credential (Bearer token, body: "client_credential"):**
-```
-POST ${IAM_API}/${clientName}/credentials
-Body (direct object): { "display_name": string }
--> { "name": "...", "clientSecret": { "secret": string }, ... }
-  NOTE: secret only returned once on creation
-```
-
-**Resolve flags (client secret -- NOT Bearer token):**
-```
-POST ${RESOLVER_API}/flags:resolve
-Body: { "flags": ["flags/<id>"], "evaluationContext": {...}, "clientSecret": string, "apply": bool }
--> { "resolvedFlags": [...] }
-```
-
-**Publish events (client secret -- NOT Bearer token):**
-```
-POST ${EVENTS_API}/events:publish
-Body: { "client_secret": string, "events": [...], "send_time": "ISO8601" }
--> { "errors": [...] }
-```
+- **Resolve flags:** `POST https://resolver.${REGION}.confidence.dev/v1/flags:resolve` (client secret auth)
+- **Publish events:** `POST https://events.${REGION}.confidence.dev/v1/events:publish` (client secret auth)
+- **List clients / create credentials:** Use MCP tools if available, otherwise `curl` with Bearer token
 
 ---
 
