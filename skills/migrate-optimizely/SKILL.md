@@ -372,6 +372,27 @@ to the affected flag, don't silently guess and stay silent about it:
   3+ arm variations into a boolean flag. If the customer's code reads
   variable values (not just the variation key) for these flags, ASK —
   Option B2 can't tell you either way.
+- **`targeted_delivery` (rollout) rules' `variation_names` is NOT a real
+  variation key — never use it as a Confidence variant name.** Rollout
+  rules always deliver a single `on` state (see "The Rule object": *"a
+  `targeted_delivery` rule usually has a single `on` variation"*); B2
+  export tools synthesize a **display label** for this slot instead of
+  the real key, built from the rule's own `name` — typically `"On
+  <environment> <audience name or 'Everyone'>"` (e.g. `"On production
+  Everyone"`). Treating that label as a variant creates a Confidence
+  variant the customer's code never checks for, silently breaking real
+  traffic. Instead:
+  - If **every** rule on the flag is `targeted_delivery` (no `a/b`/
+    experiment rule with real named variations), the flag is boolean:
+    map the delivered state to `on` (see "Optimizely's flag model" row
+    1) and ignore the literal label entirely.
+  - If the flag **also** has an `a/b`/experiment rule with real
+    variations, the rollout's target variant is ambiguous from B2
+    alone. If an earlier rule already matches the same audience at
+    100% (the rollout is unreachable — a common "test superseded by a
+    full rollout" pattern), note it as a **dead rule** in the plan and
+    drop it rather than inventing a variant. Otherwise ASK the user
+    which of the flag's real variants the rollout should deliver.
 - **No per-variation split**, only the rule-level `traffic_allocation`.
   Default to an **even split** across `variation_names` (remainder to
   the last variant) and flag it in the plan: "Split not in the export —
