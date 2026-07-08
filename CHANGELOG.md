@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.5.0](https://github.com/spotify/confidence-ai-plugins/compare/v0.4.2...v0.5.0) (2026-07-08)
+
+
+### Features
+
+* add telemetry to all skills ([#40](https://github.com/spotify/confidence-ai-plugins/issues/40)) ([7c2c7f0](https://github.com/spotify/confidence-ai-plugins/commit/7c2c7f0e2e8d975770b47c667af808c21b214a1c))
+* **migrate-optimizely:** support migration from exported JSON files ([#41](https://github.com/spotify/confidence-ai-plugins/issues/41)) ([4a736af](https://github.com/spotify/confidence-ai-plugins/commit/4a736af8388c662dffb4521b18d28cbb8828250e))
+
+
+### Bug Fixes
+
+* **migrate-optimizely:** document named-variant flag shape in Phase 1 ([#44](https://github.com/spotify/confidence-ai-plugins/issues/44)) ([d0911b4](https://github.com/spotify/confidence-ai-plugins/commit/d0911b494f9dd0171dd867bee206d83d189bd9de))
+
 ## [0.4.2](https://github.com/spotify/confidence-ai-plugins/compare/v0.4.1...v0.4.2) (2026-06-24)
 
 
