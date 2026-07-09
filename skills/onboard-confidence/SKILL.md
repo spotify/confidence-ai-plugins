@@ -22,7 +22,7 @@ Do NOT show a menu of sub-commands. Do NOT offer "Setup Wizard" as a choice — 
 | `/onboard-confidence create-account` | Create a new Confidence account |
 | `/onboard-confidence invite-user` | Invite a user to an account |
 | `/onboard-confidence create-client` | Create an SDK client and generate credentials |
-| `/onboard-confidence setup-wizard` | Guided walkthrough: client → flag → targeting → resolve |
+| `/onboard-confidence setup-wizard` | Guided walkthrough: create flag → test resolve |
 | `/onboard-confidence setup-warehouse` | Configure data warehouse, connectors, and assignment tables |
 | `/onboard-confidence learn` | Interactive learning about experimentation concepts |
 | `/onboard-confidence status` | Check current user/account status |
@@ -619,11 +619,9 @@ Guided walkthrough of the full onboarding checklist. Uses MCP tools for flag/cli
 ───── Setup Wizard ────────────────────────────────────────
   [1] Get started        ○ pending
   [2] Connect tools      ○ pending
-  [3] Create client      ○ pending
-  [4] Create flag        ○ pending
-  [5] Add targeting      ○ pending
-  [6] Test resolve       ○ pending
-  [7] Done               ○ pending
+  [3] Create flag        ○ pending
+  [4] Test resolve       ○ pending
+  [5] Done               ○ pending
 ────────────────────────────────────────────────────────────
 ```
 
@@ -661,7 +659,11 @@ Tell the user:
 **If the user skips** or MCP call fails, proceed with REST fallback — set `MCP_CONNECTED=false`. Tell the user:
 > No problem! I'll use the REST API instead. You can always connect the tools later with `/mcp`.
 
-### Step 3: Create client
+### Step 3: Create flag
+
+This step creates a client (or picks an existing one), creates the flag with variants, and adds a default targeting rule — all in one guided flow.
+
+#### 3a. Set up client
 
 **MCP path** (when `MCP_CONNECTED=true`):
 
@@ -702,7 +704,7 @@ curl -s "https://iam.${REGION}.confidence.dev/v1/${CLIENT_NAME}/credentials" \
 
 Save the client `name` and `clientSecret` for later steps.
 
-### Step 4: Create flag
+#### 3b. Create the flag
 
 EDUCATE then ASK:
 > A feature flag controls a piece of functionality. Let's create your first one.
@@ -757,12 +759,12 @@ curl -s -X POST "https://flags.${REGION}.confidence.dev/v1/flags/<FLAG_NAME>:add
   -d '{"client": "<CLIENT_NAME>", "flag": "flags/<FLAG_NAME>"}'
 ```
 
-### Step 5: Add targeting
+#### 3c. Add targeting
 
 EDUCATE:
 > Targeting rules control who sees which variant. Let's set a default — you can add more rules later.
 
-Use AskUserQuestion to pick the default variant (list the variants created in Step 4).
+Use AskUserQuestion to pick the default variant (list the variants created above).
 
 **MCP path** (when `MCP_CONNECTED=true`):
 
@@ -810,7 +812,7 @@ curl -s -w "\n%{http_code}" -X POST "https://flags.${REGION}.confidence.dev/v1/f
 
 **IMPORTANT (REST only):** Segment proportion must be > 0 and `:allocate` must be called, otherwise resolve returns empty.
 
-### Step 6: Test resolve
+### Step 4: Test resolve
 
 EDUCATE:
 > Let's verify the flag works by resolving it for different contexts.
@@ -880,7 +882,7 @@ If resolve fails or returns no match, check that:
 3. Context fields required by targeting rules are included in the resolve call
 4. A catch-all rule exists for non-matching contexts (otherwise they fall through to code default)
 
-### Step 7: Done
+### Step 5: Done
 
 Show a summary, then offer SDK integration using the **confidence-docs MCP**:
 
