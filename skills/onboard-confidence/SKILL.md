@@ -22,7 +22,7 @@ Do NOT show a menu of sub-commands. Do NOT offer "Setup Wizard" as a choice — 
 | `/onboard-confidence create-account` | Create a new Confidence account |
 | `/onboard-confidence invite-user` | Invite a user to an account |
 | `/onboard-confidence create-client` | Create an SDK client and generate credentials |
-| `/onboard-confidence setup-wizard` | Guided walkthrough: create flag → test resolve |
+| `/onboard-confidence setup-wizard` | Guided walkthrough: create flag → test resolve → integrate SDK |
 | `/onboard-confidence setup-warehouse` | Configure data warehouse, connectors, and assignment tables |
 | `/onboard-confidence learn` | Interactive learning about experimentation concepts |
 | `/onboard-confidence status` | Check current user/account status |
@@ -621,7 +621,8 @@ Guided walkthrough of the full onboarding checklist. Uses MCP tools for flag/cli
   [2] Connect tools      ○ pending
   [3] Create flag        ○ pending
   [4] Test resolve       ○ pending
-  [5] Done               ○ pending
+  [5] Integrate SDK      ○ pending
+  [6] Done               ○ pending
 ────────────────────────────────────────────────────────────
 ```
 
@@ -882,9 +883,36 @@ If resolve fails or returns no match, check that:
 3. Context fields required by targeting rules are included in the resolve call
 4. A catch-all rule exists for non-matching contexts (otherwise they fall through to code default)
 
-### Step 5: Done
+### Step 5: Integrate SDK
 
-Show a summary, then offer SDK integration using the **confidence-docs MCP**:
+EDUCATE:
+> Your flag is live — now let's wire it into your product so your code can read it.
+
+Use AskUserQuestion to pick the platform:
+- **JavaScript / TypeScript** — browser or Node.js
+- **React** — React hooks integration
+- **Python** — server-side Python
+- **Java / Kotlin** — JVM backend or Android
+- **Swift** — iOS / macOS
+- **Go** — server-side Go
+
+Call `mcp__confidence-docs__getCodeSnippetAndSdkIntegrationTips` with the selected platform to fetch tailored SDK setup instructions and code snippets. Present the result to the user, including:
+
+1. **Install** — the package/dependency to add
+2. **Initialize** — how to create the Confidence client with the secret from Step 3
+3. **Resolve** — how to evaluate the flag created in Step 3 (use the actual flag name and schema)
+4. **Use the value** — a minimal example showing how to branch on the resolved value
+
+Pre-fill the code snippets with the user's actual values (`<CLIENT_SECRET>`, `<FLAG_NAME>`, schema fields) so they can copy-paste directly.
+
+After showing the snippets, ask:
+> Want me to help you add this to your codebase? I can find the right spot and wire it in.
+
+If the user says yes, help them integrate — locate the appropriate files in their project and add the SDK initialization and flag evaluation code. If they decline, proceed to Done.
+
+### Step 6: Done
+
+Show a summary:
 
 ```
 ═══════════════════════════════════════════════════════════════
@@ -903,15 +931,12 @@ Show a summary, then offer SDK integration using the **confidence-docs MCP**:
 ```
 
 Use AskUserQuestion for next steps:
-- **Integrate the SDK** — get code snippets for your platform
 - **Invite team members** — add collaborators to your workspace
 - **Set up data warehouse** — connect analytics pipeline
 - **Create more flags** — keep building
 - **Learn experimentation** — interactive course on A/B testing
 
-**If the user picks "Integrate the SDK"**, use `mcp__confidence-docs__getCodeSnippetAndSdkIntegrationTips` with the user's platform (ask via AskUserQuestion: JavaScript, Python, Java, Kotlin, Swift, Go, React) to provide tailored integration code. This gives the user the exact SDK setup they need.
-
-**For other choices**, direct to the corresponding sub-command.
+**For each choice**, direct to the corresponding sub-command.
 
 ---
 
