@@ -83,7 +83,7 @@ curl -s -X POST "https://events.eu.confidence.dev/v1/events:publish" \
 
 | Field | How to set it |
 |-------|--------------|
-| `step` | `<phase>.<step-title>`, e.g. `plan-flags.scan-source`, `plan-flags.generate-plan`, `plan-code.scan-codebase`, `plan-code.fetch-sdk-guide`, `execute.create-flag`, `execute.transform-code` |
+| `step` | `<phase>.<step-title>`, e.g. `plan-flags.scan-source`, `plan-flags.review-scope`, `plan-flags.generate-plan`, `plan-code.scan-codebase`, `plan-code.fetch-sdk-guide`, `execute.create-flag`, `execute.transform-code` |
 | `action` | Verb describing the operation: `scan_flags`, `generate_plan`, `scan_codebase`, `fetch_sdk_guide`, `create_flag`, `add_targeting`, `transform_code`, `create_pr` |
 | `sentiment` | Assess the conversation: `positive` (smooth, engaged), `neutral` (normal), `confused` (retries, questions, errors), `frustrated` (repeated failures, complaints) |
 | `completion` | Progress state: `starting` (first steps), `in_progress` (middle), `completing` (final steps), `done` (finished) |
@@ -113,24 +113,33 @@ overview FIRST — before doing any work.
   ┌─────────────────────────────────────────────────────────┐
   │  PHASE 1 — Flag Definitions                            │
   │                                                        │
-  │  Move all flags, targeted-delivery rollouts, and A/B   │
-  │  tests from Optimizely to Confidence with their        │
-  │  audiences, traffic allocation, variations, and        │
-  │  variable values.                                      │
+  │  Recreate your stable Optimizely flags in Confidence:  │
+  │  on/off flags, full (100%) or off (0%) rollouts, and   │
+  │  concluded experiments — with their audiences,         │
+  │  variations, and variable values.                      │
+  │                                                        │
+  │  NOT migrated by default: live A/B tests, partial-%    │
+  │  rollouts, and bandits. Confidence buckets users       │
+  │  differently than Optimizely, so migrating a running   │
+  │  experiment would reshuffle its users and corrupt its  │
+  │  metrics. You review and confirm the scope in step 2.  │
   │                                                        │
   │  Steps:                                                │
   │    1. Scan Optimizely (flags, rulesets, audiences)     │
-  │    2. Choose a Confidence client (your app)            │
-  │    3. Map the bucketing ID to an entity field          │
-  │    4. Generate migration plan with targeting rules     │
-  │    5. Execute: create each flag in Confidence          │
+  │    2. Review migration scope (what's in, what's out)   │
+  │    3. Choose a Confidence client (your app)            │
+  │    4. Map the bucketing ID to an entity field          │
+  │    5. Generate migration plan with targeting rules     │
+  │    6. Execute: create each flag in Confidence          │
   │                                                        │
-  │  Result: All flags live in Confidence, ready to resolve│
+  │  Result: In-scope flags live in Confidence, ready to   │
+  │  resolve (nothing consumes them until Phase 2)         │
   ├─────────────────────────────────────────────────────────┤
   │  PHASE 2 — Code Transformation                         │
   │                                                        │
   │  Once flags exist in Confidence, migrate the code that │
-  │  evaluates them. Each flag = one PR.                   │
+  │  evaluates them — one pull request per flag, so each   │
+  │  change stays small and independently shippable.       │
   │                                                        │
   │  Steps:                                                │
   │    1. Detect language & framework                      │
@@ -146,7 +155,7 @@ overview FIRST — before doing any work.
   Why flags first?
   Flags must exist in Confidence before code can resolve them.
 
-  Why one PR per flag?
+  Why one PR per flag (Phase 2)?
   Keeps changes small, reviewable, and independently shippable.
   If one flag's migration has issues, it doesn't block the others.
 
@@ -326,7 +335,10 @@ the error to the user — do not start scanning.
 Ask the user for a **file path or directory**. Read files with the Read
 tool (never `curl`, never guess at data). Two shapes are recognized —
 detect which one you have by inspecting the JSON, and say which you
-detected before proceeding:
+detected before proceeding. **"B1"/"B2" are internal labels for this
+document only — never say them to the user.** User-facing names: B1 is
+"a full API export", B2 is "a summary export (per-flag, without
+per-variation splits or audience definitions)".
 
 **B1 — Raw API response dumps (preferred, full fidelity).** One or more
 files that are verbatim saves of the endpoints in "Optimizely REST API
@@ -393,24 +405,57 @@ to the affected flag, don't silently guess and stay silent about it:
     full rollout" pattern), note it as a **dead rule** in the plan and
     drop it rather than inventing a variant. Otherwise ASK the user
     which of the flag's real variants the rollout should deliver.
+- **Duplicate variation names — collapse, don't block.** Rules whose
+  `variation_names` are all identical (common for CMS-generated
+  experiments where both arms were later pinned to the same content)
+  are serving one effective variant. Migrate as **fully rolled out**:
+  one variant, one rule at 100%, no split. Note it in the plan
+  ("both arms serve the same variant — collapsed to a single 100%
+  rollout"). Do NOT mark these BLOCKED and do NOT create a split
+  between identical variants.
 - **No per-variation split**, only the rule-level `traffic_allocation`.
-  Default to an **even split** across `variation_names` (remainder to
-  the last variant) and flag it in the plan: "Split not in the export —
-  assumed even; confirm against Optimizely before executing." Prefer
-  asking the customer for the fuller `/ruleset` response (Option B1) if
-  exact splits matter.
+  **NEVER silently assume a split** — a wrong split on a used flag
+  means flicker and corrupted metrics. Decide by variant count:
+  - One distinct variant (or all names identical, above) → 100% to
+    that variant; no split needed.
+  - Two or more distinct variants → this is an experiment with an
+    unknown split. Apply the **Migration Scope Policy**: excluded by
+    default (live), or migrated as a rollout to a user-confirmed
+    variant (stale). Only migrate it *as an experiment with a split*
+    if the user explicitly supplies the split (e.g. from the
+    Optimizely UI's Variations page or a screenshot) — record the
+    source of the numbers in the plan.
+  Prefer asking the customer for the fuller `/ruleset` response
+  (Option B1) — it carries the real per-variation
+  `percentage_included`.
 - **No audience conditions**, only `audience_ids`. If a rule's
   `audience_ids` is empty, it targets everyone (no gap). If non-empty,
   the plan **cannot** express that targeting — mark the rule BLOCKED
   pending the audience detail and ask the user for the `/v2/audiences`
   export (or a live token) to resolve it rather than guessing "everyone."
 - **Ignore** experiment-reporting metadata that isn't part of the flag
-  model: `layer_experiment_id`, `primary_metric`, `days_running`,
+  model: `layer_experiment_id`, `primary_metric`,
   `fetch_results_ui_url`, `created_by_user_email`,
   `has_restricted_permissions`, `custom_fields`. None of it affects the
-  Confidence targeting rule.
-- A `config.enabled: false` (or rule `enabled: false`) means the exact
-  same thing as the live-API case: migrate the flag, keep it OFF.
+  Confidence targeting rule. Exception: `days_running` and
+  `updated_time` ARE used — they feed the live-vs-stale classification
+  in the Migration Scope Policy.
+- A `config.enabled: false` (or rule `enabled: false`, or `status:
+  paused`) marks a paused/disabled flag — **excluded by default** per
+  the Migration Scope Policy (ask once; if the user opts them in,
+  migrate them OFF exactly like the live-API disabled case).
+- **Not in this export at all** (invisible, not just incomplete) —
+  surface these as known unknowns in the plan rather than assuming
+  they don't exist:
+  - **Whitelists / forced variations** (per-user overrides forcing a
+    variation). Would map to Confidence override rules; ask the
+    customer whether any flags in scope use them (or request UI
+    screenshots).
+  - **Exclusion groups** (mutually exclusive experiments). The UI
+    shows them per experiment; the summary export doesn't.
+  - **Project archived status.** An archived Optimizely project still
+    exports its flags with `status: running`. Ask whether the exported
+    project is the live production project.
 
 ### Local testing (no Optimizely account needed)
 
@@ -442,7 +487,12 @@ response bodies — the field names and shapes below apply unchanged.
 > **Source of truth.** Field names and shapes here are taken from
 > Optimizely's published API docs at
 > <https://docs.developers.optimizely.com/feature-experimentation/reference>.
-> Refer back to it if you encounter a field that isn't documented below.
+> If a scan or export contains a field or value this document doesn't
+> cover, do NOT guess its meaning — fetch the relevant page of those
+> docs (WebFetch) and check, then tell the user what you looked up.
+> Exports from customer tooling can contain fields no documentation
+> covers; if the docs don't resolve it either, surface it as an open
+> question instead of assuming.
 
 | Purpose | Endpoint |
 |---------|----------|
@@ -568,6 +618,57 @@ Repeat the loop for `flags` AND `audiences`.
 
 ---
 
+## Migration Scope Policy (what migrates, what doesn't)
+
+Flag migration and experiment migration are different problems.
+Confidence uses a different bucketing hash than Optimizely, so a user's
+variant assignment **cannot** be preserved across the move. For a stable
+flag (everyone gets the same thing) that's irrelevant; for a live
+experiment it means users would be reshuffled between arms mid-test —
+a flickering experience and corrupted metrics. The scope policy below
+encodes that line. Classify **every** flag into exactly one category
+during the scan, and present the scope summary (with counts) for
+confirmation before planning.
+
+| Category | How to detect | Default |
+|----------|--------------|---------|
+| **Stable flag / full rollout** — boolean flags, rollouts at 100% or 0%, single-variant rules | All rules are `targeted_delivery` at 0/10000 basis points, or every rule serves one effective variant | **Migrate** |
+| **Same-variant experiment** — all of a rule's variation names identical | `variation_names` has duplicates covering all arms | **Migrate as fully rolled out** — one variant at 100%, no split (see "Duplicate variation names") |
+| **Concluded / stale experiment** | A/B rule whose experiment is no longer actively measured (see "Live vs stale" below) | **Ask** — migrate as rolled-out to a confirmed variant, or exclude |
+| **Live A/B test** | A/B rule with 2+ distinct variants, actively measured | **Exclude** — finish or conclude it in Optimizely first; migrating would reshuffle users and corrupt metrics |
+| **Partial-% rollout** | `targeted_delivery` with `percentage_included` not 0 or 10000 | **Exclude** — same sampling problem: the included cohort can't be reproduced |
+| **Adaptive (bandit / stats accelerator)** | `type: multi_armed_bandit` or adaptive `distribution_mode` | **Exclude** — Confidence allocations are static |
+| **Paused / disabled flag** | Flag `status: paused` or ruleset `enabled: false` | **Exclude** — ask once; opt-in migrates them OFF |
+| **Blocked** | Unsupported operators, missing audience data, etc. | **Excluded until resolved** (see Blocked) |
+
+**Live vs stale: don't trust the export's `status`.** A rule exporting
+as `status: running` does NOT mean anyone is still measuring that
+experiment — real accounts contain experiments "running" untouched for
+years (effectively frozen rollouts). Signals that a "running" experiment
+is actually stale:
+
+- `days_running` is large (rule of thumb: > 90 days with no recent
+  `updated_time` change) — genuinely live tests conclude in weeks
+- all variation names are identical (someone pinned both arms)
+- the project or surrounding config is archived
+- the customer doesn't recognize it as an active test
+
+When the scan finds "running" experiments, do NOT silently classify them
+all as live (which excludes them) or all as stale (which migrates them).
+Present the counts with the staleness signals and ask the user to
+confirm which experiments are genuinely live — that list is usually
+short and the customer knows it. Everything else is stale and can be
+migrated as a rollout **if** the user confirms which variant (or split)
+it should serve; without that confirmation it stays excluded and listed.
+
+**Excluded ≠ forgotten.** Every excluded flag appears in the plan with
+its category and a one-line reason, so the customer can revisit. The
+user can override any category's default at the scope-confirmation step
+("migrate the partial rollouts anyway as 100%" is their call, not
+yours) — record overrides in the plan.
+
+---
+
 ## Step Trackers
 
 ### Status markers
@@ -626,19 +727,21 @@ At the end of execution, show a complete summary:
 ```
 ───── Plan Flags ──────────────────────────────────────────
   [1] Scan Optimizely  ○ pending
-  [2] Choose client    ○ pending
-  [3] Map bucketing ID ○ pending
-  [4] Generate plan    ○ pending
+  [2] Review scope     ○ pending
+  [3] Choose client    ○ pending
+  [4] Map bucketing ID ○ pending
+  [5] Generate plan    ○ pending
 ────────────────────────────────────────────────────────────
 ```
 
-Example after Step 1 completes:
+Example after Step 2 completes:
 ```
 ───── Plan Flags ──────────────────────────────────────────
   [1] Scan Optimizely  ✓ 12 flags, 4 audiences (env: production)
-  [2] Choose client    ◉ in progress
-  [3] Map bucketing ID ○ pending
-  [4] Generate plan    ○ pending
+  [2] Review scope     ✓ 9 to migrate, 3 excluded (2 live tests, 1 bandit)
+  [3] Choose client    ◉ in progress
+  [4] Map bucketing ID ○ pending
+  [5] Generate plan    ○ pending
 ────────────────────────────────────────────────────────────
 ```
 
@@ -667,6 +770,16 @@ Example after Step 1 completes:
     (append `-2`, `-3`, … by source-key sort order, or a short hash of the
     original); record every original → Confidence key pair in the plan's
     key map. Never silently merge two flags.
+  - **Synthetic keys: surface the description.** Tool-generated flags
+    (CMS integrations, UI-created experiments) often have opaque
+    UUID-style keys (`CMS-3f2a81d0-…`) while the human-readable name
+    lives in `description` ("Summer banner test"). Whenever a flag's key/name is
+    synthetic and a description exists: use the description as the
+    flag's display name in ALL user-facing output (conversation,
+    trackers, plan headings — key in parentheses), and carry it into the
+    Confidence flag's description on create so the flag stays findable
+    in the Confidence UI. A list of 300 UUIDs is unreviewable; the same
+    list by description is not.
 - **Entity references:** Confidence entity names do NOT support underscores.
   The entity reference (e.g. `entities/company`) is separate from the context
   field name (e.g. `company_id`). When creating entity fields with
@@ -712,9 +825,10 @@ wait until the end to write.
 
 ## Plan Flag: Steps
 
-The migration follows a 4-step plan flow: Step 1 scan Optimizely (and
-pick the environment), Step 2 choose a Confidence client, Step 3 map the
-bucketing ID, Step 4 generate the MCP commands.
+The migration follows a 5-step plan flow: Step 1 scan Optimizely (and
+pick the environment), Step 2 review the migration scope, Step 3 choose
+a Confidence client, Step 4 map the bucketing ID, Step 5 generate the
+MCP commands.
 
 ### Plan-file path
 
@@ -757,8 +871,13 @@ curl -sS -H "Authorization: Bearer $OPTIMIZELY_API_TOKEN" \
   "https://api.optimizely.com/flags/v1/projects/$OPTIMIZELY_PROJECT_ID/flags?per_page=100&page=1"
 ```
 
-Ask once up-front: "Include archived flags too? Default: no". Skip flags
-whose `archived` is `true` unless the user opts in.
+**Archived / paused flags — only ask about what the data actually
+contains.** If the data carries an `archived` field and some flags are
+archived, ask once: "Include archived flags too? Default: no". If it
+doesn't (the summary export has no such field), don't ask — the
+question is just confusing. Likewise, if the data marks paused/disabled
+flags (`status: paused`, `enabled: false`), report the count and
+exclude them by default per the Migration Scope Policy, asking once.
 
 **Step 1c — for each flag, fetch its variations and the ruleset for the
 chosen environment (in batches of 5).**
@@ -773,7 +892,7 @@ curl -sS -H "Authorization: Bearer $OPTIMIZELY_API_TOKEN" \
 ```
 
 **After each batch of 5**, write the data to the plan file — append the
-sections to Section 4. This way if the session closes mid-scan, the
+sections to Section 5 (Flags to Migrate). This way if the session closes mid-scan, the
 flags fetched so far are saved.
 
 Extract from each flag:
@@ -814,11 +933,57 @@ segment.
 **Bucketing ID.** Optimizely buckets each user on the ID passed to the
 SDK (`decide` / `activate`), optionally overridden by a `$opt_bucketing_id`
 attribute. There is no per-flag unit type — the user maps the bucketing
-ID to one Confidence entity field in Step 3.
+ID to one Confidence entity field in Step 4.
 
 **After scan completes:** Update Generation Status step 1 to `✓ complete`.
 
-### Step 2: Select Confidence client
+### Step 2: Review migration scope
+
+Classify every scanned flag into exactly one Migration Scope Policy
+category, then present a **scope summary** and a **gap report** and ask
+the user to confirm (or override) before going further.
+
+**Scope summary format** — counts first, plain English, Optimizely
+terminology (the people running this know Optimizely, not Confidence
+internals):
+
+> Here's what I found in project `<id>` (environment `<env>`):
+>
+> | Category | Flags | Default |
+> |----------|-------|---------|
+> | Stable flags & full rollouts | N | migrate |
+> | Experiments where both arms serve the same variation | N | migrate as rolled out |
+> | "Running" A/B tests (see below) | N | confirm live vs stale |
+> | Rollouts at a partial % | N | exclude |
+> | Multi-armed bandits | N | exclude |
+> | Paused flags | N | exclude |
+> | Blocked (missing data / unsupported targeting) | N | excluded until resolved |
+>
+> The A/B tests need your input: the export marks them "running", but
+> <staleness evidence, e.g. "all of them have been running for over a
+> year — genuinely live tests usually conclude in weeks">. Which of
+> these (if any) are experiments you're still actively measuring?
+> Live ones stay in Optimizely until they conclude; the rest can be
+> migrated as rollouts once you confirm which variation they should
+> serve.
+
+**Gap report rules.** When the source data has gaps (typical for
+summary exports), report each gap in plain English with three parts:
+*what's missing*, *how many flags it affects*, and *what that means for
+the migration*. Never use this document's internal vocabulary
+("B1"/"B2", "named-variant struct shape", "synthetic labels") — say
+"the export doesn't include the traffic split between variations, which
+affects 12 flags — I can't migrate those as experiments without the
+split from the Optimizely UI" instead. End the report with what would
+unblock the gaps (a full API export, an API token, or UI screenshots of
+specific flags).
+
+Set the step to `⏸ awaiting user`. Record the confirmed scope — per
+category: default kept or overridden, plus the user's live-experiment
+list — in the plan's Migration Scope section. Only then update
+Generation Status step 2 to `✓ complete`.
+
+### Step 3: Select Confidence client
 
 ```
 mcp__confidence__listClients
@@ -854,7 +1019,7 @@ re-ask, listing the choices again.
 - If user wants new → ASK for name → `mcp__confidence__createClient`
 
 **After client selected:** Write the "Default Client" section to the
-plan file and update Generation Status step 2 to `✓ complete`.
+plan file and update Generation Status step 3 to `✓ complete`.
 
 **Forked apps (shared code, independent flag sets).** Some apps are
 **forks** of another app — they share a codebase but each fork is its own
@@ -867,7 +1032,7 @@ shared repo) — which client a build resolves against is **build config**
 code but absent from a given fork's set resolves to the **call-site
 default** (fail-safe), the same as before. Run `plan flags` once per fork.
 
-### Step 3: Map Bucketing ID (Optimizely-specific)
+### Step 4: Map Bucketing ID (Optimizely-specific)
 
 This step maps Optimizely's bucketing ID (the user ID handed to the SDK)
 to a Confidence entity field.
@@ -891,6 +1056,12 @@ to a Confidence entity field.
 >   client SDKs)
 > - **company_id** — for a company/org/tenant unit
 >
+> One thing worth checking: is the ID your code passes to Optimizely an
+> **authenticated user ID**, an **anonymous visitor/device ID**, or a
+> mix? (For an unauthenticated website it's usually an anonymous ID.)
+> The name should reflect what the ID actually is — it determines how
+> the flags behave across login boundaries.
+>
 > Your client's existing entity fields:
 > 1. <entity-field-1>
 > 2. <entity-field-2>
@@ -899,39 +1070,67 @@ to a Confidence entity field.
 >
 > Which Confidence field represents the Optimizely user/bucketing ID?
 
-Same wait-for-explicit-pick rule as Step 2 above. Silence is not
-consent.
+Same wait-for-explicit-pick rule as Step 3 above. Silence is not
+consent. If the user doesn't know whether the IDs are authenticated or
+anonymous, proceed with their pick but record the open question in the
+plan ("confirm with the team whether Optimizely receives authenticated
+or anonymous IDs").
 
 - If user picks existing → use it as `targetingKey`
 - If user wants new → ASK for name + type → `mcp__confidence__addContextField`
   (always provide an explicit `entityReference` — see Confidence Naming
   Rules above)
 
-### Step 4: Generate MCP commands
+**After mapping chosen:** Write the "Bucketing ID Mapping" section to
+the plan file and update Generation Status step 4 to `✓ complete`.
+
+### Step 5: Generate MCP commands
 
 **Confirmation gate (MUST pass before generating).** Before writing the
 Flags to Migrate section, summarize the choices made in earlier steps
-(environment, client, bucketing-ID → entity mapping) and ask:
+(environment, scope, client, bucketing-ID → entity mapping) and ask for
+the **execution mode**. Nobody will click through hundreds of flags one
+by one — for large migrations the right default is to migrate
+everything the confirmed scope marks eligible, since Phase 1 is
+effectively a shadow deployment (flags exist in Confidence but nothing
+resolves them until Phase 2 ships).
 
 > Plan will assume environment `<env>`, client `<client>`, with the
-> Optimizely user ID → entity `<entity>`. All flags will be defaulted to
-> `[ ] Migrate  [ ] Skip` (neither pre-checked) — you'll opt each one in
-> during review. Confirm or change?
+> Optimizely user ID → entity `<entity>`, and the scope we confirmed
+> (<N> flags in, <M> excluded). How should `execute` run?
+>
+> 1. **Migrate all eligible** (recommended for <N> ≳ 20) — every
+>    in-scope flag is pre-approved; execute runs through them and only
+>    stops on errors or flags needing input. Nothing serves traffic to
+>    users until Phase 2.
+> 2. **Review each flag** — every flag starts unapproved; you tick
+>    `[x] Migrate` / `[x] Skip` per flag and execute confirms each one.
 
 Set the step to `⏸ awaiting user` and stop. Only proceed on an explicit
-`yes` / `confirm` / equivalent. A re-run or ambiguous reply is **not**
-confirmation.
+choice. A re-run or ambiguous reply is **not** confirmation.
 
 For each flag, generate the MCP command payloads (`createFlag`,
 `addFlagToClient`, `addTargetingRule`, `resolveFlag`) using the Operator
 Mapping table together with the Confidence Targeting Payload Format
-(below). Write them into each flag's section in the plan.
+(below). Write them into each flag's section in the plan. In
+**migrate-all-eligible** mode, pre-tick `[x] Migrate` on every eligible
+flag and `[x] Skip` (with the category as reason) on every excluded
+one; flags whose classification needs user input stay unticked. In
+**review-each** mode, all boxes start empty.
 
-**After all commands generated:** Update Generation Status step 4 to
-`✓ complete`, set the overall status to `complete`, and tell the user:
+**After all commands generated:** Update Generation Status step 5 to
+`✓ complete`, set the overall status to `complete`, and tell the user
+(adapt to the chosen mode):
 
 > Plan generated! Review it at `.claude/plans/optimizely-flag-migration-<date>.md`
 >
+> Mode: **migrate all eligible** — <N> flags are pre-approved, <M> are
+> skipped with reasons, <K> need a decision from you (unticked). Adjust
+> any checkbox you disagree with, then run:
+> `/migrate-optimizely execute <plan-file>`
+
+(or, review-each mode:)
+
 > Migration is **opt-in**: every flag starts with both checkboxes empty.
 > Tick `[x] Migrate` or `[x] Skip` for each flag — `execute` will refuse
 > any flag with neither box set. When ready, run:
@@ -1196,6 +1395,14 @@ and `targetingKey`. Encode the entire rollout or variation split *inside*
 set of targeting conditions, with the variant split defined inside that
 rule via `variantAllocations`.
 
+**Same-variant arms — collapse the split.** If all of a rule's arms
+serve the same variant (duplicate variation names, or every variation
+carrying identical variable values), there is nothing to split:
+migrate as ONE variant at 100% (`variantAllocations` =
+`{ "<variant>": 100 }`) and note the collapse in the plan. Splitting
+traffic between identical arms adds bucketing complexity for zero
+behavioral difference.
+
 ### Partial / fall-through allocation (`percentage_included` < 100)
 
 Optimizely's waterfall has **true fall-through**: a user who matches a
@@ -1293,7 +1500,7 @@ These genuinely have no clean Confidence translation:
   Confidence equivalent. Reason: `Uses a '<type>' audience condition with
   no Confidence equivalent; migrate manually.`
 
-When a rule/condition is blocked, mark it in Section 4 (per the
+When a rule/condition is blocked, mark it in Section 5 (per the
 template). A flag is fully blocked only when *every* non-default rule is
 blocked.
 
@@ -1456,6 +1663,7 @@ wrote the rules.
 **Scope:** Flag definitions only
 **Optimizely project:** <PROJECT_ID>
 **Environment:** <env-key>
+**Execution mode:** <migrate-all-eligible / review-each>
 
 ---
 
@@ -1464,15 +1672,57 @@ wrote the rules.
 | Step | Status | Result |
 |------|--------|--------|
 | 1. Scan Optimizely | ○ not started | |
-| 2. Choose client | ○ not started | |
-| 3. Map bucketing ID | ○ not started | |
-| 4. Generate rules | ○ not started | |
+| 2. Review scope | ○ not started | |
+| 3. Choose client | ○ not started | |
+| 4. Map bucketing ID | ○ not started | |
+| 5. Generate rules | ○ not started | |
 
 **Overall:** in progress
 
 ---
 
-## 1. Default Client
+## How Optimizely maps to Confidence (reference)
+
+| Optimizely | Confidence |
+|------------|-----------|
+| Flag | Flag |
+| Variation | Variant |
+| Variable values | Variant payload (flag schema properties) |
+| Targeted delivery / A/B rule | Targeting rule (same order) |
+| Audience | Targeting criteria (inlined) or segment (REST) |
+| Traffic allocation + variation split | Variant allocations inside the rule |
+| Default variation | Final catch-all targeting rule |
+| Bucketing ID (`decide` user ID) | Entity field (`targetingKey`) |
+
+---
+
+## 1. Migration Scope (confirmed with user on <date>)
+
+| Category | Flags | Decision |
+|----------|-------|----------|
+| Stable flags & full rollouts | N | migrate |
+| Same-variant experiments (collapsed to rolled out) | N | migrate |
+| Live A/B tests | N | excluded — conclude in Optimizely first |
+| Stale experiments, variant confirmed | N | migrate as rollout |
+| Partial-% rollouts | N | excluded |
+| Bandits / adaptive | N | excluded |
+| Paused flags | N | excluded |
+| Blocked | N | excluded until resolved |
+
+**Overrides / notes:** <user decisions that differ from the defaults,
+the confirmed live-experiment list, open questions for the customer
+(e.g. whitelists, exclusion groups, whether the export is from the live
+project, authenticated vs anonymous IDs)>
+
+### Excluded flags
+
+| Flag | Category | Reason (one line) |
+|------|----------|-------------------|
+<every excluded flag — excluded is visible, never silent>
+
+---
+
+## 2. Default Client
 
 A client represents the application that resolves flags (e.g. your
 website, backend service, or mobile app). Each client authenticates
@@ -1486,7 +1736,7 @@ application receives which flags.
 
 ---
 
-## 2. Bucketing ID Mapping
+## 3. Bucketing ID Mapping
 
 An entity is the "thing" being randomly assigned to a variant — usually
 a user. The entity field (like `user_id` or `visitor_id`) is the
@@ -1502,7 +1752,7 @@ Confidence entity field.
 
 ---
 
-## 3. Context Schema
+## 4. Context Schema
 
 The context schema defines what fields Confidence expects in the
 evaluation context when resolving flags — the custom attributes the
@@ -1532,16 +1782,24 @@ audiences use (e.g. `country`, `plan`, `appVersion`).
 
 ---
 
-## 4. Flags to Migrate
+## 5. Flags to Migrate
 
-**Migration is opt-in.** Each flag starts with both checkboxes empty.
-Tick `[x] Migrate` for every flag you want to bring across, or
-`[x] Skip` to drop it. Flags with neither box ticked will be refused
-by `execute` — no implicit defaults.
+**Checkbox semantics depend on the Execution mode above.**
+`migrate-all-eligible`: eligible flags come pre-ticked `[x] Migrate`,
+excluded flags pre-ticked `[x] Skip` with their scope category as
+reason; only flags needing a user decision start unticked.
+`review-each`: every flag starts with both boxes empty — tick each one.
+Either way, `execute` refuses any flag with neither box ticked.
 
 ### Flag: `<flag-key>`
 
+**Display name:** <when the Optimizely key/name is synthetic (an opaque
+or UUID-style key, e.g. `CMS-3f2a81d0-…`) and `description` is set, put
+the description here and use it whenever this flag is shown to the user
+(with the key in parentheses); also carry it into the Confidence flag's
+description so it stays findable>
 **Description:** <from Optimizely if available, otherwise empty>
+**Scope category:** <from the Migration Scope table, e.g. "stable flag" / "same-variant experiment — collapsed to rolled out" / "stale experiment — variant confirmed by user">
 **Backend:** <MCP (default) / REST — REST is required for partial allocation with fall-through, reusable audiences, or exclusion-group exclusivity>
 **Confidence schema:** <e.g. `{ enabled: boolean }` for a boolean flag; `{ variant: string }` for a variable-less flag with custom-named variations (see "Optimizely's flag model"); the variable shape for a flag with variables>
 **Variants:** <variant list — e.g. "on, off" for a boolean flag; the literal Optimizely variation keys for a named-variant flag; variation keys carrying their variable values for a flag with variables>
@@ -1552,7 +1810,7 @@ by `execute` — no implicit defaults.
   1. `<rule key>` (<targeted_delivery / a/b>) — <plain-English audience>, traffic <X>%, <variant split>
   2. ...
 **Default:** <ruleset default_variation (e.g. off) → catch-all rule>
-**Rollout/split:** <how percentage_included / variation split are encoded — variantAllocations (MCP) or segment proportion + bucketRanges (REST)>
+**Rollout/split:** <how percentage_included / variation split are encoded — variantAllocations (MCP) or segment proportion + bucketRanges (REST). ALWAYS state where the split numbers came from: ruleset API / summary export / user-confirmed (UI screenshot) / collapsed to 100% (same-variant). Never write an assumed split without a source>
 **Audiences:** <none, or list of Confidence segments created (REST) / inlined (MCP) with the optimizely-audience-id → segments/<id> mapping>
 **Exclusion group:** <none, or group-id → exclusivity tag (REST)>
 **Adaptive:** <none, or "multi_armed_bandit / stats_accelerator — split snapshotted, no longer auto-tunes">
@@ -1571,11 +1829,15 @@ with:
 
 ---
 
-## 5. Progress
+## 6. Progress
 
 | # | Flag | Status |
 |---|------|--------|
 | 1 | <flag> | :white_circle: |
+
+<!-- Status values: :white_circle: pending · :white_check_mark: migrated
+<date> · :no_entry_sign: skipped · :x: failed (reason). `execute`
+updates this table AND the flag's Action line after EVERY flag. -->
 ```
 
 ---
@@ -1590,20 +1852,43 @@ with:
 1. READ the plan file
    - Client is already in the plan — use it, do NOT re-ask
    - Bucketing-ID → entity mapping is in the plan
+   - Execution mode is in the plan header — it decides step 2's shape
    - REFUSE TO PROCEED if any flag has neither `[x] Migrate` nor
      `[x] Skip` ticked. List those flags back and ask the user to tick a
-     box for each. Migration is opt-in — never assume a default.
+     box for each (in migrate-all-eligible mode these are exactly the
+     flags that needed a decision). Never assume a default.
    - REFUSE TO PROCEED if any flag is marked `BLOCKED` and the user
      hasn't either resolved the block or ticked `[x] Skip`. Surface the
      BLOCKED flags and the reason for each.
 2. FOR EACH FLAG marked [x] Migrate:
-   - Show flag name, type, description, and rules in plain English
-   - ASK: "Create this flag in Confidence? [Yes / Skip / Pause]"
-   - If Yes → run the Flag Setup Sequence (below)
-   - CHECKPOINT: "Flag done. [Continue / Pause]?"
-   - Wait for user response
+   - review-each mode:
+     a. Show flag name (display name if set), type, description, and
+        rules in plain English
+     b. ASK: "Create this flag in Confidence? [Yes / Skip / Pause]"
+     c. If Yes → run the Flag Setup Sequence (below)
+     d. UPDATE THE PLAN FILE (mandatory, see below)
+     e. CHECKPOINT: "Flag done. [Continue / Pause]?" — wait for user
+   - migrate-all-eligible mode:
+     a. Run the Flag Setup Sequence for the flag — NO per-flag question
+     b. UPDATE THE PLAN FILE (mandatory, see below)
+     c. Update the progress bar; continue to the next flag
+     d. STOP AND ASK only when something needs a human: a Flag Setup
+        step fails after retry, a resolve verification mismatches, or
+        the flag's plan entry has an unresolved note. Offer
+        [Retry / Skip this flag / Pause].
 3. COMPLETION
-   - Show summary: created vs skipped
+   - Show summary: created vs skipped vs failed
+   - The plan file's Progress table must match the summary exactly
+
+UPDATE THE PLAN FILE (after EVERY flag, before touching the next one):
+   - Flag's Section 5 entry: replace the Action line with the outcome —
+     `**Action:** ✓ Migrated <date>` / `⊘ Skipped (<reason>)` /
+     `✗ Failed (<reason>)`
+   - Section 6 Progress table: update the flag's row
+   This is not optional bookkeeping — the plan file is the resume
+   state. A plan whose Progress table doesn't reflect completed work
+   causes double-migration on resume and tells the user nothing was
+   done.
 ```
 
 ### For code plans
@@ -1635,7 +1920,9 @@ loop below applies only to the `call-site rewrite` style.
    e. Run lint + typecheck on changed files
    f. Commit changes
    g. Create PR titled: "feat: migrate <flag-key> from Optimizely to Confidence"
-   h. CHECKPOINT: "PR created. [Continue to next flag / Pause]?"
+   h. UPDATE THE PLAN FILE: mark this flag done with the PR link in its
+      entry and the Progress table (mandatory before the next flag)
+   i. CHECKPOINT: "PR created. [Continue to next flag / Pause]?"
 4. COMPLETION — show summary + list all PRs created
 ```
 
@@ -1719,11 +2006,17 @@ STEP 4: resolveFlag (verification) — identical to the MCP sequence's
 
 ### Rules
 
-- **NEVER auto-continue** — always wait for user at each checkpoint
+- **Checkpoints follow the execution mode** — in review-each mode,
+  NEVER auto-continue past a checkpoint; in migrate-all-eligible mode,
+  auto-continue through successful flags and stop only for failures or
+  flags needing input (the user already approved the batch)
 - **Flag-by-flag** — each flag is one unit (its files + tests)
 - **Preserve source order** — one Confidence rule per Optimizely rule, in
   `rule_priorities` order
-- **Resumable** — update the Progress table in the plan file after each step
+- **Resumable** — update the flag's Action line AND the Progress table
+  in the plan file after every flag, in both modes, before moving on.
+  The plan file is the resume state; stale progress means
+  double-migration on resume
 
 ## Execute: Optimizely-Specific Notes
 

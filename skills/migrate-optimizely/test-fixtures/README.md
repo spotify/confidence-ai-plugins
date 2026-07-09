@@ -39,7 +39,7 @@ Python 3.10+ stdlib, no dependencies.
 python3 server.py
 # Fake Optimizely REST API listening on http://127.0.0.1:4100
 #   Project 4100100100 (curated operator-mapping fixtures): 14 flags (13 non-archived), 11 audiences, 2 environments
-#   Project 5551000001 (summary export scenario): 6 flags (6 non-archived), 0 audiences, 1 environment
+#   Project 5551000001 (summary export scenario): 10 flags (10 non-archived), 0 audiences, 1 environment
 ```
 
 The server hosts **two Optimizely projects** on one port, selected by the
@@ -154,7 +154,11 @@ Step 1c/1d extraction rather than the B2 gap-filling logic itself.)
 | Trait | In the export | Why it matters for the migration |
 |---|---|---|
 | `type: a/b` with **no flag variables** | variations are bare names (`control`/`treatment`, `layout_a`/`layout_b`, `variation_1`/`variation_2`, etc.) | Code branches on the **variation key**, not on flag variables — the a/b rule still folds into one Confidence targeting rule with a bare variant per arm (no separate "experiment" migration path; see SKILL.md "Optimizely's flag model") |
-| Every experiment **paused / disabled** | `enabled: false`, `status: paused` | Flags migrate **OFF** (rules created but not live) |
+| **Paused / disabled** experiments (6 flags) | `enabled: false`, `status: paused` | Excluded by default per the Migration Scope Policy; if the user opts them in, they migrate **OFF** |
+| **Duplicate variation names** (`CMS-aa11bb22-…`) | both `variation_names` identical; human name in `description`, key synthetic | Collapsed to a single fully-rolled-out variant (no split between identical arms); display name comes from the description |
+| **"Running" a/b with distinct arms** (`flag-sample-video-autoplay`, `days_running` ≈ 3 years) | no per-variation split in the export | Triggers the live-vs-stale scope question; never migrated with an assumed split |
+| **100% rollout** (`flag-sample-dark-mode`) | `targeted_delivery`, `traffic_allocation: 10000`, synthetic `variation_names` label | Stable flag — migrates under the default scope policy (the label is not a real variation key) |
+| **Partial 40% rollout** (`flag-sample-beta-search`) | `targeted_delivery`, `traffic_allocation: 4000` | Excluded by default — the included cohort can't be reproduced in Confidence |
 | **No audiences** | `audience_ids: []` | Each rule targets everyone (no gap) |
 | `has_restricted_permissions: true` | present on every config | The tell for Option B2: a restricted token could only export rule **summaries** — no per-variation split, variable values, or audience conditions |
 
@@ -163,16 +167,22 @@ Step 1c/1d extraction rather than the B2 gap-filling logic itself.)
 The export only carries rule *summaries* (`traffic_allocation` +
 `variation_names`). For the **Option A comparison path** above, `server.py`
 fills the gaps with Optimizely's documented defaults to serve a complete
-ruleset over HTTP (the skill's own **Option B2 gap-filling** — used when
-you point it at `summary-export-sample.json` directly — makes and
-documents the same assumptions in the generated plan instead):
+ruleset over HTTP:
 
 - **Split:** `distribution_mode: manual` with N arms → an even split
-  (2 arms = 50/50). The real live split isn't in the export.
+  (2 arms = 50/50). The real live split isn't in the export. This is a
+  server-side reconstruction convenience only — the skill's own file
+  path (Option B) never assumes a split: multi-variant rules with an
+  unknown split follow the Migration Scope Policy (excluded, or
+  migrated as a rollout to a user-confirmed variant).
 - **Variables:** none — each arm becomes a bare Confidence variant. The
   arm identity (the variation key) is what code reads.
 - **`off` variation:** `default_variation_key: "off"` implies an implicit
   `off` variation served when the (disabled) rule doesn't apply.
+- **Duplicate names:** the CMS flag's ruleset has distinct variation
+  *keys* (`variation_1`/`variation_2`) with identical display *names* —
+  which is exactly how the summary export ends up with duplicate
+  `variation_names`.
 
 If a real account later shares the full `/ruleset` and `/variations`
 responses (Option B1), the skill uses those directly with no fidelity

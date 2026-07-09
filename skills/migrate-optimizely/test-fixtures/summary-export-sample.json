@@ -250,5 +250,207 @@
       "enable_url": "/projects/5551000001/flags/flag-sample-email-subject/environments/production/ruleset/enabled",
       "created_time": "2018-04-18T15:56:19.000000Z"
     }
+  },
+  {
+    "name": "CMS-aa11bb22-cc33-dd44-ee55-ff6677889900",
+    "key": "CMSaa11bb22cc33dd44ee55f",
+    "description": "Homepage banner refresh",
+    "environment": "production",
+    "config": {
+      "key": "production",
+      "name": "Production",
+      "enabled": true,
+      "has_restricted_permissions": true,
+      "priority": 1,
+      "status": "running",
+      "rules_summary": {
+        "a/b": {
+          "keys": [
+            "CMS-aa11bb22-cc33-dd44-ee55-ff6677889900"
+          ]
+        }
+      },
+      "rules_detail": [
+        {
+          "primary_metric": "hero_cta_clicks",
+          "status": "running",
+          "enabled": true,
+          "traffic_allocation": 10000,
+          "key": "CMS-aa11bb22-cc33-dd44-ee55-ff6677889900",
+          "fetch_results_ui_url": null,
+          "days_running": 1650,
+          "layer_experiment_id": 10000000007,
+          "id": 20000007,
+          "variation_names": [
+            "b47c20de-55a1-4c02-9e6f-8d21a7c3f410",
+            "b47c20de-55a1-4c02-9e6f-8d21a7c3f410"
+          ],
+          "distribution_mode": "manual",
+          "created_time": "2022-01-15T10:00:00.000000Z",
+          "type": "a/b",
+          "name": "CMS-aa11bb22-cc33-dd44-ee55-ff6677889900",
+          "created_by_user_email": "example@example.com",
+          "audience_ids": [],
+          "custom_fields": null,
+          "updated_time": "2022-06-01T08:00:00.000000Z"
+        }
+      ],
+      "default_variation_key": "off",
+      "default_variation_name": "Off",
+      "id": 5551000002,
+      "disable_url": "/projects/5551000001/flags/CMSaa11bb22cc33dd44ee55f/environments/production/ruleset/disabled",
+      "created_time": "2019-06-12T09:30:00.000000Z"
+    }
+  },
+  {
+    "name": "Legacy Video Autoplay Test",
+    "key": "flag-sample-video-autoplay",
+    "description": "Compare autoplay vs click-to-play video",
+    "environment": "production",
+    "config": {
+      "key": "production",
+      "name": "Production",
+      "enabled": true,
+      "has_restricted_permissions": true,
+      "priority": 1,
+      "status": "running",
+      "rules_summary": {
+        "a/b": {
+          "keys": [
+            "legacy_video_autoplay_test"
+          ]
+        }
+      },
+      "rules_detail": [
+        {
+          "primary_metric": "hero_cta_clicks",
+          "status": "running",
+          "enabled": true,
+          "traffic_allocation": 10000,
+          "key": "legacy_video_autoplay_test",
+          "fetch_results_ui_url": null,
+          "days_running": 1100,
+          "layer_experiment_id": 10000000008,
+          "id": 20000008,
+          "variation_names": [
+            "video_on",
+            "video_off"
+          ],
+          "distribution_mode": "manual",
+          "created_time": "2022-01-15T10:00:00.000000Z",
+          "type": "a/b",
+          "name": "Legacy Video Autoplay Test",
+          "created_by_user_email": "example@example.com",
+          "audience_ids": [],
+          "custom_fields": null,
+          "updated_time": "2022-06-01T08:00:00.000000Z"
+        }
+      ],
+      "default_variation_key": "off",
+      "default_variation_name": "Off",
+      "id": 5551000002,
+      "disable_url": "/projects/5551000001/flags/flag-sample-video-autoplay/environments/production/ruleset/disabled",
+      "created_time": "2019-06-12T09:30:00.000000Z"
+    }
+  },
+  {
+    "name": "Dark Mode Rollout",
+    "key": "flag-sample-dark-mode",
+    "description": "Dark mode for all users",
+    "environment": "production",
+    "config": {
+      "key": "production",
+      "name": "Production",
+      "enabled": true,
+      "has_restricted_permissions": true,
+      "priority": 1,
+      "status": "running",
+      "rules_summary": {
+        "targeted_delivery": {
+          "keys": [
+            "dark_mode_rollout"
+          ]
+        }
+      },
+      "rules_detail": [
+        {
+          "primary_metric": null,
+          "status": "running",
+          "enabled": true,
+          "traffic_allocation": 10000,
+          "key": "dark_mode_rollout",
+          "fetch_results_ui_url": null,
+          "days_running": null,
+          "layer_experiment_id": 10000000009,
+          "id": 20000009,
+          "variation_names": [
+            "On production Everyone"
+          ],
+          "distribution_mode": null,
+          "created_time": "2022-01-15T10:00:00.000000Z",
+          "type": "targeted_delivery",
+          "name": "Dark Mode Rollout",
+          "created_by_user_email": "example@example.com",
+          "audience_ids": [],
+          "custom_fields": null,
+          "updated_time": "2022-06-01T08:00:00.000000Z"
+        }
+      ],
+      "default_variation_key": "off",
+      "default_variation_name": "Off",
+      "id": 5551000002,
+      "disable_url": "/projects/5551000001/flags/flag-sample-dark-mode/environments/production/ruleset/disabled",
+      "created_time": "2019-06-12T09:30:00.000000Z"
+    }
+  },
+  {
+    "name": "Beta Search Rollout",
+    "key": "flag-sample-beta-search",
+    "description": "New search backend, gradual rollout",
+    "environment": "production",
+    "config": {
+      "key": "production",
+      "name": "Production",
+      "enabled": true,
+      "has_restricted_permissions": true,
+      "priority": 1,
+      "status": "running",
+      "rules_summary": {
+        "targeted_delivery": {
+          "keys": [
+            "beta_search_rollout"
+          ]
+        }
+      },
+      "rules_detail": [
+        {
+          "primary_metric": null,
+          "status": "running",
+          "enabled": true,
+          "traffic_allocation": 4000,
+          "key": "beta_search_rollout",
+          "fetch_results_ui_url": null,
+          "days_running": null,
+          "layer_experiment_id": 10000000010,
+          "id": 20000010,
+          "variation_names": [
+            "On production Everyone"
+          ],
+          "distribution_mode": null,
+          "created_time": "2022-01-15T10:00:00.000000Z",
+          "type": "targeted_delivery",
+          "name": "Beta Search Rollout",
+          "created_by_user_email": "example@example.com",
+          "audience_ids": [],
+          "custom_fields": null,
+          "updated_time": "2022-06-01T08:00:00.000000Z"
+        }
+      ],
+      "default_variation_key": "off",
+      "default_variation_name": "Off",
+      "id": 5551000002,
+      "disable_url": "/projects/5551000001/flags/flag-sample-beta-search/environments/production/ruleset/disabled",
+      "created_time": "2019-06-12T09:30:00.000000Z"
+    }
   }
 ]

@@ -38,7 +38,8 @@ project id in the request:
     skill's operator-mapping table and BLOCKED markers (see README.md)
   * {SUMMARY_EXPORT_PROJECT_ID} — a synthetic account modeling the
     Option B2 flattened-summary-export pattern: legacy variable-less
-    a/b tests, all paused, no audiences (see README.md → "Summary
+    a/b tests (paused and long-"running"), duplicate variation names,
+    full and partial rollouts, no audiences (see README.md → "Summary
     export scenario")
 
 Run:
@@ -509,12 +510,19 @@ FLAGS_BY_KEY = {f["key"]: f for f in FLAGS}
 # per-variation split, flag variables, or audiences. We reconstruct a
 # faithful ruleset using Optimizely's documented defaults so the skill can
 # run end-to-end against a representative account of this shape:
-#   * manual N-way a/b split          → even split (2 arms = 50/50)
+#   * manual N-way a/b split          → even split (2 arms = 50/50); this is
+#                                        the SERVER's reconstruction default —
+#                                        the skill's own file path never
+#                                        assumes a split (scope policy)
 #   * no flag variables               → variable-less flag; the SDK returns
 #                                        the variation KEY (getVariationKey),
 #                                        so each arm is a bare named variation
 #   * empty `audience_ids`            → targets everyone
-#   * every experiment paused         → ruleset disabled → migrate the flag OFF
+#   * paused experiments              → ruleset disabled → excluded by default
+#                                        (opt-in migrates them OFF); running
+#                                        entries exercise the scope policy:
+#                                        live-vs-stale, duplicate-name
+#                                        collapse, partial-% exclusion
 #   * `default_variation_key: "off"`  → implicit off variation plus the arms
 #
 # All flag names/keys/ids below are synthetic — this is not any real
@@ -536,8 +544,15 @@ def _bare_ab_variations(arms: list[str]) -> list[dict[str, Any]]:
     return variations
 
 
-def _summary_export_ab_flag(flag_key: str, exp_name: str, exp_key: str, arms: list[str]) -> dict[str, Any]:
-    """A paused, variable-less a/b experiment targeting everyone, split evenly."""
+def _summary_export_ab_flag(
+    flag_key: str, exp_name: str, exp_key: str, arms: list[str],
+    *, enabled: bool = False, description: str = "",
+) -> dict[str, Any]:
+    """A variable-less a/b experiment targeting everyone, split evenly.
+
+    Paused by default; pass enabled=True for the running-experiment
+    (live-vs-stale) scenario.
+    """
     n = len(arms)
     base = 10000 // n
     split = {arm: base for arm in arms}
@@ -545,15 +560,39 @@ def _summary_export_ab_flag(flag_key: str, exp_name: str, exp_key: str, arms: li
     return {
         "key": flag_key,
         "name": exp_name,
-        "description": "",
+        "description": description,
         "archived": False,
         "variable_definitions": {},
         "_variations": _bare_ab_variations(arms),
-        "_enabled": False,
+        "_enabled": enabled,
         "_default_variation_key": "off",
         "_rule_priorities": [exp_key],
         "_rules": {
-            exp_key: _rule(exp_key, exp_name, "a/b", variations=split, enabled=False),
+            exp_key: _rule(exp_key, exp_name, "a/b", variations=split, enabled=enabled),
+        },
+    }
+
+
+def _summary_export_rollout_flag(
+    flag_key: str, name: str, rule_key: str, *, pct: int, description: str = "",
+) -> dict[str, Any]:
+    """A running targeted-delivery rollout to everyone (full or partial %)."""
+    return {
+        "key": flag_key,
+        "name": name,
+        "description": description,
+        "archived": False,
+        "variable_definitions": {},
+        "_variations": [
+            {"key": "off", "name": "Off", "variables": {}},
+            {"key": "on", "name": "On", "variables": {}},
+        ],
+        "_enabled": True,
+        "_default_variation_key": "off",
+        "_rule_priorities": [rule_key],
+        "_rules": {
+            rule_key: _rule(rule_key, name, "targeted_delivery", pct=pct,
+                            variations={"on": 10000}),
         },
     }
 
@@ -582,6 +621,52 @@ SUMMARY_EXPORT_FLAGS: list[dict[str, Any]] = [
     _summary_export_ab_flag(
         "flag-sample-email-subject", "Email Subject Line",
         "email_subject_line", ["subject_a", "subject_b"],
+    ),
+    # Running experiment whose two arms were later pinned to the SAME
+    # content (a CMS pattern): distinct variation keys, identical display
+    # names. The summary export flattens to duplicate `variation_names` —
+    # the skill collapses it to a single fully-rolled-out variant. The
+    # human-readable name lives in `description`, not the synthetic key.
+    {
+        "key": "CMSaa11bb22cc33dd44ee55f",
+        "name": "CMS-aa11bb22-cc33-dd44-ee55-ff6677889900",
+        "description": "Homepage banner refresh",
+        "archived": False,
+        "variable_definitions": {},
+        "_variations": [
+            {"key": "off", "name": "Off", "variables": {}},
+            {"key": "variation_1", "name": "b47c20de-55a1-4c02-9e6f-8d21a7c3f410", "variables": {}},
+            {"key": "variation_2", "name": "b47c20de-55a1-4c02-9e6f-8d21a7c3f410", "variables": {}},
+        ],
+        "_enabled": True,
+        "_default_variation_key": "off",
+        "_rule_priorities": ["CMS-aa11bb22-cc33-dd44-ee55-ff6677889900"],
+        "_rules": {
+            "CMS-aa11bb22-cc33-dd44-ee55-ff6677889900": _rule(
+                "CMS-aa11bb22-cc33-dd44-ee55-ff6677889900",
+                "CMS-aa11bb22-cc33-dd44-ee55-ff6677889900",
+                "a/b", variations={"variation_1": 5000, "variation_2": 5000},
+            ),
+        },
+    },
+    # "Running" experiment with distinct arms — exercises the
+    # live-vs-stale scope question (the export can't say whether anyone
+    # still measures it) and the unknown-split exclusion on the file path.
+    _summary_export_ab_flag(
+        "flag-sample-video-autoplay", "Legacy Video Autoplay Test",
+        "legacy_video_autoplay_test", ["autoplay_on", "autoplay_off"],
+        enabled=True, description="Compare autoplay vs click-to-play video",
+    ),
+    # Stable 100% rollout → migrates under the default scope policy.
+    _summary_export_rollout_flag(
+        "flag-sample-dark-mode", "Dark Mode Rollout", "dark_mode_rollout",
+        pct=10000, description="Dark mode for all users",
+    ),
+    # Partial 40% rollout → excluded under the default scope policy
+    # (the included cohort can't be reproduced in Confidence).
+    _summary_export_rollout_flag(
+        "flag-sample-beta-search", "Beta Search Rollout", "beta_search_rollout",
+        pct=4000, description="New search backend, gradual rollout",
     ),
 ]
 SUMMARY_EXPORT_FLAGS_BY_KEY = {f["key"]: f for f in SUMMARY_EXPORT_FLAGS}
