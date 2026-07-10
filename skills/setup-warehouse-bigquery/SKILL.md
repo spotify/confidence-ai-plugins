@@ -4,6 +4,8 @@ description: Set up BigQuery as a data warehouse for Confidence. Use when the us
 
 # Setup Warehouse: BigQuery
 
+> **Prerequisite:** This skill requires MCP authentication via the `confidence-flags` server. All Confidence API operations use MCP tool calls — ensure the MCP server is connected before proceeding.
+
 Configure BigQuery as the data warehouse for Confidence experimentation analytics. This skill handles the full end-to-end setup: collect GCP config, validate permissions, create the warehouse, set up connectors, create the assignment table, and verify the pipeline.
 
 ---
@@ -67,154 +69,12 @@ curl -s -X POST "https://events.${REGION}.confidence.dev/v1/events:publish" \
 
 ## Authentication
 
-**Browser-based Auth0 login.** The skill opens a browser for Auth0 login (Google, email/password, SSO) and captures the token automatically. The user never touches a token.
-
-### Session-only token management
-
-The token is kept in the current session only and is never saved to disk. If the session ends or the token expires, the skill will open your browser to log in again.
-
-On every sub-command start, check if the `TOKEN` variable is set and not expired:
-
-```bash
-if [ -n "$TOKEN" ]; then
-  PAYLOAD=$(echo "$TOKEN" | cut -d. -f2)
-  EXP=$(echo "$PAYLOAD" | python3 -c "
-import sys, json, base64
-p = sys.stdin.read().strip()
-p += '=' * (4 - len(p) % 4) if len(p) % 4 else ''
-d = json.loads(base64.b64decode(p))
-print(d.get('exp', 0))
-")
-  NOW=$(date +%s)
-  if [ "$EXP" -gt "$NOW" ]; then
-    echo "VALID"
-  else
-    echo "EXPIRED"
-    unset TOKEN
-  fi
-fi
-```
-
-If `TOKEN` is unset or expired, run the Auth0 login flow with the **regular client ID** (`2fG3H4RhlAbIZm9Rfn32zTaILH7w1X4w`) and the user's `organization` parameter. Store the result in the `TOKEN` shell variable only. **NEVER write the token to disk. NEVER reference `~/.confidence/`.**
-
-### Auth script
-
-Write the following to `$TMPDIR/confidence_auth.py` with CLIENT_ID=`2fG3H4RhlAbIZm9Rfn32zTaILH7w1X4w` and ORGANIZATION from the token. Run with `python3 $TMPDIR/confidence_auth.py`. Outputs `TOKEN:<jwt>` on success.
-
-```python
-import http.server, urllib.parse, json, sys, subprocess, hashlib, base64, secrets, string
-
-code_verifier = ''.join(secrets.choice(string.ascii_letters + string.digits + '-._~') for _ in range(43))
-code_challenge = base64.urlsafe_b64encode(hashlib.sha256(code_verifier.encode()).digest()).rstrip(b'=').decode()
-
-port = 8084
-CLIENT_ID = '<CLIENT_ID>'
-ORGANIZATION = '<ORG_ID>'
-REDIRECT_URI = f'http://localhost:{port}/callback'
-auth_code = None
-error = None
-
-class Handler(http.server.BaseHTTPRequestHandler):
-    def do_GET(self):
-        global auth_code, error
-        q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
-        self.send_response(200)
-        self.send_header('Content-Type', 'text/html')
-        self.end_headers()
-        if 'code' in q:
-            auth_code = q['code'][0]
-            self.wfile.write(b'<h1>Login successful!</h1><p>You can close this tab.</p>')
-        else:
-            error = q.get('error', ['unknown'])[0]
-            self.wfile.write(b'<h1>Login failed</h1><p>Please try again.</p>')
-    def log_message(self, format, *args):
-        pass
-
-params = {
-    'client_id': CLIENT_ID,
-    'redirect_uri': REDIRECT_URI,
-    'response_type': 'code',
-    'scope': 'openid profile email offline_access',
-    'audience': 'https://confidence.dev/',
-    'code_challenge': code_challenge,
-    'code_challenge_method': 'S256',
-}
-if ORGANIZATION:
-    params['organization'] = ORGANIZATION
-
-authorize_url = 'https://auth.confidence.dev/authorize?' + urllib.parse.urlencode(params)
-subprocess.Popen(['open', authorize_url])
-print('WAITING_FOR_LOGIN', flush=True)
-
-server = http.server.HTTPServer(('127.0.0.1', port), Handler)
-server.timeout = 120
-while auth_code is None and error is None:
-    server.handle_request()
-server.server_close()
-
-if error:
-    print(f'AUTH_ERROR:{error}', flush=True)
-    sys.exit(1)
-
-import urllib.request
-token_data = json.dumps({
-    'grant_type': 'authorization_code',
-    'client_id': CLIENT_ID,
-    'code': auth_code,
-    'redirect_uri': REDIRECT_URI,
-    'code_verifier': code_verifier
-}).encode()
-req = urllib.request.Request(
-    'https://auth.confidence.dev/oauth/token',
-    data=token_data,
-    headers={'Content-Type': 'application/json'}
-)
-try:
-    with urllib.request.urlopen(req) as resp:
-        token_response = json.loads(resp.read())
-    print(f'TOKEN:{token_response["access_token"]}', flush=True)
-except Exception as e:
-    print(f'TOKEN_ERROR:{e}', flush=True)
-    sys.exit(1)
-```
-
-### Extract region from token
-
-```bash
-REGION=$(echo "$PAYLOAD" | python3 -c "
-import sys, json, base64
-p = sys.stdin.read().strip()
-p += '=' * (4 - len(p) % 4) if len(p) % 4 else ''
-d = json.loads(base64.b64decode(p))
-print(d.get('https://confidence.dev/region', 'EU'))
-")
-```
-
-Then use `${REGION,,}` (lowercase) for URL prefix: `iam.eu.confidence.dev`, `metrics.eu.confidence.dev`, etc.
+Authentication is handled automatically by the `confidence-flags` MCP server. No manual token management is needed — the MCP server handles Auth0 login, token refresh, and region routing.
 
 ### Common notes
 
-- Port is fixed at **8084** (must match Auth0 Allowed Callback URLs)
-- If port 8084 is busy: `lsof -ti:8084 | xargs kill -9 2>/dev/null`
-- All network commands require `dangerouslyDisableSandbox: true`
-- Never show the token value to the user
-- Always use region-specific URLs (e.g., `iam.eu.confidence.dev` not `iam.confidence.dev`)
-
-### Important: gRPC-REST transcoding rules
-
-The Confidence APIs use gRPC with REST transcoding. The `body` field in the proto HTTP binding determines the JSON structure:
-
-- **`body: "data_warehouse"`** -> send the data warehouse object directly: `{"config": {...}}`
-- **`body: "flag_applied_connection"`** -> send the connection object directly: `{"bigQuery": {...}}`
-- **`body: "event_connection"`** -> send the connection object directly: `{"bigQuery": {...}}`
-- **`body: "assignment_table"`** -> send the assignment table object directly: `{"displayName": "...", "sql": "...", ...}`
-- **`body: "*"`** -> send the full request message
-
-The body is the object directly, NOT wrapped in an outer key.
-
-Fields NOT in the body (like `flag_id`, `parent`) become **query parameters**.
-
-**Field names are `snake_case`** in requests. Responses may use `camelCase`.
+- All cloud-provider commands (`gcloud`, `bq`) that access external hosts require `dangerouslyDisableSandbox: true`. On first occurrence, briefly explain to the user that network access outside the sandbox is needed.
+- Never show token values or internal API details to the user.
 
 ---
 
@@ -288,29 +148,16 @@ Default: `confidence`
 
 ## Step 5: Validate & fix permissions
 
-Run the validation endpoint:
+Run the validation via MCP:
 
-```bash
-curl -s -w "\n%{http_code}" -X POST "https://metrics.${REGION}.confidence.dev/v1/dataWarehouseConfig:validate" \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "bigQueryConfig": {
-      "serviceAccount": "<SA_EMAIL>",
-      "project": "<PROJECT_ID>",
-      "dataset": "<DATASET>"
-    }
-  }'
+```
+mcp__confidence-flags__validateWarehouseConfig({
+  warehouseType: "bigquery",
+  configJson: '{"gcpProjectId":"<PROJECT_ID>","dataset":"<DATASET>","serviceAccount":"<SA_EMAIL>"}'
+})
 ```
 
-**Response:**
-```json
-{
-  "validation": [{ "key": "...", "description": "...", "success": true/false, "error": "..." }],
-  "successful": true/false,
-  "configurationResponse": { /* available schemas, etc. */ }
-}
-```
+The response contains a `validation` array with `key`, `description`, `success`, and `error` fields, plus an overall `successful` boolean and a `configurationResponse` object.
 
 If `successful` is true, move to Step 6.
 
@@ -419,21 +266,11 @@ If `configurationResponse` contains available options (schemas, roles), present 
 
 ## Step 6: Create warehouse
 
-**IMPORTANT:** The body is the data warehouse object directly (gRPC transcoding `body: "data_warehouse"`), NOT wrapped in a `dataWarehouse` key.
-
-```bash
-curl -s -w "\n%{http_code}" -X POST "https://metrics.${REGION}.confidence.dev/v1/dataWarehouses" \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "config": {
-      "bigQueryConfig": {
-        "serviceAccount": "<SA_EMAIL>",
-        "project": "<PROJECT_ID>",
-        "dataset": "<DATASET>"
-      }
-    }
-  }'
+```
+mcp__confidence-flags__createWarehouse({
+  warehouseType: "bigquery",
+  configJson: '{"gcpProjectId":"<PROJECT_ID>","dataset":"<DATASET>","serviceAccount":"<SA_EMAIL>"}'
+})
 ```
 
 Save the returned `name` (e.g., `dataWarehouses/...`) for reference.
@@ -446,42 +283,20 @@ Create both connectors:
 
 ### Flag Applied Connection (assignment data -> warehouse)
 
-**IMPORTANT:** The body is the connection object directly (gRPC transcoding `body: "flag_applied_connection"`), NOT wrapped.
-
-```bash
-curl -s -w "\n%{http_code}" -X POST "https://connectors.${REGION}.confidence.dev/v1/flagAppliedConnections" \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "bigQuery": {
-      "bigQueryConfig": {
-        "serviceAccount": "<SA_EMAIL>",
-        "project": "<PROJECT_ID>",
-        "dataset": "<DATASET>"
-      },
-      "table": "assignments"
-    }
-  }'
+```
+mcp__confidence-flags__createFlagAppliedConnection({
+  warehouseType: "bigquery",
+  configJson: '{"serviceAccount":"<SA_EMAIL>","project":"<PROJECT_ID>","dataset":"<DATASET>","table":"confidence_flag_applied"}'
+})
 ```
 
 ### Event Connection (events -> warehouse)
 
-**IMPORTANT:** The body is the connection object directly (gRPC transcoding `body: "event_connection"`), NOT wrapped.
-
-```bash
-curl -s -w "\n%{http_code}" -X POST "https://connectors.${REGION}.confidence.dev/v1/eventConnections" \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "bigQuery": {
-      "bigQueryConfig": {
-        "serviceAccount": "<SA_EMAIL>",
-        "project": "<PROJECT_ID>",
-        "dataset": "<DATASET>"
-      },
-      "tablePrefix": "events_"
-    }
-  }'
+```
+mcp__confidence-flags__createEventConnection({
+  warehouseType: "bigquery",
+  configJson: '{"serviceAccount":"<SA_EMAIL>","project":"<PROJECT_ID>","dataset":"<DATASET>","tablePrefix":"events_"}'
+})
 ```
 
 ---
@@ -490,26 +305,15 @@ curl -s -w "\n%{http_code}" -X POST "https://connectors.${REGION}.confidence.dev
 
 Create an assignment table so Confidence can analyze experiment assignments.
 
-**IMPORTANT:** The body is the assignment table object directly (gRPC transcoding `body: "assignment_table"`), NOT wrapped in an `assignmentTable` key.
-
-```bash
-curl -s -w "\n%{http_code}" -X POST "https://metrics.${REGION}.confidence.dev/v1/assignmentTables" \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "displayName": "Assignments",
-    "sql": "SELECT targeting_key, rule, assignment_id, assignment_time FROM `<PROJECT>.<DATASET>.assignments`",
-    "entityColumn": { "name": "targeting_key" },
-    "timestampColumn": { "name": "assignment_time" },
-    "exposureKeyColumn": { "name": "rule" },
-    "variantKeyColumn": { "name": "assignment_id" },
-    "dataDeliveredUntilUpdateStrategyConfig": {
-      "strategy": "AUTOMATIC",
-      "automaticUpdateConfig": {
-        "commitDelay": "300s"
-      }
-    }
-  }'
+```
+mcp__confidence-flags__createAssignmentTable({
+  displayName: "Flag Assignments",
+  sql: "SELECT targeting_key, rule, assignment_id, assignment_time FROM `<PROJECT>.<DATASET>.confidence_flag_applied`",
+  entityColumn: "targeting_key",
+  timestampColumn: "assignment_time",
+  exposureKeyColumn: "rule",
+  variantKeyColumn: "assignment_id"
+})
 ```
 
 ---
@@ -522,27 +326,32 @@ Verify both connectors by generating test data and checking it lands in the ware
 
 The resolver and events APIs require a **client secret** (not a Bearer token).
 
-1. **List the user's clients** and show them:
-   ```bash
-   curl -s "https://iam.${REGION}.confidence.dev/v1/clients" -H "Authorization: Bearer $TOKEN"
+1. **List the user's clients** via MCP:
+   ```
+   mcp__confidence-flags__listClients()
    ```
    Display each client with its name and last-seen time. If only one client exists, confirm it with the user. If multiple, let them pick.
 
 2. **Ask the user** if they have a client secret or want a new one:
    > I'll use **<client name>** for the pipeline test. Do you have the client secret, or should I create a new credential?
 
-3. If the user wants a new credential, create one on the chosen client:
-   ```bash
-   curl -s -X POST "https://iam.${REGION}.confidence.dev/v1/<CLIENT_NAME>/credentials" \
-     -H "Authorization: Bearer $TOKEN" \
-     -H "Content-Type: application/json" \
-     -d '{"display_name": "Pipeline Test"}'
+3. If the user wants a new credential, create one on the chosen client via MCP:
+   ```
+   mcp__confidence-flags__createClientCredential({
+     clientName: "<CLIENT_NAME>",
+     displayName: "Pipeline Test"
+   })
    ```
    Save the secret to a temp file for pipeline use. **Never print the secret to the user's terminal.**
 
 ### 9b. Verify flag assignments
 
-Resolve a flag to generate assignment data (use an existing flag + client secret):
+Resolve a flag to generate assignment data (use an existing flag + client secret). Use MCP to list available flags, then resolve one:
+```
+mcp__confidence-flags__listFlags()
+```
+
+Then resolve a flag using the client secret (this uses the resolver API directly since it requires a client secret, not a Bearer token):
 ```bash
 curl -s -X POST "https://resolver.${REGION}.confidence.dev/v1/flags:resolve" \
   -H "Content-Type: application/json" \
@@ -559,29 +368,7 @@ If no flags exist yet, tell the user:
 
 ### 9c. Verify events
 
-First check for an event definition to use:
-```bash
-curl -s "https://events.${REGION}.confidence.dev/v1/eventDefinitions" \
-  -H "Authorization: Bearer $TOKEN"
-```
-
-If no event definitions exist, create one with a schema:
-```bash
-curl -s -X POST "https://events.${REGION}.confidence.dev/v1/eventDefinitions?event_definition_id=test-event" \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"schema": {"action": {"stringSchema": {}}, "page": {"stringSchema": {}}}}'
-```
-
-If an event definition exists but has an empty schema, update it so payload data flows through:
-```bash
-curl -s -X PATCH "https://events.${REGION}.confidence.dev/v1/eventDefinitions/<NAME>" \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"schema": {"action": {"stringSchema": {}}, "page": {"stringSchema": {}}}}'
-```
-
-Then publish test events (uses client secret, NOT Bearer token):
+Publish test events using the client secret (this uses the events API directly since it requires a client secret, not a Bearer token):
 ```bash
 NOW=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 curl -s -X POST "https://events.${REGION}.confidence.dev/v1/events:publish" \
@@ -590,7 +377,7 @@ curl -s -X POST "https://events.${REGION}.confidence.dev/v1/events:publish" \
     "client_secret": "<CLIENT_SECRET>",
     "events": [
       {
-        "event_definition": "eventDefinitions/<EVENT_DEF>",
+        "event_definition": "eventDefinitions/test-event",
         "payload": {"action": "clicked_button", "page": "homepage"},
         "event_time": "'$NOW'"
       }
@@ -656,107 +443,60 @@ If no `bq`, show queries for BigQuery console.
 
 ---
 
-## API Reference (agent-internal -- do NOT show to user)
+## MCP Tool Reference (agent-internal -- do NOT show to user)
 
-### Base URLs
+All Confidence API operations use the `confidence-flags` MCP server. Authentication, region routing, and request formatting are handled by the MCP server.
 
-All APIs require **region-specific URLs**. Extract region from the JWT token claim `https://confidence.dev/region` (value: `EU` or `US`), lowercase it, and use as prefix.
+### Warehouse setup tools
+
+| Tool | Purpose |
+|------|---------|
+| `validateWarehouseConfig` | Validate warehouse config (permissions, connectivity) |
+| `createWarehouse` | Create the data warehouse |
+| `createFlagAppliedConnection` | Create flag applied connector |
+| `createEventConnection` | Create event connector |
+| `createAssignmentTable` | Create assignment table for experiment analysis |
+
+### Client management tools
+
+| Tool | Purpose |
+|------|---------|
+| `listClients` | List SDK clients in the account |
+| `createClientCredential` | Create a new credential on a client |
+
+### Flag tools
+
+| Tool | Purpose |
+|------|---------|
+| `listFlags` | List feature flags (used for pipeline verification) |
+
+### Client-secret APIs (still use curl)
+
+The resolver and events APIs require a **client secret** (not a Bearer token), so they still use direct HTTP calls:
 
 ```
-IAM_API:         https://iam.${region}.confidence.dev/v1
-RESOLVER_API:    https://resolver.${region}.confidence.dev/v1
-EVENTS_API:      https://events.${region}.confidence.dev/v1
-CONNECTORS_API:  https://connectors.${region}.confidence.dev/v1
-METRICS_API:     https://metrics.${region}.confidence.dev/v1
-```
-
-### Endpoints
-
-**Validate warehouse config (Bearer token):**
-```
-POST ${METRICS_API}/dataWarehouseConfig:validate
-Body: { "bigQueryConfig": {...} }
--> { "validation": [...], "successful": bool, "configurationResponse": {...} }
-```
-
-**Check warehouse exists (Bearer token):**
-```
-GET ${METRICS_API}/dataWarehouses:exists
--> { "exists": bool }
-```
-
-**Create data warehouse (Bearer token, body: "data_warehouse"):**
-```
-POST ${METRICS_API}/dataWarehouses
-Body (direct object): { "config": { "bigQueryConfig": {...} } }
--> DataWarehouse object
-```
-
-**Create flag applied connection (Bearer token, body: "flag_applied_connection"):**
-```
-POST ${CONNECTORS_API}/flagAppliedConnections
-Body (direct object): { "bigQuery": { "bigQueryConfig": {...}, "table": "assignments" } }
--> FlagAppliedConnection object
+POST https://resolver.${REGION}.confidence.dev/v1/flags:resolve
+POST https://events.${REGION}.confidence.dev/v1/events:publish
 ```
 
-**Create event connection (Bearer token, body: "event_connection"):**
-```
-POST ${CONNECTORS_API}/eventConnections
-Body (direct object): { "bigQuery": { "bigQueryConfig": {...}, "tablePrefix": "events_" } }
--> EventConnection object
-```
-
-**Create assignment table (Bearer token, body: "assignment_table"):**
-```
-POST ${METRICS_API}/assignmentTables
-Body (direct object): { "displayName": str, "sql": str, "entityColumn": {...}, "timestampColumn": {...}, "exposureKeyColumn": {...}, "variantKeyColumn": {...}, "dataDeliveredUntilUpdateStrategyConfig": {...} }
--> AssignmentTable object
-```
-
-**List clients (Bearer token):**
-```
-GET ${IAM_API}/clients
--> { "clients": [...], "nextPageToken": string }
-```
-
-**Create client credential (Bearer token, body: "client_credential"):**
-```
-POST ${IAM_API}/${clientName}/credentials
-Body (direct object): { "display_name": string }
--> { "name": "...", "clientSecret": { "secret": string }, ... }
-  NOTE: secret only returned once on creation
-```
-
-**Resolve flags (client secret -- NOT Bearer token):**
-```
-POST ${RESOLVER_API}/flags:resolve
-Body: { "flags": ["flags/<id>"], "evaluationContext": {...}, "clientSecret": string, "apply": bool }
--> { "resolvedFlags": [...] }
-```
-
-**Publish events (client secret -- NOT Bearer token):**
-```
-POST ${EVENTS_API}/events:publish
-Body: { "client_secret": string, "events": [...], "send_time": "ISO8601" }
--> { "errors": [...] }
-```
+These require `dangerouslyDisableSandbox: true` in Bash.
 
 ---
 
 ## Error Handling Reference (agent-internal)
 
-### Common HTTP errors
+### MCP tool errors
 
-| Status | Meaning | Recovery |
-|--------|---------|----------|
-| 400 | Validation error | Parse `.message`, show plain English, re-collect invalid field |
-| 401 | Invalid/expired token | Re-trigger Auth0 login |
-| 403 | Insufficient permissions | Explain needed role/permission |
-| 404 | Resource not found | Check account/resource exists |
-| 409 | Conflict (already exists) | Resource already created |
-| 429 | Rate limited | Wait briefly and retry |
-| 500+ | Server error | Inform user, suggest retry |
+MCP tool calls return error messages directly. Common patterns:
+
+| Error | Recovery |
+|-------|----------|
+| Validation error | Parse error message, show plain English, re-collect invalid field |
+| Authentication required | MCP server will prompt for re-authentication |
+| Insufficient permissions | Explain needed role/permission |
+| Resource not found | Check account/resource exists |
+| Conflict (already exists) | Resource already created, proceed |
 
 ### Sandbox note
 
-All `curl`, `open`, and `python3` commands that access external hosts (`auth.confidence.dev`, `metrics.confidence.dev`, `connectors.confidence.dev`, etc.) require `dangerouslyDisableSandbox: true`. On first occurrence, briefly explain to the user that network access outside the sandbox is needed for API calls.
+Cloud-provider commands (`gcloud`, `bq`) and client-secret API calls (`curl` to `resolver.*` and `events.*`) require `dangerouslyDisableSandbox: true`. On first occurrence, briefly explain to the user that network access outside the sandbox is needed.

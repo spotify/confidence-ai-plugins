@@ -4,6 +4,8 @@ description: Set up Snowflake as a data warehouse for Confidence. Use when the u
 
 # Setup Warehouse: Snowflake
 
+> **Prerequisite:** This skill requires the `confidence-flags` MCP server to be connected and authenticated. All Confidence API operations use MCP tool calls -- no direct REST/curl calls to Confidence APIs.
+
 Configure Snowflake as the data warehouse for Confidence experimentation analytics. This skill handles the full end-to-end setup: collect Snowflake config, create a crypto key, register the key in Snowflake, validate, create the warehouse, set up connectors, create the assignment table, and verify the pipeline.
 
 ---
@@ -62,159 +64,6 @@ curl -s -X POST "https://events.${REGION}.confidence.dev/v1/events:publish" \
 - The `REGION` for events:publish comes from the token's region claim (lowercased). Before the region is known (pre-login), use `eu` as default
 - Never re-try failed telemetry calls
 - Sentiment and completion are cumulative — update them based on the FULL conversation so far, not just the current step
-
----
-
-## Authentication
-
-**Browser-based Auth0 login.** The skill opens a browser for Auth0 login (Google, email/password, SSO) and captures the token automatically. The user never touches a token.
-
-### Session-only token management
-
-The token is kept in the current session only and is never saved to disk. If the session ends or the token expires, the skill will open your browser to log in again.
-
-On every sub-command start, check if the `TOKEN` variable is set and not expired:
-
-```bash
-if [ -n "$TOKEN" ]; then
-  PAYLOAD=$(echo "$TOKEN" | cut -d. -f2)
-  EXP=$(echo "$PAYLOAD" | python3 -c "
-import sys, json, base64
-p = sys.stdin.read().strip()
-p += '=' * (4 - len(p) % 4) if len(p) % 4 else ''
-d = json.loads(base64.b64decode(p))
-print(d.get('exp', 0))
-")
-  NOW=$(date +%s)
-  if [ "$EXP" -gt "$NOW" ]; then
-    echo "VALID"
-  else
-    echo "EXPIRED"
-    unset TOKEN
-  fi
-fi
-```
-
-If `TOKEN` is unset or expired, run the Auth0 login flow with the **regular client ID** (`2fG3H4RhlAbIZm9Rfn32zTaILH7w1X4w`) and the user's `organization` parameter. Store the result in the `TOKEN` shell variable only. **NEVER write the token to disk. NEVER reference `~/.confidence/`.**
-
-### Auth script
-
-Write the following to `$TMPDIR/confidence_auth.py` with CLIENT_ID=`2fG3H4RhlAbIZm9Rfn32zTaILH7w1X4w` and ORGANIZATION from the token. Run with `python3 $TMPDIR/confidence_auth.py`. Outputs `TOKEN:<jwt>` on success.
-
-```python
-import http.server, urllib.parse, json, sys, subprocess, hashlib, base64, secrets, string
-
-code_verifier = ''.join(secrets.choice(string.ascii_letters + string.digits + '-._~') for _ in range(43))
-code_challenge = base64.urlsafe_b64encode(hashlib.sha256(code_verifier.encode()).digest()).rstrip(b'=').decode()
-
-port = 8084
-CLIENT_ID = '<CLIENT_ID>'
-ORGANIZATION = '<ORG_ID>'
-REDIRECT_URI = f'http://localhost:{port}/callback'
-auth_code = None
-error = None
-
-class Handler(http.server.BaseHTTPRequestHandler):
-    def do_GET(self):
-        global auth_code, error
-        q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
-        self.send_response(200)
-        self.send_header('Content-Type', 'text/html')
-        self.end_headers()
-        if 'code' in q:
-            auth_code = q['code'][0]
-            self.wfile.write(b'<h1>Login successful!</h1><p>You can close this tab.</p>')
-        else:
-            error = q.get('error', ['unknown'])[0]
-            self.wfile.write(b'<h1>Login failed</h1><p>Please try again.</p>')
-    def log_message(self, format, *args):
-        pass
-
-params = {
-    'client_id': CLIENT_ID,
-    'redirect_uri': REDIRECT_URI,
-    'response_type': 'code',
-    'scope': 'openid profile email offline_access',
-    'audience': 'https://confidence.dev/',
-    'code_challenge': code_challenge,
-    'code_challenge_method': 'S256',
-}
-if ORGANIZATION:
-    params['organization'] = ORGANIZATION
-
-authorize_url = 'https://auth.confidence.dev/authorize?' + urllib.parse.urlencode(params)
-subprocess.Popen(['open', authorize_url])
-print('WAITING_FOR_LOGIN', flush=True)
-
-server = http.server.HTTPServer(('127.0.0.1', port), Handler)
-server.timeout = 120
-while auth_code is None and error is None:
-    server.handle_request()
-server.server_close()
-
-if error:
-    print(f'AUTH_ERROR:{error}', flush=True)
-    sys.exit(1)
-
-import urllib.request
-token_data = json.dumps({
-    'grant_type': 'authorization_code',
-    'client_id': CLIENT_ID,
-    'code': auth_code,
-    'redirect_uri': REDIRECT_URI,
-    'code_verifier': code_verifier
-}).encode()
-req = urllib.request.Request(
-    'https://auth.confidence.dev/oauth/token',
-    data=token_data,
-    headers={'Content-Type': 'application/json'}
-)
-try:
-    with urllib.request.urlopen(req) as resp:
-        token_response = json.loads(resp.read())
-    print(f'TOKEN:{token_response["access_token"]}', flush=True)
-except Exception as e:
-    print(f'TOKEN_ERROR:{e}', flush=True)
-    sys.exit(1)
-```
-
-### Extract region from token
-
-```bash
-REGION=$(echo "$PAYLOAD" | python3 -c "
-import sys, json, base64
-p = sys.stdin.read().strip()
-p += '=' * (4 - len(p) % 4) if len(p) % 4 else ''
-d = json.loads(base64.b64decode(p))
-print(d.get('https://confidence.dev/region', 'EU'))
-")
-```
-
-Then use `${REGION,,}` (lowercase) for URL prefix: `iam.eu.confidence.dev`, `metrics.eu.confidence.dev`, etc.
-
-### Common notes
-
-- Port is fixed at **8084** (must match Auth0 Allowed Callback URLs)
-- If port 8084 is busy: `lsof -ti:8084 | xargs kill -9 2>/dev/null`
-- All network commands require `dangerouslyDisableSandbox: true`
-- Never show the token value to the user
-- Always use region-specific URLs (e.g., `iam.eu.confidence.dev` not `iam.confidence.dev`)
-
-### Important: gRPC-REST transcoding rules
-
-The Confidence APIs use gRPC with REST transcoding. The `body` field in the proto HTTP binding determines the JSON structure:
-
-- **`body: "data_warehouse"`** -> send the data warehouse object directly: `{"config": {...}}`
-- **`body: "flag_applied_connection"`** -> send the connection object directly: `{"snowflake": {...}}`
-- **`body: "event_connection"`** -> send the connection object directly: `{"snowflake": {...}}`
-- **`body: "assignment_table"`** -> send the assignment table object directly: `{"displayName": "...", "sql": "...", ...}`
-- **`body: "*"`** -> send the full request message
-
-The body is the object directly, NOT wrapped in an outer key.
-
-Fields NOT in the body (like `flag_id`, `parent`) become **query parameters**.
-
-**Field names are `snake_case`** in requests. Responses may use `camelCase`.
 
 ---
 
@@ -296,22 +145,17 @@ GRANT ALL ON SCHEMA <DATABASE>.<SCHEMA> TO ROLE <ROLE>;
 
 ## Step 5: Create crypto key
 
-The user does NOT provide this. The skill creates it automatically via the IAM API:
+The user does NOT provide this. The skill creates it automatically via MCP:
 
-```bash
-curl -s -w "\n%{http_code}" -X POST "https://iam.${REGION}.confidence.dev/v1/cryptoKeys?crypto_key_id=snowflake-key" \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"kind": "SNOWFLAKE"}'
+```
+mcp__confidence-flags__createCryptoKey({
+  cryptoKeyId: "snowflake-key"
+})
 ```
 
-If the key already exists (HTTP 409), fetch it instead:
-```bash
-curl -s "https://iam.${REGION}.confidence.dev/v1/cryptoKeys/snowflake-key" \
-  -H "Authorization: Bearer $TOKEN"
-```
+The response includes the public key PEM in the `publicKey` field. If the key already exists (error indicates conflict/already exists), the response will still contain the existing key's public key.
 
-Extract the `publicKey` from the response, strip PEM headers and newlines to get raw base64.
+Extract the `publicKey` from the response, strip PEM headers (`-----BEGIN/END PUBLIC KEY-----`) and newlines to get raw base64 for the Snowflake ALTER USER step.
 
 Save the crypto key name (e.g., `cryptoKeys/snowflake-key`) for use in the warehouse config.
 
@@ -339,31 +183,17 @@ echo "ALTER USER <USER> SET RSA_PUBLIC_KEY='<PUBLIC_KEY_BASE64>';" | pbcopy
 
 ## Step 7: Validate
 
-```bash
-curl -s -w "\n%{http_code}" -X POST "https://metrics.${REGION}.confidence.dev/v1/dataWarehouseConfig:validate" \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "snowflakeConfig": {
-      "account": "<ACCOUNT>",
-      "user": "<USER>",
-      "role": "<ROLE>",
-      "warehouse": "<WAREHOUSE>",
-      "database": "<DATABASE>",
-      "schema": "<SCHEMA>",
-      "cryptoKey": "<CRYPTO_KEY_NAME>"
-    }
-  }'
+```
+mcp__confidence-flags__validateWarehouseConfig({
+  warehouseType: "snowflake",
+  configJson: '{"account":"<ACCOUNT>","user":"<USER>","authenticationKey":"cryptoKeys/snowflake-key","role":"<ROLE>","warehouse":"<WAREHOUSE>","exposureDatabase":"<DATABASE>","exposureSchema":"<SCHEMA>"}'
+})
 ```
 
-**Response:**
-```json
-{
-  "validation": [{ "key": "...", "description": "...", "success": true/false, "error": "..." }],
-  "successful": true/false,
-  "configurationResponse": { /* available schemas, databases, roles */ }
-}
-```
+**Response contains:**
+- `validation`: array of `{ "key": "...", "description": "...", "success": true/false, "error": "..." }`
+- `successful`: overall boolean
+- `configurationResponse`: available schemas, databases, roles
 
 If `successful` is true, move to Step 8.
 
@@ -378,11 +208,7 @@ For each validation failure, show:
 
 Generate the full remediation SQL, **copy it to clipboard via `pbcopy`**, and tell the user to paste it in the Snowflake worksheet (https://app.snowflake.com):
 
-1. **Fetch the crypto key's public key** from the IAM API:
-   ```bash
-   curl -s "https://iam.${REGION}.confidence.dev/v1/cryptoKeys/<KEY_NAME>" -H "Authorization: Bearer $TOKEN"
-   ```
-   Strip the PEM headers (`-----BEGIN/END PUBLIC KEY-----`) and newlines to get the raw base64 string for Snowflake.
+1. **Use the public key** already obtained from Step 5 (the `publicKey` field from the `createCryptoKey` response). Strip PEM headers (`-----BEGIN/END PUBLIC KEY-----`) and newlines to get the raw base64 string for Snowflake.
 
 2. **Generate SQL based on the error:**
 
@@ -416,25 +242,11 @@ If `configurationResponse` contains available options (schemas, databases, roles
 
 ## Step 8: Create warehouse
 
-**IMPORTANT:** The body is the data warehouse object directly (gRPC transcoding `body: "data_warehouse"`), NOT wrapped in a `dataWarehouse` key.
-
-```bash
-curl -s -w "\n%{http_code}" -X POST "https://metrics.${REGION}.confidence.dev/v1/dataWarehouses" \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "config": {
-      "snowflakeConfig": {
-        "account": "<ACCOUNT>",
-        "user": "<USER>",
-        "role": "<ROLE>",
-        "warehouse": "<WAREHOUSE>",
-        "database": "<DATABASE>",
-        "schema": "<SCHEMA>",
-        "cryptoKey": "<CRYPTO_KEY_NAME>"
-      }
-    }
-  }'
+```
+mcp__confidence-flags__createWarehouse({
+  warehouseType: "snowflake",
+  configJson: '{"account":"<ACCOUNT>","user":"<USER>","authenticationKey":"cryptoKeys/snowflake-key","role":"<ROLE>","warehouse":"<WAREHOUSE>","exposureDatabase":"<DATABASE>","exposureSchema":"<SCHEMA>"}'
+})
 ```
 
 Save the returned `name` (e.g., `dataWarehouses/...`) for reference.
@@ -443,54 +255,24 @@ Save the returned `name` (e.g., `dataWarehouses/...`) for reference.
 
 ## Step 9: Create connectors
 
-Create both connectors. **Snowflake connectors require `database` and `schema` fields in snowflakeConfig.**
+Create both connectors.
 
 ### Flag Applied Connection (assignment data -> warehouse)
 
-**IMPORTANT:** The body is the connection object directly (gRPC transcoding `body: "flag_applied_connection"`), NOT wrapped.
-
-```bash
-curl -s -w "\n%{http_code}" -X POST "https://connectors.${REGION}.confidence.dev/v1/flagAppliedConnections" \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "snowflake": {
-      "snowflakeConfig": {
-        "account": "<ACCOUNT>",
-        "user": "<USER>",
-        "role": "<ROLE>",
-        "warehouse": "<WAREHOUSE>",
-        "database": "<DATABASE>",
-        "schema": "<SCHEMA>",
-        "cryptoKey": "<CRYPTO_KEY_NAME>"
-      },
-      "table": "ASSIGNMENTS"
-    }
-  }'
+```
+mcp__confidence-flags__createFlagAppliedConnection({
+  warehouseType: "snowflake",
+  configJson: '{"authenticationKey":"cryptoKeys/snowflake-key","account":"<ACCOUNT>","user":"<USER>","database":"<DATABASE>","schema":"<SCHEMA>","role":"<ROLE>","table":"confidence_flag_applied"}'
+})
 ```
 
 ### Event Connection (events -> warehouse)
 
-**IMPORTANT:** The body is the connection object directly (gRPC transcoding `body: "event_connection"`), NOT wrapped.
-
-```bash
-curl -s -w "\n%{http_code}" -X POST "https://connectors.${REGION}.confidence.dev/v1/eventConnections" \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "snowflake": {
-      "snowflakeConfig": {
-        "account": "<ACCOUNT>",
-        "user": "<USER>",
-        "role": "<ROLE>",
-        "warehouse": "<WAREHOUSE>",
-        "database": "<DATABASE>",
-        "schema": "<SCHEMA>",
-        "cryptoKey": "<CRYPTO_KEY_NAME>"
-      },
-      "tablePrefix": "EVENTS_"
-    }
-  }'
+```
+mcp__confidence-flags__createEventConnection({
+  warehouseType: "snowflake",
+  configJson: '{"authenticationKey":"cryptoKeys/snowflake-key","account":"<ACCOUNT>","user":"<USER>","database":"<DATABASE>","schema":"<SCHEMA>","role":"<ROLE>","tablePrefix":"events_"}'
+})
 ```
 
 ---
@@ -499,26 +281,15 @@ curl -s -w "\n%{http_code}" -X POST "https://connectors.${REGION}.confidence.dev
 
 Create an assignment table so Confidence can analyze experiment assignments.
 
-**IMPORTANT:** The body is the assignment table object directly (gRPC transcoding `body: "assignment_table"`), NOT wrapped in an `assignmentTable` key.
-
-```bash
-curl -s -w "\n%{http_code}" -X POST "https://metrics.${REGION}.confidence.dev/v1/assignmentTables" \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "displayName": "Assignments",
-    "sql": "SELECT targeting_key, rule, assignment_id, assignment_time FROM <DATABASE>.<SCHEMA>.ASSIGNMENTS",
-    "entityColumn": { "name": "targeting_key" },
-    "timestampColumn": { "name": "assignment_time" },
-    "exposureKeyColumn": { "name": "rule" },
-    "variantKeyColumn": { "name": "assignment_id" },
-    "dataDeliveredUntilUpdateStrategyConfig": {
-      "strategy": "AUTOMATIC",
-      "automaticUpdateConfig": {
-        "commitDelay": "300s"
-      }
-    }
-  }'
+```
+mcp__confidence-flags__createAssignmentTable({
+  displayName: "Flag Assignments",
+  sql: "SELECT targeting_key, rule, assignment_id, assignment_time FROM <DATABASE>.<SCHEMA>.ASSIGNMENTS",
+  entityColumn: "targeting_key",
+  timestampColumn: "assignment_time",
+  exposureKeyColumn: "rule",
+  variantKeyColumn: "assignment_id"
+})
 ```
 
 ---
@@ -531,23 +302,23 @@ Verify both connectors by generating test data and checking it lands in the ware
 
 The resolver and events APIs require a **client secret** (not a Bearer token).
 
-1. **List the user's clients** and show them:
-   ```bash
-   curl -s "https://iam.${REGION}.confidence.dev/v1/clients" -H "Authorization: Bearer $TOKEN"
+1. **List the user's clients** via MCP:
+   ```
+   mcp__confidence-flags__listClients()
    ```
    Display each client with its name and last-seen time. If only one client exists, confirm it with the user. If multiple, let them pick.
 
 2. **Ask the user** if they have a client secret or want a new one:
    > I'll use **<client name>** for the pipeline test. Do you have the client secret, or should I create a new credential?
 
-3. If the user wants a new credential, create one on the chosen client:
-   ```bash
-   curl -s -X POST "https://iam.${REGION}.confidence.dev/v1/<CLIENT_NAME>/credentials" \
-     -H "Authorization: Bearer $TOKEN" \
-     -H "Content-Type: application/json" \
-     -d '{"display_name": "Pipeline Test"}'
+3. If the user wants a new credential, create one on the chosen client via MCP:
    ```
-   Save the secret to a temp file for pipeline use. **Never print the secret to the user's terminal.**
+   mcp__confidence-flags__createClientCredential({
+     clientName: "<CLIENT_NAME>",
+     displayName: "Pipeline Test"
+   })
+   ```
+   The response contains the secret (only returned once). Save it for pipeline use. **Never print the secret to the user's terminal.**
 
 ### 11b. Verify flag assignments
 
@@ -690,121 +461,62 @@ If neither available, show the queries for the Snowflake worksheet (https://app.
 
 ---
 
-## API Reference (agent-internal -- do NOT show to user)
+## MCP Tool Reference (agent-internal -- do NOT show to user)
 
-### Base URLs
+All Confidence API operations use the `confidence-flags` MCP server. Authentication is handled by the MCP server -- no token management needed.
 
-All APIs require **region-specific URLs**. Extract region from the JWT token claim `https://confidence.dev/region` (value: `EU` or `US`), lowercase it, and use as prefix.
+### Available MCP tools for this skill
 
+| Tool | Purpose |
+|------|---------|
+| `createCryptoKey` | Create a crypto key for Snowflake authentication |
+| `validateWarehouseConfig` | Validate warehouse connection settings |
+| `createWarehouse` | Create the data warehouse |
+| `createFlagAppliedConnection` | Create flag assignment connector |
+| `createEventConnection` | Create event connector |
+| `createAssignmentTable` | Create assignment table for experiment analysis |
+| `listClients` | List SDK clients |
+| `createClientCredential` | Create a new client credential (secret) |
+
+### Verification APIs (still use curl -- client secret auth, not Bearer token)
+
+These APIs authenticate with a **client secret** (not a Bearer token), so they remain as direct REST calls:
+
+**Resolve flags:**
 ```
-IAM_API:         https://iam.${region}.confidence.dev/v1
-RESOLVER_API:    https://resolver.${region}.confidence.dev/v1
-EVENTS_API:      https://events.${region}.confidence.dev/v1
-CONNECTORS_API:  https://connectors.${region}.confidence.dev/v1
-METRICS_API:     https://metrics.${region}.confidence.dev/v1
-```
-
-### Endpoints
-
-**Create crypto key (Bearer token):**
-```
-POST ${IAM_API}/cryptoKeys?crypto_key_id=<id>
-Body: { "kind": "SNOWFLAKE" }
--> CryptoKey object with publicKey field
-```
-
-**Get crypto key (Bearer token):**
-```
-GET ${IAM_API}/cryptoKeys/<id>
--> CryptoKey object with publicKey field
+POST https://resolver.${REGION}.confidence.dev/v1/flags:resolve
+Body: { "flags": ["flags/<id>"], "evaluation_context": {...}, "client_secret": string, "apply": bool }
 ```
 
-**Validate warehouse config (Bearer token):**
+**Publish events:**
 ```
-POST ${METRICS_API}/dataWarehouseConfig:validate
-Body: { "snowflakeConfig": {...} }
--> { "validation": [...], "successful": bool, "configurationResponse": {...} }
-```
-
-**Check warehouse exists (Bearer token):**
-```
-GET ${METRICS_API}/dataWarehouses:exists
--> { "exists": bool }
-```
-
-**Create data warehouse (Bearer token, body: "data_warehouse"):**
-```
-POST ${METRICS_API}/dataWarehouses
-Body (direct object): { "config": { "snowflakeConfig": {...} } }
--> DataWarehouse object
-```
-
-**Create flag applied connection (Bearer token, body: "flag_applied_connection"):**
-```
-POST ${CONNECTORS_API}/flagAppliedConnections
-Body (direct object): { "snowflake": { "snowflakeConfig": {..., "database": "...", "schema": "..."}, "table": "ASSIGNMENTS" } }
--> FlagAppliedConnection object
-NOTE: Snowflake connectors require database and schema fields in snowflakeConfig
-```
-
-**Create event connection (Bearer token, body: "event_connection"):**
-```
-POST ${CONNECTORS_API}/eventConnections
-Body (direct object): { "snowflake": { "snowflakeConfig": {..., "database": "...", "schema": "..."}, "tablePrefix": "EVENTS_" } }
--> EventConnection object
-```
-
-**Create assignment table (Bearer token, body: "assignment_table"):**
-```
-POST ${METRICS_API}/assignmentTables
-Body (direct object): { "displayName": str, "sql": str, "entityColumn": {...}, "timestampColumn": {...}, "exposureKeyColumn": {...}, "variantKeyColumn": {...}, "dataDeliveredUntilUpdateStrategyConfig": {...} }
--> AssignmentTable object
-```
-
-**List clients (Bearer token):**
-```
-GET ${IAM_API}/clients
--> { "clients": [...], "nextPageToken": string }
-```
-
-**Create client credential (Bearer token, body: "client_credential"):**
-```
-POST ${IAM_API}/${clientName}/credentials
-Body (direct object): { "display_name": string }
--> { "name": "...", "clientSecret": { "secret": string }, ... }
-  NOTE: secret only returned once on creation
-```
-
-**Resolve flags (client secret -- NOT Bearer token):**
-```
-POST ${RESOLVER_API}/flags:resolve
-Body: { "flags": ["flags/<id>"], "evaluationContext": {...}, "clientSecret": string, "apply": bool }
--> { "resolvedFlags": [...] }
-```
-
-**Publish events (client secret -- NOT Bearer token):**
-```
-POST ${EVENTS_API}/events:publish
+POST https://events.${REGION}.confidence.dev/v1/events:publish
 Body: { "client_secret": string, "events": [...], "send_time": "ISO8601" }
--> { "errors": [...] }
 ```
+
+**Event definitions (list/create/update):**
+```
+GET/POST/PATCH https://events.${REGION}.confidence.dev/v1/eventDefinitions
+```
+
+These verification curl calls require `dangerouslyDisableSandbox: true`.
 
 ---
 
 ## Error Handling Reference (agent-internal)
 
-### Common HTTP errors
+### MCP tool errors
 
-| Status | Meaning | Recovery |
-|--------|---------|----------|
-| 400 | Validation error | Parse `.message`, show plain English, re-collect invalid field |
-| 401 | Invalid/expired token | Re-trigger Auth0 login |
-| 403 | Insufficient permissions | Explain needed role/permission |
-| 404 | Resource not found | Check account/resource exists |
-| 409 | Conflict (already exists) | Resource already created (e.g., crypto key) |
-| 429 | Rate limited | Wait briefly and retry |
-| 500+ | Server error | Inform user, suggest retry |
+MCP tool calls return errors in the response. Common error patterns:
+
+| Error | Recovery |
+|-------|----------|
+| Already exists / conflict | Resource already created (e.g., crypto key) -- use the existing one |
+| Authentication failed | MCP server needs re-authentication |
+| Insufficient permissions | Explain needed role/permission |
+| Validation error | Parse the error message, show plain English, re-collect invalid field |
+| Not found | Check account/resource exists |
 
 ### Sandbox note
 
-All `curl`, `open`, and `python3` commands that access external hosts (`auth.confidence.dev`, `iam.confidence.dev`, `metrics.confidence.dev`, `connectors.confidence.dev`, etc.) require `dangerouslyDisableSandbox: true`. On first occurrence, briefly explain to the user that network access outside the sandbox is needed for API calls.
+Snowflake-specific commands (`snowsql`, `pbcopy`) and verification API curl calls (resolver, events) require `dangerouslyDisableSandbox: true`. MCP tool calls do not require sandbox overrides.
