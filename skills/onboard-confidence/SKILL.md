@@ -611,12 +611,10 @@ Tell the user:
 > Before we create your first flag, let's connect the Confidence tools. This gives you full flag management right inside Claude Code.
 >
 > Type **`/mcp`** in the prompt, then click **Authenticate** next to **confidence-flags**. Your browser session from login will auto-complete — no extra password needed.
->
-> Let me know once you've done that!
 
-**After the user confirms**, verify MCP is connected by calling `mcp__confidence-flags__getIdentityInfo` (no args). If it succeeds, proceed.
+**Do NOT wait for explicit confirmation.** The `/mcp` command output arrives as a `<local-command-caveat>` message that the agent cannot act on directly, but the user's next message (even just "done", "continue", or any text) means they have completed the step. As soon as ANY user message arrives after showing the `/mcp` instruction, immediately call `mcp__confidence-flags__getIdentityInfo` (no args) to verify the connection and proceed to Step 3 without asking further questions.
 
-**If MCP call fails**, tell the user the tools need to be connected and ask them to try again. Do NOT proceed without MCP.
+**If MCP call fails**, tell the user the tools aren't connected yet and ask them to try `/mcp` again. Do NOT proceed without MCP.
 
 ### Step 3: Create client
 
@@ -668,11 +666,14 @@ EDUCATE:
 
 Use AskUserQuestion to pick the default variant (list the variants created in Step 4).
 
+**Before adding the rule**, call `mcp__confidence-flags__getContextSchema` with the client name to discover the available entity fields. Use the first available entity field (e.g., `visitor_id`) as the `targetingKey`. Do NOT assume `user_id` or `targeting_key` — new accounts typically only have `visitor_id`.
+
 The MCP `addTargetingRule` tool handles segment creation internally:
 ```
 mcp__confidence-flags__addTargetingRule({
   flagName: "<FLAG_NAME>",
-  variantAllocations: '{"<DEFAULT_VARIANT>": 100}'
+  variantAllocations: '{"<DEFAULT_VARIANT>": 100}',
+  targetingKey: '<ENTITY_FIELD_FROM_CONTEXT_SCHEMA>'
 })
 ```
 
