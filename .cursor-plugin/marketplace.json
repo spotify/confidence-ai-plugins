@@ -1,13 +1,13 @@
 {
   "name": "confidence",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "owner": {
     "name": "Spotify Confidence"
   },
   "plugins": [
     {
       "name": "confidence",
-      "version": "0.5.0",
+      "version": "0.6.0",
       "description": "Access Confidence feature flags, experiments, and migration tools directly from Cursor.",
       "source": {
         "source": "url",

@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.6.0](https://github.com/spotify/confidence-ai-plugins/compare/v0.5.0...v0.6.0) (2026-07-10)
+
+
+### Features
+
+* convert onboarding skill to MCP-only ([#45](https://github.com/spotify/confidence-ai-plugins/issues/45)) ([6d9cb85](https://github.com/spotify/confidence-ai-plugins/commit/6d9cb850361f2909bbaaa96a02fd846b16c16d08))
+* **migrate-optimizely:** add migration scope policy and bulk execution mode ([#46](https://github.com/spotify/confidence-ai-plugins/issues/46)) ([7061682](https://github.com/spotify/confidence-ai-plugins/commit/70616827972e0c0d1c629848149b12bf561a2806))
+
 ## [0.5.0](https://github.com/spotify/confidence-ai-plugins/compare/v0.4.2...v0.5.0) (2026-07-08)
 
 
