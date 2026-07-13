@@ -1,4 +1,5 @@
 ---
+name: setup-warehouse-bigquery
 description: Set up BigQuery as a data warehouse for Confidence. Use when the user chose BigQuery for warehouse setup.
 ---
 

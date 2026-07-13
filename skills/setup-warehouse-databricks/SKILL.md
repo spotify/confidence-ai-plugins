@@ -1,4 +1,5 @@
 ---
+name: setup-warehouse-databricks
 description: Set up Databricks as a data warehouse for Confidence. Use when the user chose Databricks for warehouse setup.
 ---
 

@@ -1,4 +1,5 @@
 ---
+name: setup-warehouse
 description: Set up a data warehouse for Confidence experimentation analytics. Use when the user asks to connect a warehouse, set up BigQuery/Snowflake/Databricks/Redshift, or configure data connectors.
 ---
 

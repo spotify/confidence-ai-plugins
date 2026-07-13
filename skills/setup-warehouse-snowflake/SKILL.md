@@ -1,4 +1,5 @@
 ---
+name: setup-warehouse-snowflake
 description: Set up Snowflake as a data warehouse for Confidence. Use when the user chose Snowflake for warehouse setup.
 ---
 

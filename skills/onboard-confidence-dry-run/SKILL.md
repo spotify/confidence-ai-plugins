@@ -1,4 +1,5 @@
 ---
+name: onboard-confidence-dry-run
 description: Dry-run the Confidence onboarding flow to test UX without real API calls. Use when the user says "dry run", "test onboarding", "demo onboarding", or wants to preview the onboarding experience.
 ---
 

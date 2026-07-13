@@ -1,4 +1,5 @@
 ---
+name: onboard-confidence
 description: Create Confidence accounts and onboard users. Use when the user asks to create an account, invite users, onboard to Confidence, or check account status.
 ---
 
