@@ -11,7 +11,7 @@
 <p align="center">
   <a href="https://confidence.spotify.com/docs/introduction"><img alt="Docs" src="https://img.shields.io/badge/docs-confidence.spotify.com-6E56CF"></a>
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-Apache--2.0-blue"></a>
-  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-0.6.0-informational"></a>
+  <a href="./CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-0.6.1-informational"></a>
 </p>
 
 ## ✨ Highlights
