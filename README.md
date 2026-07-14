@@ -67,10 +67,10 @@ This plugin provides access to Confidence tools across these categories:
 
 ## Slash Commands
 
-- `/confidence:migrate-posthog` — Migrate feature flags from PostHog to Confidence SDK
-- `/confidence:migrate-eppo` — Migrate feature flags from Eppo to Confidence SDK
-- `/confidence:migrate-statsig` — Migrate feature flags from Statsig to Confidence SDK
-- `/confidence:migrate-optimizely` — Migrate feature flags from Optimizely Feature Experimentation to Confidence SDK
+- `/confidence:migrate-posthog` — [Migrate feature flags from PostHog to Confidence](https://confidence.spotify.com/docs/migrations/migrate-from-posthog)
+- `/confidence:migrate-eppo` — [Migrate feature flags from Eppo to Confidence](https://confidence.spotify.com/docs/migrations/migrate-from-eppo)
+- `/confidence:migrate-statsig` — [Migrate feature flags from Statsig to Confidence](https://confidence.spotify.com/docs/migrations/migrate-from-statsig)
+- `/confidence:migrate-optimizely` — [Migrate feature flags from Optimizely Feature Experimentation to Confidence](https://confidence.spotify.com/docs/migrations/migrate-from-optimizely)
 
 ## Example Usage
 
@@ -106,4 +106,5 @@ This plugin provides access to Confidence tools across these categories:
 ## Documentation
 
 - [Confidence documentation](https://confidence.spotify.com/docs)
+- [Migration guides — migrate to Confidence from PostHog, Eppo, Statsig, or Optimizely](https://confidence.spotify.com/docs/migrations/overview)
 - [OpenFeature SDK integration](https://confidence.spotify.com/docs/sdks)

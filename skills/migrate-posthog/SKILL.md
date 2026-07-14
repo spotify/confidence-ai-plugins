@@ -1,4 +1,5 @@
 ---
+name: migrate-posthog
 description: Migrate feature flags from PostHog to Confidence SDK. Use when the user says /migrate-posthog, asks to migrate PostHog flags, or transform SDK code to Confidence.
 ---
 

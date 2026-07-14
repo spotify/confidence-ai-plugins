@@ -1,4 +1,5 @@
 ---
+name: setup-warehouse-redshift
 description: Set up Redshift as a data warehouse for Confidence. Use when the user chose Redshift for warehouse setup.
 ---
 

@@ -1,4 +1,5 @@
 ---
+name: migrate-eppo
 description: Migrate feature flags from Eppo to Confidence SDK. Use when the user says /migrate-eppo, asks to migrate Eppo flags, or transform SDK code to Confidence.
 ---
 
