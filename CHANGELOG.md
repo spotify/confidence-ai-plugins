@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.6.1](https://github.com/spotify/confidence-ai-plugins/compare/v0.6.0...v0.6.1) (2026-07-14)
+
+
+### Bug Fixes
+
+* add name field to SKILL.md frontmatter and link migration guides ([#50](https://github.com/spotify/confidence-ai-plugins/issues/50)) ([7e0b7bb](https://github.com/spotify/confidence-ai-plugins/commit/7e0b7bb92a863567d45196d7e75b317081818305))
+* skills CLI compatibility + docs links ([7e0b7bb](https://github.com/spotify/confidence-ai-plugins/commit/7e0b7bb92a863567d45196d7e75b317081818305))
+
 ## [0.6.0](https://github.com/spotify/confidence-ai-plugins/compare/v0.5.0...v0.6.0) (2026-07-10)
 
 

@@ -1,6 +1,6 @@
 {
   "name": "confidence",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "Access Confidence feature flags, experiments, and migration tools directly from Gemini CLI.",
   "mcpServers": {
     "confidence-flags": {
