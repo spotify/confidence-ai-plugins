@@ -44,7 +44,8 @@
           "type": "json",
           "path": "gemini-extension.json",
           "jsonpath": "$.version"
-        }
+        },
+        "README.md"
       ]
     }
   }
