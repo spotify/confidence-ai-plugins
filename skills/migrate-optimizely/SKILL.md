@@ -57,7 +57,7 @@ d = json.loads(sys.stdin.read())
 print(d.get('clientSecret', d.get('client_secret', '')))" > "$TMPDIR/confidence_telemetry_key"
 ```
 
-**Sending events — after each significant step** (or batched at the end of each step), send a telemetry event. Combine with other curl calls in the same Bash invocation when possible to avoid extra tool calls:
+**Sending events — after EVERY batch, step, or user interaction**, send a telemetry event. Combine with other curl calls in the same Bash invocation when possible to avoid extra tool calls:
 ```bash
 curl -s -X POST "https://events.eu.confidence.dev/v1/events:publish" \
   -H "Content-Type: application/json" \
@@ -71,7 +71,14 @@ curl -s -X POST "https://events.eu.confidence.dev/v1/events:publish" \
         "step": "<PHASE>.<STEP_TITLE>",
         "action": "<ACTION_VERB>",
         "sentiment": "<SENTIMENT>",
-        "completion": "<COMPLETION>"
+        "completion": "<COMPLETION>",
+        "flags_created": "<NUMBER>",
+        "flags_remaining": "<NUMBER>",
+        "flags_failed": "<NUMBER>",
+        "current_project": "<PROJECT_SLUG>",
+        "project_progress": "<N/TOTAL>",
+        "batch_size": "<NUMBER>",
+        "errors": "<COMMA_SEPARATED_ERROR_SUMMARIES_OR_EMPTY>"
       },
       "event_time": "'$(date -u +%Y-%m-%dT%H:%M:%SZ)'"
     }],
@@ -83,18 +90,27 @@ curl -s -X POST "https://events.eu.confidence.dev/v1/events:publish" \
 
 | Field | How to set it |
 |-------|--------------|
-| `step` | `<phase>.<step-title>`, e.g. `plan-flags.scan-source`, `plan-flags.review-scope`, `plan-flags.generate-plan`, `plan-code.scan-codebase`, `plan-code.fetch-sdk-guide`, `execute.create-flag`, `execute.transform-code` |
-| `action` | Verb describing the operation: `scan_flags`, `generate_plan`, `scan_codebase`, `fetch_sdk_guide`, `create_flag`, `add_targeting`, `transform_code`, `create_pr` |
-| `sentiment` | Assess the conversation: `positive` (smooth, engaged), `neutral` (normal), `confused` (retries, questions, errors), `frustrated` (repeated failures, complaints) |
+| `step` | `<phase>.<step-title>`, e.g. `plan-flags.scan-source`, `plan-flags.review-scope`, `plan-flags.generate-plan`, `plan-code.scan-codebase`, `plan-code.fetch-sdk-guide`, `execute.create-flag`, `execute.add-targeting`, `execute.verify` |
+| `action` | Verb describing the operation: `scan_flags`, `generate_plan`, `scan_codebase`, `fetch_sdk_guide`, `batch_create_flags`, `batch_add_targeting`, `resolve_flag`, `transform_code`, `create_pr` |
+| `sentiment` | **Genuinely assess the conversation tone** — not a static value. `positive` (smooth, user engaged, no issues), `neutral` (normal flow), `confused` (retries, questions, mapping errors, unexpected responses), `frustrated` (user expressed frustration, repeated failures, user corrections like "i am baffled"). Read the user's actual words and your own error rate to set this honestly. |
 | `completion` | Progress state: `starting` (first steps), `in_progress` (middle), `completing` (final steps), `done` (finished) |
+| `flags_created` | Cumulative count of flags successfully created so far in this execution |
+| `flags_remaining` | How many flags are left to process |
+| `flags_failed` | Cumulative count of flags that failed during this execution |
+| `current_project` | The Optimizely project slug currently being processed (e.g. `production-nikeapp-ios`) |
+| `project_progress` | Which project out of total (e.g. `3/24`) |
+| `batch_size` | Number of items in the current batch operation |
+| `errors` | Comma-separated summary of recent errors (e.g. `quota_exceeded,variant_mismatch`), or empty if none |
 
 **Rules:**
 - Send the telemetry setup call BEFORE the first user-visible action
+- **Send telemetry after EVERY batch** — every `batchCreateFlags` call, every `batchAddTargetingRules` call, every project completion. Not just "significant steps"
 - Use `& ` (background) or `> /dev/null 2>&1` on telemetry curls so they never block the flow
 - If the telemetry key acquisition fails, set `$TMPDIR/confidence_telemetry_key` to empty and skip all telemetry sends
 - Migration skills always use `eu` as the region for events:publish (no token-based region detection)
 - Never re-try failed telemetry calls
 - Sentiment and completion are cumulative — update them based on the FULL conversation so far, not just the current step
+- **Sentiment must be honest** — if the user said something frustrated, if there were errors, if you had to retry, reflect that. A static "positive" on every event is useless telemetry
 
 ---
 
@@ -1934,7 +1950,61 @@ use the **REST sequence** instead (next subsection), then verify with the
 same `resolveFlag` step 4. Either way, do NOT call `resolveFlag` until all
 prior steps succeed.
 
-#### MCP sequence
+#### Batch MCP sequence (preferred for bulk migration)
+
+When migrating many flags (> 10), use the batch tools for dramatically
+faster execution. One `batchCreateFlags` call replaces N individual
+`createFlag` calls; one `batchAddTargetingRules` call replaces N
+individual `addTargetingRule` calls. The batch tools execute in parallel
+internally (10 concurrent threads) and return aggregated results.
+
+```
+STEP 1: batchCreateFlags
+  → Collect all flag definitions for the current project into a JSON
+    array: [{flagName, description, schema, variants}, ...]
+  → Call batchCreateFlags with:
+    - clientName: the project's Confidence client
+    - flags: the JSON array
+    - labels: {"migration-started": "<ISO-timestamp>", "source": "optimizely"}
+  → The tool creates flags in parallel, skips existing ones, and returns
+    created/existed/failed counts.
+  → Send telemetry after each batch with counts.
+
+STEP 2: batchAddTargetingRules
+  → Collect ALL targeting rules for ALL flags in the project into a
+    single JSON array: [{flagName, variantAllocations, targetingKey,
+    payload}, ...]. Include both specific targeting rules AND catch-all
+    rules (no payload). Rules for the same flag MUST appear in order
+    (targeting rules before catch-all) — the batch tool preserves
+    per-flag order while parallelizing across flags.
+  → Call batchAddTargetingRules with:
+    - rules: the JSON array
+    - completionLabels: {"migration-completed": "<ISO-timestamp>"}
+  → The tool adds rules in parallel across flags (sequential within
+    each flag to preserve order), then stamps completionLabels on each
+    flag where ALL rules succeeded.
+  → Flags with migration-started but NO migration-completed are
+    incomplete — easy to query and retry.
+  → Send telemetry after each batch with counts.
+
+STEP 3: resolveFlag (verification — spot-check)
+  → For bulk migration, do NOT resolve every flag individually. Instead:
+    a. Pick 3-5 representative flags (one simple boolean, one with
+       targeting, one with multiple rules) and resolve each with
+       positive + negative contexts.
+    b. If spot-checks pass, report the batch as verified.
+    c. If any spot-check fails, investigate that flag individually.
+```
+
+**Batch sizing.** The batch tools accept up to hundreds of items per
+call. For a 250-flag project, a single `batchCreateFlags` call +
+a single `batchAddTargetingRules` call is sufficient. For 1000+ flags,
+batch in groups of ~200 to avoid timeouts.
+
+#### Single-flag MCP sequence (for small migrations or retries)
+
+For migrations with < 10 flags, or when retrying individual failed
+flags from a batch, use individual MCP calls:
 
 ```
 STEP 1: createFlag
@@ -2673,7 +2743,7 @@ MCP, just `curl` with `Authorization: Bearer $OPTIMIZELY_API_TOKEN`.
 
 | Source | What's used |
 |--------|-------------|
-| Confidence MCP | `listClients`, `createClient`, `getContextSchema`, `addContextField`, `createFlag`, `addFlagToClient`, `unarchiveFlag`, `addTargetingRule`, `resolveFlag` |
+| Confidence MCP | `listClients`, `createClient`, `getContextSchema`, `addContextField`, `createFlag`, `addFlagToClient`, `unarchiveFlag`, `addTargetingRule`, `resolveFlag`, `batchCreateFlags` (bulk), `batchAddTargetingRules` (bulk), `getFlagCount` (quota check) |
 | Confidence Docs MCP (`plan code`) | `getLocalResolveIntegrationGuide`, `getCodeSnippetAndSdkIntegrationTips`, `searchDocumentation`, `getFullSource` |
 | Confidence REST API (`CONFIDENCE_TOKEN`, OPTIONAL — full-fidelity Phase 1) | `POST /v1/segments` + `:allocate`, `POST /v1/flags/{flag}/rules` + `PATCH …?updateMask=enabled`; token via `POST https://iam.confidence.dev/v1/oauth/token` |
 | Optimizely Flags API (`OPTIMIZELY_API_TOKEN`) | `GET /flags/v1/projects/{id}/flags[/{key}]`, `GET …/flags/{key}/variations`, `GET …/flags/{key}/environments/{env}/ruleset` |
