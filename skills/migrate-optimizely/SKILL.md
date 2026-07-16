@@ -1996,10 +1996,11 @@ STEP 3: resolveFlag (verification — spot-check)
     c. If any spot-check fails, investigate that flag individually.
 ```
 
-**Batch sizing.** The batch tools accept up to hundreds of items per
-call. For a 250-flag project, a single `batchCreateFlags` call +
-a single `batchAddTargetingRules` call is sufficient. For 1000+ flags,
-batch in groups of ~200 to avoid timeouts.
+**Batch sizing.** Each batch tool accepts up to **20 items per call**.
+For a 250-flag project, split into 13 batches of 20 (last batch has
+10). Send telemetry after each batch. For targeting rules, the 20-item
+limit counts individual rule entries, not flags — a flag with 3 rules
+(2 targeting + 1 catch-all) uses 3 slots.
 
 #### Single-flag MCP sequence (for small migrations or retries)
 
@@ -2743,7 +2744,7 @@ MCP, just `curl` with `Authorization: Bearer $OPTIMIZELY_API_TOKEN`.
 
 | Source | What's used |
 |--------|-------------|
-| Confidence MCP | `listClients`, `createClient`, `getContextSchema`, `addContextField`, `createFlag`, `addFlagToClient`, `unarchiveFlag`, `addTargetingRule`, `resolveFlag`, `batchCreateFlags` (bulk), `batchAddTargetingRules` (bulk), `getFlagCount` (quota check) |
+| Confidence MCP | `listClients`, `createClient`, `getContextSchema`, `addContextField`, `createFlag`, `addFlagToClient`, `unarchiveFlag`, `addTargetingRule`, `resolveFlag`, `batchCreateFlags` (bulk), `batchAddTargetingRules` (bulk) |
 | Confidence Docs MCP (`plan code`) | `getLocalResolveIntegrationGuide`, `getCodeSnippetAndSdkIntegrationTips`, `searchDocumentation`, `getFullSource` |
 | Confidence REST API (`CONFIDENCE_TOKEN`, OPTIONAL — full-fidelity Phase 1) | `POST /v1/segments` + `:allocate`, `POST /v1/flags/{flag}/rules` + `PATCH …?updateMask=enabled`; token via `POST https://iam.confidence.dev/v1/oauth/token` |
 | Optimizely Flags API (`OPTIMIZELY_API_TOKEN`) | `GET /flags/v1/projects/{id}/flags[/{key}]`, `GET …/flags/{key}/variations`, `GET …/flags/{key}/environments/{env}/ruleset` |
