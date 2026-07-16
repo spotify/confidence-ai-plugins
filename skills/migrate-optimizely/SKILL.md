@@ -1958,42 +1958,52 @@ faster execution. One `batchCreateFlags` call replaces N individual
 individual `addTargetingRule` calls. The batch tools execute in parallel
 internally (10 concurrent threads) and return aggregated results.
 
+**Process per project:** create batch → rules batch → telemetry →
+update plan. Do NOT create all flags across all projects first —
+process each project end-to-end before moving to the next.
+
 ```
-STEP 1: batchCreateFlags
-  → Collect all flag definitions for the current project into a JSON
-    array: [{flagName, description, schema, variants}, ...]
-  → Call batchCreateFlags with:
-    - clientName: the project's Confidence client
-    - flags: the JSON array
-    - labels: {"migration-started": "<ISO-timestamp>", "source": "optimizely"}
-  → The tool creates flags in parallel, skips existing ones, and returns
-    created/existed/failed counts.
-  → Send telemetry after each batch with counts.
+FOR EACH PROJECT:
+  1. Create the Confidence client (if not already done)
 
-STEP 2: batchAddTargetingRules
-  → Collect ALL targeting rules for ALL flags in the project into a
-    single JSON array: [{flagName, variantAllocations, targetingKey,
-    payload}, ...]. Include both specific targeting rules AND catch-all
-    rules (no payload). Rules for the same flag MUST appear in order
-    (targeting rules before catch-all) — the batch tool preserves
-    per-flag order while parallelizing across flags.
-  → Call batchAddTargetingRules with:
-    - rules: the JSON array
-    - completionLabels: {"migration-completed": "<ISO-timestamp>"}
-  → The tool adds rules in parallel across flags (sequential within
-    each flag to preserve order), then stamps completionLabels on each
-    flag where ALL rules succeeded.
-  → Flags with migration-started but NO migration-completed are
-    incomplete — easy to query and retry.
-  → Send telemetry after each batch with counts.
+  2. batchCreateFlags (batches of 20)
+     → Collect flag definitions: [{flagName, description, schema, variants}]
+     → CRITICAL: ALWAYS pass explicit variants from the export data.
+       Never omit variants and rely on the default boolean
+       (disabled/enabled) — the targeting rules reference the export's
+       variant names (e.g. on-flag/off-flag or numeric IDs like
+       28527090153), and a mismatch causes rule creation to fail.
+     → Call batchCreateFlags with:
+       - clientName: the project's Confidence client
+       - flags: the JSON array (max 20 per call)
+       - labels: {"migration-started": "<ISO-timestamp>", "source": "optimizely"}
+     → Send telemetry after each batch with counts.
 
-STEP 3: resolveFlag (verification — spot-check)
-  → For bulk migration, do NOT resolve every flag individually. Instead:
-    a. Pick 3-5 representative flags (one simple boolean, one with
-       targeting, one with multiple rules) and resolve each with
-       positive + negative contexts.
-    b. If spot-checks pass, report the batch as verified.
-    c. If any spot-check fails, investigate that flag individually.
+  3. batchAddTargetingRules (batches of 20, immediately after flags)
+     → Collect ALL targeting rules for the flags just created:
+       [{flagName, variantAllocations, targetingKey, payload}]
+     → Include both specific targeting rules AND catch-all rules (no
+       payload). Rules for the same flag MUST appear in order (targeting
+       rules before catch-all).
+     → Call batchAddTargetingRules with:
+       - rules: the JSON array (max 20 per call)
+       - completionLabels: {"migration-completed": "<ISO-timestamp>"}
+     → The tool preserves per-flag order while parallelizing across
+       flags, then stamps completionLabels only on flags where ALL
+       rules succeeded.
+     → Send telemetry after each batch.
+
+  4. Update the plan file
+     → Mark each flag's status in the Progress table
+     → Flags with migration-started but NO migration-completed label =
+       incomplete (rules failed mid-way) — list them for retry
+
+  5. Spot-check verification
+     → Pick 3-5 representative flags and resolve with positive +
+       negative contexts.
+     → If spot-checks pass, move to the next project.
+
+  6. Send telemetry with project completion
 ```
 
 **Batch sizing.** Each batch tool accepts up to **20 items per call**.
@@ -2001,6 +2011,27 @@ For a 250-flag project, split into 13 batches of 20 (last batch has
 10). Send telemetry after each batch. For targeting rules, the 20-item
 limit counts individual rule entries, not flags — a flag with 3 rules
 (2 targeting + 1 catch-all) uses 3 slots.
+
+**Known quotas.** Confidence enforces hard quotas that the batch tools
+will surface as errors:
+- **Flags quota** — hard limit on total flags per account. The batch
+  tool returns "Hard quota limit (N) for resource flags exceeded" when
+  hit. Check flag count before starting a large migration.
+- **Segments quota** — each targeting rule with audience conditions
+  creates a segment internally. Hard limit of 200 segments per account.
+  A 250-flag project with targeting on every flag will hit this. When
+  hit, the batch returns "Hard quota limit (200) for resource segments
+  exceeded". Catch-all rules (no payload) do NOT consume a segment.
+  Strategy: request quota increase before large migrations, or batch
+  rules in smaller groups with pauses.
+
+**Variant name mismatch prevention.** The Nike export transforms short
+Optimizely keys: `on` → `on-flag`, `off` → `off-flag` (Confidence
+4-char minimum). If you create a flag WITHOUT passing these custom
+variants, it gets default `disabled`/`enabled` variants. Then
+`batchAddTargetingRules` fails because it references `on-flag`/`off-flag`
+which don't exist. Prevention: always read the variant names from the
+export's `variants[].name` field and pass them to `batchCreateFlags`.
 
 #### Single-flag MCP sequence (for small migrations or retries)
 
