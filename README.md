@@ -101,6 +101,7 @@ Once installed, just ask your assistant:
 > /confidence:migrate-statsig plan code
 > /confidence:migrate-optimizely plan flags
 > /confidence:migrate-optimizely plan code
+> /confidence:analyze-project
 ```
 
 ## Features
@@ -111,6 +112,7 @@ This plugin provides access to Confidence tools across these categories:
 - **Onboarding**: Create accounts, invite users, set up SDK clients, configure warehouses, and learn experimentation concepts
 - **Documentation**: Search Confidence docs and SDK integration guides
 - **Migration**: Migrate feature flags from PostHog, Eppo, Statsig, or Optimizely to Confidence
+- **Project analysis**: Scan a project and propose meaningful feature flag opportunities tailored to the codebase
 
 ## Slash Commands
 
@@ -119,6 +121,7 @@ This plugin provides access to Confidence tools across these categories:
 - `/confidence:migrate-eppo <plan flag | plan code | execute <plan-file>>`: [Migrate feature flags from Eppo to Confidence](https://confidence.spotify.com/docs/migrations/migrate-from-eppo)
 - `/confidence:migrate-statsig <plan flag | plan code | execute <plan-file>>`: [Migrate feature flags from Statsig to Confidence](https://confidence.spotify.com/docs/migrations/migrate-from-statsig)
 - `/confidence:migrate-optimizely <plan flags | plan code | execute <plan-file>>`: [Migrate feature flags from Optimizely Feature Experimentation to Confidence](https://confidence.spotify.com/docs/migrations/migrate-from-optimizely)
+- `/confidence:analyze-project [project-dir]`: Analyze a project and propose meaningful feature flag changes using Confidence
 
 ## MCP Servers
 
