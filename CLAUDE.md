@@ -9,6 +9,7 @@ This plugin integrates Confidence with Claude Code, providing tools for feature 
 - `/confidence:migrate-statsig <plan flag | plan code | execute <plan-file>>` — Migrate feature flags from Statsig to Confidence SDK
 - `/confidence:migrate-optimizely <plan flags | plan code | execute <plan-file>>` — Migrate feature flags from Optimizely Feature Experimentation to Confidence SDK (flags + code)
 - `/confidence:onboard-confidence <create-account | invite-user | create-client | setup-wizard | setup-warehouse | learn | status>` — Create accounts, onboard users, set up SDK clients, configure warehouses, and learn experimentation concepts
+- `/confidence:analyze-project [project-dir]` — Analyze a project and propose meaningful feature flag changes using Confidence
 
 ## Skills
 
@@ -17,6 +18,7 @@ This plugin integrates Confidence with Claude Code, providing tools for feature 
 - **migrate-statsig** — Auto-triggers when the user asks to migrate Statsig gates/configs/experiments or transform SDK code to Confidence
 - **migrate-optimizely** — Auto-triggers when the user asks to migrate Optimizely flags/rollouts/experiments to Confidence
 - **onboard-confidence** — Auto-triggers when the user asks to create a Confidence account, invite users, set up SDK clients, configure warehouses, run the setup wizard, or learn about experimentation
+- **analyze-project** — Auto-triggers when the user asks what to feature-flag, wants flag suggestions, or asks to analyze their project for feature flag opportunities
 
 ## MCP Servers
 
