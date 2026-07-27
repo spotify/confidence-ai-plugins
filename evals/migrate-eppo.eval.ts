@@ -27,13 +27,13 @@ Eval("confidence-ai-plugins", {
   projectId: "c78b488e-050d-4299-8442-c081455a3ac2",
   experimentName: "eppo-full-skill-v1",
   maxConcurrency: 3,
-  metadata: { model: "claude-sonnet-4-20250514", skill: "migrate-eppo", eval_type: "full_skill" },
+  metadata: { model: process.env.EVAL_MODEL || "claude-sonnet-4-6", skill: "migrate-eppo", eval_type: "full_skill" },
   data: () => buildDataset("eppo"),
   task: async (input: { user_message: string; flag: Record<string, unknown> }): Promise<TaskOutput> => {
     const flagJson = JSON.stringify(input.flag, null, 2);
     try {
       const response = await client.messages.create({
-        model: "claude-sonnet-4-20250514", max_tokens: 8192, system: SKILL_PROMPT,
+        model: process.env.EVAL_MODEL || "claude-sonnet-4-6", max_tokens: 8192, system: SKILL_PROMPT,
         messages: [{ role: "user", content: `${input.user_message}\n\nFlag definition:\n${flagJson}` }],
       });
       let raw_text = "";

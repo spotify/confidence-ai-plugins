@@ -34,7 +34,7 @@ Eval("confidence-ai-plugins", {
   experimentName: "optimizely-full-skill-v1",
   maxConcurrency: 3,
   metadata: {
-    model: "claude-sonnet-4-20250514",
+    model: process.env.EVAL_MODEL || "claude-sonnet-4-6",
     skill: "migrate-optimizely",
     eval_type: "full_skill",
   },
@@ -46,7 +46,7 @@ Eval("confidence-ai-plugins", {
 
     try {
       const response = await client.messages.create({
-        model: "claude-sonnet-4-20250514",
+        model: process.env.EVAL_MODEL || "claude-sonnet-4-6",
         max_tokens: 8192,
         system: SKILL_PROMPT,
         messages: [
