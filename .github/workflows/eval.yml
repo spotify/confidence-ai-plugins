@@ -5,6 +5,11 @@ on:
     paths:
       - 'skills/migrate-optimizely/**'
       - 'evals/**'
+  push:
+    branches: [main]
+    paths:
+      - 'skills/migrate-optimizely/**'
+      - 'evals/**'
   workflow_dispatch:
     inputs:
       skill:
@@ -12,11 +17,18 @@ on:
         required: false
         default: 'migrate-optimizely'
 
+permissions:
+  contents: read
+
 jobs:
   eval:
     name: Run migration skill evals
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    if: |
+      github.event_name == 'push' ||
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
 
     steps:
       - uses: actions/checkout@v4
@@ -25,19 +37,13 @@ jobs:
         with:
           node-version: '20'
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.13'
-
       - name: Install dependencies
         run: npm ci
 
-      - name: Extract fixtures
-        run: python3 evals/scripts/extract-fixtures.py
-
       - name: Run evals
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          HENDRIX_API_KEY: ${{ secrets.HENDRIX_API_KEY }}
+          HENDRIX_BASE_URL: ${{ secrets.HENDRIX_BASE_URL }}
           BRAINTRUST_API_KEY: ${{ secrets.BRAINTRUST_API_KEY }}
-          BRAINTRUST_API_URL: https://braintrust.spotifyinternal.com
+          BRAINTRUST_API_URL: ${{ secrets.BRAINTRUST_API_URL }}
         run: npx braintrust eval evals/migrate-optimizely.eval.ts
