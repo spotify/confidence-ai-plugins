@@ -4,6 +4,9 @@ on:
   pull_request:
     paths:
       - 'skills/migrate-optimizely/**'
+      - 'skills/migrate-posthog/**'
+      - 'skills/migrate-eppo/**'
+      - 'skills/migrate-statsig/**'
       - 'evals/**'
   push:
     branches: [main]
@@ -19,6 +22,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: write
 
 jobs:
   eval:
@@ -41,9 +45,66 @@ jobs:
         run: npm ci
 
       - name: Run evals
+        id: eval
         env:
           HENDRIX_API_KEY: ${{ secrets.HENDRIX_API_KEY }}
           HENDRIX_BASE_URL: ${{ secrets.HENDRIX_BASE_URL }}
           BRAINTRUST_API_KEY: ${{ secrets.BRAINTRUST_API_KEY }}
           BRAINTRUST_API_URL: ${{ secrets.BRAINTRUST_API_URL }}
-        run: npx braintrust eval evals/migrate-optimizely.eval.ts
+        run: |
+          OUTPUT=$(npx braintrust eval evals/migrate-optimizely.eval.ts 2>&1)
+          echo "$OUTPUT"
+          echo "$OUTPUT" > eval-output.txt
+
+          # Check for regressions — fail if any score dropped
+          if echo "$OUTPUT" | grep -q "regressions)"; then
+            REGRESSIONS=$(echo "$OUTPUT" | grep "regressions)" | grep -v "0 regressions" || true)
+            if [ -n "$REGRESSIONS" ]; then
+              echo "::error::Score regressions detected"
+              echo "$REGRESSIONS"
+              echo "has_regressions=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "has_regressions=false" >> "$GITHUB_OUTPUT"
+            fi
+          else
+            echo "has_regressions=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          # Check critical scorers are above thresholds
+          SCOPE=$(echo "$OUTPUT" | grep "'ScopeClassification'" | grep -oP '[\d.]+%' | head -1 | tr -d '%')
+          SHAPE=$(echo "$OUTPUT" | grep "'FlagShape'" | grep -oP '[\d.]+%' | head -1 | tr -d '%')
+          echo "scope_score=$SCOPE" >> "$GITHUB_OUTPUT"
+          echo "shape_score=$SHAPE" >> "$GITHUB_OUTPUT"
+
+      - name: Fail on regressions
+        if: steps.eval.outputs.has_regressions == 'true'
+        run: |
+          echo "::error::Eval scores regressed. Check the Braintrust experiment for details."
+          exit 1
+
+      - name: Fail on critical score drop
+        if: steps.eval.outputs.scope_score != '' && steps.eval.outputs.scope_score != '100.00'
+        run: |
+          echo "::error::ScopeClassification dropped below 100% (got ${{ steps.eval.outputs.scope_score }}%)"
+          exit 1
+
+      - name: Comment PR with results
+        if: github.event_name == 'pull_request' && always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const output = fs.readFileSync('eval-output.txt', 'utf8');
+            const summaryMatch = output.match(/=+SUMMARY=+([\s\S]*?)(?:See results|$)/);
+            const summary = summaryMatch ? summaryMatch[1].trim() : 'No summary available';
+            const urlMatch = output.match(/(https:\/\/www\.braintrust\.dev\S+)/);
+            const url = urlMatch ? urlMatch[1] : '';
+
+            const body = `## Braintrust Eval Results\n\n\`\`\`\n${summary}\n\`\`\`\n\n${url ? `[View in Braintrust](${url})` : ''}`;
+
+            await github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body
+            });

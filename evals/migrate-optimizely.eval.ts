@@ -85,7 +85,7 @@ Eval("confidence-ai-plugins", {
     (args) => PlanContent({ output: args.output as TaskOutput, expected: args.expected as Record<string, unknown> }),
     (args) => NamingRules({ output: args.output as TaskOutput, expected: args.expected as Record<string, unknown> }),
     (args) => Tone({ output: args.output as TaskOutput }),
-    (args) => Visualization({ output: args.output as TaskOutput }),
+    (args) => Visualization({ output: args.output as TaskOutput, metadata: args.metadata as Record<string, unknown> }),
     (args) => Communication({ output: args.output as TaskOutput }),
     (args) => EducateFirst({ output: args.output as TaskOutput }),
   ],

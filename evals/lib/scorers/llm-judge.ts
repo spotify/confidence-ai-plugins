@@ -27,7 +27,7 @@ CRITERION: ${criteria}
 RESPONSE TO EVALUATE:
 ${text.slice(0, 6000)}
 
-Reply with ONLY a JSON object: {"score": <0.0 to 1.0>, "reason": "<one sentence>"}`,
+IMPORTANT: Your very first line must be a JSON object and nothing else: {"score": <0.0 to 1.0>, "reason": "<one sentence>"}`,
         },
       ],
     });
@@ -40,8 +40,11 @@ Reply with ONLY a JSON object: {"score": <0.0 to 1.0>, "reason": "<one sentence>
     const match = allText.match(/\{\s*"score"\s*:\s*[\d.]+[\s\S]*?\}/);
     if (match) {
       const parsed = JSON.parse(match[0]);
-      return { name, score: parsed.score ?? 0, metadata: { reason: parsed.reason } };
+      const score = typeof parsed.score === "number" ? parsed.score : 0;
+      console.log(`  [${name}] score=${score} reason=${parsed.reason || "none"}`);
+      return { name, score, metadata: { reason: parsed.reason } };
     }
+    console.error(`  [${name}] PARSE FAIL: ${allText.slice(0, 300)}`);
     return { name, score: 0, metadata: { reason: "failed_to_parse_judge_response", raw: allText.slice(0, 200) } };
   } catch (e) {
     return { name, score: 0, metadata: { reason: `judge_error: ${e}` } };
@@ -56,7 +59,11 @@ export async function Tone(args: { output: TaskOutput }) {
   );
 }
 
-export async function Visualization(args: { output: TaskOutput }) {
+export function Visualization(args: { output: TaskOutput; metadata?: Record<string, unknown> }) {
+  const tags = (args.metadata?.tags as string[]) || [];
+  if (!tags.includes("interactive") && !tags.includes("visualization")) {
+    return { name: "Visualization", score: 1, metadata: { reason: "not_applicable_for_single_flag_analysis" } };
+  }
   return llmScore(
     "Visualization",
     "Does the response include a properly formatted step tracker or progress indicator using status markers like ○ (pending), ◉ (in progress), ✓ (done), ⏸ (awaiting user), or ⊘ (skipped)? Score 1.0 if a well-formatted tracker is present, 0.5 if partial, 0.0 if missing entirely.",
