@@ -3,12 +3,12 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "eval:optimizely": "BRAINTRUST_API_URL=https://braintrust.spotifyinternal.com npx braintrust eval evals/migrate-optimizely.eval.ts",
-    "eval:posthog": "BRAINTRUST_API_URL=https://braintrust.spotifyinternal.com npx braintrust eval evals/migrate-posthog.eval.ts",
-    "eval:eppo": "BRAINTRUST_API_URL=https://braintrust.spotifyinternal.com npx braintrust eval evals/migrate-eppo.eval.ts",
-    "eval:statsig": "BRAINTRUST_API_URL=https://braintrust.spotifyinternal.com npx braintrust eval evals/migrate-statsig.eval.ts",
-    "eval:all": "BRAINTRUST_API_URL=https://braintrust.spotifyinternal.com npx braintrust eval evals/migrate-optimizely.eval.ts evals/migrate-posthog.eval.ts evals/migrate-eppo.eval.ts evals/migrate-statsig.eval.ts",
-    "eval:local": "npx braintrust eval --no-send-logs evals/migrate-optimizely.eval.ts"
+    "eval:optimizely": "BRAINTRUST_API_URL=https://braintrust.spotifyinternal.com braintrust eval evals/migrate-optimizely.eval.ts",
+    "eval:posthog": "BRAINTRUST_API_URL=https://braintrust.spotifyinternal.com braintrust eval evals/migrate-posthog.eval.ts",
+    "eval:eppo": "BRAINTRUST_API_URL=https://braintrust.spotifyinternal.com braintrust eval evals/migrate-eppo.eval.ts",
+    "eval:statsig": "BRAINTRUST_API_URL=https://braintrust.spotifyinternal.com braintrust eval evals/migrate-statsig.eval.ts",
+    "eval:all": "BRAINTRUST_API_URL=https://braintrust.spotifyinternal.com braintrust eval evals/migrate-optimizely.eval.ts evals/migrate-posthog.eval.ts evals/migrate-eppo.eval.ts evals/migrate-statsig.eval.ts",
+    "eval:local": "braintrust eval --no-send-logs evals/migrate-optimizely.eval.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",
