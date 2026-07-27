@@ -34,12 +34,17 @@ Output ONLY: {"score": <0.0-1.0>, "reason": "<one sentence>"}`,
       if ("text" in block && typeof (block as { text: unknown }).text === "string") allText += (block as { text: string }).text;
       if ("thinking" in block && typeof (block as { thinking: unknown }).thinking === "string") allText += (block as { thinking: string }).thinking;
     }
-    const match = allText.match(/\{\s*"score"\s*:\s*[\d.]+[\s\S]*?\}/);
-    if (match) {
-      const parsed = JSON.parse(match[0]);
-      const score = typeof parsed.score === "number" ? parsed.score : 0;
-      console.log(`  [${name}] score=${score} reason=${parsed.reason || "none"}`);
-      return { name, score, metadata: { reason: parsed.reason } };
+    // Extract the score with a direct regex — never JSON.parse the whole
+    // object: the judge's free-text `reason` routinely contains unescaped
+    // quotes that make it invalid JSON, and a parse crash must not zero
+    // out an otherwise-valid verdict.
+    const scoreMatch = allText.match(/"score"\s*:\s*([\d.]+)/);
+    if (scoreMatch) {
+      const score = Math.max(0, Math.min(1, parseFloat(scoreMatch[1])));
+      const reasonMatch = allText.match(/"reason"\s*:\s*"([^"]{0,300})/);
+      const reason = reasonMatch ? reasonMatch[1] : "";
+      console.log(`  [${name}] score=${score} reason=${reason || "none"}`);
+      return { name, score, metadata: { reason } };
     }
     console.error(`  [${name}] PARSE FAIL: ${allText.slice(0, 300)}`);
     return { name, score: 0, metadata: { reason: "failed_to_parse_judge_response", raw: allText.slice(0, 200) } };
@@ -51,11 +56,11 @@ Output ONLY: {"score": <0.0-1.0>, "reason": "<one sentence>"}`,
 export async function Tone(args: { output: TaskOutput }) {
   return llmScore(
     "Tone",
-    `Evaluate ONLY the conversational prose (ignore fenced code blocks — machine-readable payloads belong there and are fine). Also fine in prose: backticked references to the user's OWN field/flag names (like \`is_beta\`, \`country\`, \`my-flag\`) and plain percentages.
+    `Evaluate ONLY the conversational prose (ignore fenced code blocks — machine-readable payloads belong there and are fine). Also fine in prose: backticked references to the user's OWN field/flag names (like \`is_beta\`, \`country\`, \`my-flag\`), plain percentages, AND spelled-out rule descriptors in plain words — "an equals rule", "a value-set rule", "a numeric range rule", "an ends-with rule", "the variant split", "create the flag", "add the targeting rule". Those ARE plain English; do not penalize them.
 
-Does the prose describe targeting in plain English ("country is US or CA", "25% of beta users")? Penalize only internal implementation jargon in prose: Confidence operator names (eqRule, setRule, rangeRule, variantAllocations, criteria/expression/ref-0), source-platform internal field names used as jargon (percentage_included, passPercentage, percent_exposure, targetValue, rollout_percentage), or raw JSON structures outside code blocks.
+Penalize only literal code identifiers and tool names appearing in prose: camelCase operator names (eqRule, setRule, rangeRule, startsWithRule, endsWithRule, boolValue, stringValue, variantAllocations, criteria/expression/ref-0), MCP tool names (createFlag, addFlagToClient, addTargetingRule, resolveFlag), source-platform internal field names used as jargon (percentage_included, passPercentage, percent_exposure, targetValue, rollout_percentage, aggregation_group_type_index), or raw JSON structures outside code blocks.
 
-Score 1.0 = prose fully plain English. 0.5 = some internal jargon mixed into prose. 0.0 = prose dominated by internal jargon or raw payloads.`,
+Score 1.0 = prose fully plain English. 0.5 = some literal code identifiers mixed into prose. 0.0 = prose dominated by code identifiers or raw payloads.`,
     args.output?.raw_text || "",
   );
 }
@@ -77,10 +82,10 @@ export async function Communication(args: { output: TaskOutput }) {
     "Communication",
     `The AI assistant should describe flag targeting in PLAIN ENGLISH in the conversational output shown to the user. However, it IS allowed to include machine-readable MCP command payloads (JSON with criteria/expression/ref-0, addTargetingRule, createFlag) inside a plan file section or code block — those are for machine execution, not user-facing.
 
-Score based on the CONVERSATIONAL parts (outside code blocks):
+Score based on the CONVERSATIONAL parts (outside code blocks). Spelled-out descriptors in plain words ("an equals rule", "a value-set rule", "an ends-with rule", "create the flag", "add the targeting rule") are plain English — do not penalize them.
 - Score 1.0 if the conversational text uses plain English ("country is US or CA", "25% rollout to beta users") and technical payloads only appear inside code blocks or plan file sections.
-- Score 0.5 if there's some mixing — conversational text mentions internal terms alongside plain English.
-- Score 0.0 if the conversational text directly shows raw targeting payloads, MCP tool names (mcp__confidence__*), or internal operator names (eqRule, setRule) outside of code blocks.`,
+- Score 0.5 if there's some mixing — conversational text contains literal code identifiers (eqRule, setRule, variantAllocations) or tool names (createFlag, addTargetingRule) alongside plain English.
+- Score 0.0 if the conversational text directly shows raw targeting payloads or is dominated by internal identifiers outside of code blocks.`,
     args.output?.raw_text || "",
   );
 }

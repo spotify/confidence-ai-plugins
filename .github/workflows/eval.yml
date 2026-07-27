@@ -66,21 +66,17 @@ jobs:
             echo "$REGRESSIONS"
           fi
 
-          # Hard gate: minimum ScopeClassification and FlagShape across ALL skills
-          MIN_SCOPE=$(echo "$OUTPUT" | grep "'ScopeClassification'" | grep -oP '^[\d.]+' | sort -n | head -1)
-          MIN_SHAPE=$(echo "$OUTPUT" | grep "'FlagShape'" | grep -oP '^[\d.]+' | sort -n | head -1)
-          echo "min_scope=$MIN_SCOPE" >> "$GITHUB_OUTPUT"
-          echo "min_shape=$MIN_SHAPE" >> "$GITHUB_OUTPUT"
-
-          THRESHOLD=85
+          # Hard gate: EVERY scorer, on EVERY skill, must be >= 90%
+          THRESHOLD=90
           FAIL=0
-          for pair in "ScopeClassification:$MIN_SCOPE" "FlagShape:$MIN_SHAPE"; do
-            name="${pair%%:*}"; val="${pair#*:}"
+          while IFS= read -r line; do
+            val=$(echo "$line" | grep -oP '^[\d.]+')
+            scorer=$(echo "$line" | grep -oP "'\w+'" | tr -d "'")
             if [ -n "$val" ] && awk -v v="$val" -v t="$THRESHOLD" 'BEGIN{exit !(v<t)}'; then
-              echo "::error::$name dropped below ${THRESHOLD}% (got ${val}%)"
+              echo "::error::$scorer is below ${THRESHOLD}% (got ${val}%)"
               FAIL=1
             fi
-          done
+          done < <(echo "$OUTPUT" | grep -P "^[\d.]+%.*'\w+'\s+score")
           exit $FAIL
 
       - name: Build summary table

@@ -284,6 +284,27 @@ operator names.
 - DO translate to the user's vocabulary: "gate" or "flag" not
   `feature gate config`, "experiment groups" not `parameterValues`,
   "pass rate" not `passPercentage`
+
+### Plain-language substitution table (use in ALL conversation output)
+
+This applies **especially** when explaining why a flag is blocked, what a
+workaround would be, or how source targeting maps to Confidence — the
+places where technical vocabulary leaks most. Describe the mapping in
+plain words; the exact payloads belong in the plan file only.
+
+| Instead of | Say |
+|------------|-----|
+| `eqRule` | "an equals rule" / "matches exactly" |
+| `setRule` | "a value-set rule" / "is one of ..." |
+| `rangeRule` | "a numeric range rule" / "is at least/at most ..." |
+| `startsWithRule` / `endsWithRule` | "a starts-with rule" / "an ends-with rule" |
+| `versionValue` | "a version comparison" |
+| `variantAllocations` | "the variant split" / "50/50 split" |
+| `createFlag` | "create the flag" |
+| `addFlagToClient` | "attach the flag to your client" |
+| `addTargetingRule` | "add the targeting rule" |
+| `resolveFlag` | "test-resolve the flag" |
+
 - The plan FILE may contain MCP command payloads (for machine execution),
   but conversation output must be human-friendly
 
