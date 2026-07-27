@@ -113,9 +113,9 @@
       },
       "ground_truth": {
         "flag_shape": "boolean",
-        "scope": "migrate",
-        "blocked_reason": null,
-        "backend": "MCP"
+        "scope": "excluded",
+        "blocked_reason": "partial_rollout",
+        "backend": null
       }
     },
     {

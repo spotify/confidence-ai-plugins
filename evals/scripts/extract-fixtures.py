@@ -101,9 +101,9 @@ def classify(flag, ruleset):
         blocked = check_audiences_blocked(rule.get("audience_ids", []))
         if blocked:
             return "blocked", blocked, None
-        if rtype == "targeted_delivery" and pct not in (0, 10000) and i < len(priorities) - 1:
-            needs_rest = True
-    return "migrate", None, "REST" if needs_rest else "MCP"
+        if rtype == "targeted_delivery" and pct not in (0, 10000):
+            return "excluded", "partial_rollout", None
+    return "migrate", None, "MCP"
 
 def detect_shape(flag, variations):
     if flag.get("variable_definitions", {}):
