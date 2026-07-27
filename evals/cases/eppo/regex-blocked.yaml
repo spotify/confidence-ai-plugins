@@ -1,7 +1,8 @@
 name: regex-matches-blocked
 description: >
-  Targeting uses the MATCHES (regex) operator on email.
-  Confidence has no regex rule, so this flag is BLOCKED.
+  Targeting uses MATCHES with a generic regex (classes and
+  quantifiers mid-pattern) — not expressible as starts-with
+  or ends-with. BLOCKED.
 tags: [blocked, regex, unsupported_operator]
 
 input:
@@ -30,7 +31,7 @@ input:
           - conditions:
               - operator: MATCHES
                 attribute: email
-                values: [".*@acme\\.com$"]
+                values: ["^[a-z]{3}-[0-9]{4}-(eu|us)$"]
         variation_weight:
           - { variation_key: "on", weight: 100 }
       - id: "alloc-default"

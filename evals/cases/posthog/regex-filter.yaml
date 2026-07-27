@@ -1,7 +1,8 @@
 name: regex-filter-blocked
 description: >
-  Filter uses the regex operator on email. Confidence
-  has no regex matching rule, so this flag is BLOCKED.
+  Filter uses a generic regex (character classes and
+  quantifiers mid-pattern) that maps to neither a
+  starts-with nor an ends-with rule. BLOCKED.
 tags: [blocked, regex, unsupported_operator]
 
 input:
@@ -18,7 +19,7 @@ input:
         - properties:
             - key: email
               operator: regex
-              value: "^.*@(acme|partner)\\.com$"
+              value: "^[a-z]{3}-[0-9]{4}-(eu|us)$"
               type: person
           rollout_percentage: 100
     multivariate: null

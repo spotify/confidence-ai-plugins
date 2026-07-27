@@ -30,7 +30,7 @@ input:
 
 expected:
   scope: excluded
-  flag_shape: boolean
+  flag_shape: struct
   blocked_reason: live_experiment
   plan_includes:
     - "experiment"
