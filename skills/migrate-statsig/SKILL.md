@@ -1968,6 +1968,11 @@ source's** (verified on real demos):
 node-express (`statsig-node`), pythontodo (Python), and a Spring app (Java
 `checkGateAsync`/`getConfigAsync`/`getExperimentAsync`).)
 
+> **Agent-internal mapping — never quote these call expressions in
+> conversation prose.** Summarize code changes in words ("gate checks
+> become boolean flag reads"); the literal before/after expressions
+> belong only in the plan file or fenced code blocks.
+
 | Statsig call | What it returns | Confidence accessor (by value type) |
 |--------------|-----------------|-------------------------------------|
 | `checkGate(user, "g")` / `client.checkGate("g")` | boolean | `getBooleanValue("g.enabled", false, ctx)` |
@@ -2078,6 +2083,11 @@ against the real provider.)
 
 (Context shown abbreviated; `ctx` = `{ targetingKey: user.userID, user_id: user.userID, ...attrs }` — note the entity field, per the CRITICAL note above.)
 
+> **Agent-internal mapping — never quote these call expressions in
+> conversation prose.** Summarize code changes in words ("gate checks
+> become boolean flag reads"); the literal before/after expressions
+> belong only in the plan file or fenced code blocks.
+
 | Statsig call | OpenFeature call |
 |--------------|------------------|
 | `statsig.checkGate(user, "g")` | `client.getBooleanValue("g.enabled", false, ctx)` |
@@ -2104,6 +2114,11 @@ SDK guide):
 
 **Client-target mapping (ambient context):** the per-call site drops its
 user argument; emit a one-time context setup instead.
+
+> **Agent-internal mapping — never quote these call expressions in
+> conversation prose.** Summarize code changes in words ("gate checks
+> become boolean flag reads"); the literal before/after expressions
+> belong only in the plan file or fenced code blocks.
 
 | Statsig call | Confidence client call | Plus, once |
 |--------------|------------------------|------------|

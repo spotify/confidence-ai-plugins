@@ -590,6 +590,11 @@ Optimizely Feature Experimentation has one configurable type — the
 **flag** — but a flag's behavior in each environment is governed by an
 ordered **ruleset**. All become Confidence flags:
 
+> **Agent-internal mapping — never quote these shapes in conversation
+> prose.** Describe the flag in words ("a simple on/off flag", "a flag
+> with named variants"); literal schemas like `{ enabled }` belong only
+> in the plan file or fenced code blocks.
+
 | Optimizely concept | What it is | Confidence flag shape |
 |--------------------|-----------|-----------------------|
 | **Flag** (no variables, 2 variations named exactly `on`/`off`) | Boolean on/off feature | Boolean flag (`{ enabled }`); variations `on`/`off` |
