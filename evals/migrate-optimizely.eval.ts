@@ -11,9 +11,13 @@ import {
 } from "./lib/scorers.js";
 import type { EvalOutput, GroundTruth } from "./lib/types.js";
 
-const client = new Anthropic();
+const HENDRIX_BASE_URL = process.env.HENDRIX_BASE_URL || "https://hendrix-genai.spotify.net/taskforce/glm-5-2";
+const HENDRIX_API_KEY = process.env.HENDRIX_API_KEY || process.env.ANTHROPIC_API_KEY || "";
 
-const BRAINTRUST_API_URL = process.env.BRAINTRUST_API_URL || "https://braintrust.spotifyinternal.com";
+const client = new Anthropic({
+  apiKey: HENDRIX_API_KEY,
+  baseURL: HENDRIX_BASE_URL,
+});
 
 function parseJsonResponse(text: string): EvalOutput | null {
   let clean = text.trim();
@@ -49,20 +53,30 @@ Eval("confidence-ai-plugins", {
   task: async (input: { flag: Record<string, unknown> }) => {
     const flagJson = JSON.stringify(input.flag, null, 2);
 
-    const response = await client.messages.create({
-      model: "claude-sonnet-4-20250514",
-      max_tokens: 4096,
-      system: SYSTEM_PROMPT,
-      messages: [
-        {
-          role: "user",
-          content: `Analyze this Optimizely flag definition and produce the Confidence migration output.\n\nFlag definition:\n${flagJson}`,
-        },
-      ],
-    });
+    try {
+      const response = await client.messages.create({
+        model: "claude-sonnet-4-20250514",
+        max_tokens: 4096,
+        system: SYSTEM_PROMPT,
+        messages: [
+          {
+            role: "user",
+            content: `Analyze this Optimizely flag definition and produce the Confidence migration output.\n\nFlag definition:\n${flagJson}`,
+          },
+        ],
+      });
 
-    const text = response.content[0].type === "text" ? response.content[0].text : "";
-    return parseJsonResponse(text);
+      const textBlock = response.content.find((b: { type: string }) => b.type === "text");
+      const text = textBlock && "text" in textBlock ? (textBlock as { text: string }).text : "";
+      const parsed = parseJsonResponse(text);
+      if (!parsed) {
+        console.error(`[${(input.flag as { key?: string }).key}] Failed to parse response: ${text.slice(0, 200)}`);
+      }
+      return parsed;
+    } catch (e) {
+      console.error(`[${(input.flag as { key?: string }).key}] API error:`, e);
+      return null;
+    }
   },
 
   scores: [
