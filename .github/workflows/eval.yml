@@ -1,24 +1,19 @@
 name: Evals
 
+# PR runs are intentionally disabled — each full run costs real model
+# credits. Run evals locally with a Hendrix key (see evals/README.md),
+# or trigger this workflow manually. The push-to-main run keeps a
+# canonical baseline in Braintrust.
 on:
-  pull_request:
+  push:
+    branches: [main]
     paths:
       - 'skills/migrate-optimizely/**'
       - 'skills/migrate-posthog/**'
       - 'skills/migrate-eppo/**'
       - 'skills/migrate-statsig/**'
       - 'evals/**'
-  push:
-    branches: [main]
-    paths:
-      - 'skills/migrate-optimizely/**'
-      - 'evals/**'
   workflow_dispatch:
-    inputs:
-      skill:
-        description: 'Skill to evaluate (e.g. migrate-optimizely)'
-        required: false
-        default: 'migrate-optimizely'
 
 concurrency:
   group: evals-${{ github.ref }}
@@ -26,17 +21,12 @@ concurrency:
 
 permissions:
   contents: read
-  pull-requests: write
 
 jobs:
   eval:
     name: Run migration skill evals
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    if: |
-      github.event_name == 'push' ||
-      github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
 
     steps:
       - uses: actions/checkout@v4
@@ -87,25 +77,5 @@ jobs:
         if: always() && steps.eval.outcome != 'skipped'
         run: |
           if [ -f eval-output.txt ]; then
-            python3 evals/scripts/summarize.py eval-output.txt > eval-summary.md || true
-            cat eval-summary.md >> "$GITHUB_STEP_SUMMARY" || true
+            python3 evals/scripts/summarize.py eval-output.txt >> "$GITHUB_STEP_SUMMARY" || true
           fi
-
-      - name: Comment PR with results
-        if: github.event_name == 'pull_request' && steps.eval.outcome == 'success'
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const fs = require('fs');
-            if (!fs.existsSync('eval-summary.md')) return;
-            const table = fs.readFileSync('eval-summary.md', 'utf8').trim();
-            if (!table || table.startsWith('No eval summaries')) return;
-
-            const body = `## Eval Results\n\n${table}`;
-
-            await github.rest.issues.createComment({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body
-            });
