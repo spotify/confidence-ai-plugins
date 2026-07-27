@@ -8,9 +8,9 @@ tags: [migrate, semver, and_expression, boolean]
 
 input:
   user_message: |
-    Analyze this Optimizely flag and classify it for
-    migration to Confidence. Produce the targeting
-    configuration and describe the flag in plain English.
+    I want to migrate my Optimizely flags to Confidence.
+    Here is a flag from my project. What is the migration
+    path for this one? Describe it in plain English.
   flag:
     key: mobile_checkout
     name: Mobile checkout
