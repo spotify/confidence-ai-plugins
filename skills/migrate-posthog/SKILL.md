@@ -301,6 +301,13 @@ plain words; the exact payloads belong in the plan file only.
 - Source-platform operator names are also jargon in prose: say
   "a contains match" not `icontains`, "an equals match" not `exact`,
   "is not" not `is_not` — plain words, not backticked identifiers
+- Describe source flag STATE in words, never as inline key:value
+  fragments: say "the flag is archived" not `archived: true`, "the gate
+  is disabled" not `enabled: false` / `isEnabled: false`, "the flag is
+  inactive" not `active: false`
+- Never inline SDK call expressions or property paths in prose — no
+  `checkGate(user, ...)`, no `my-flag.enabled`; put them in fenced code
+  blocks or say "when your code checks the gate"
 - The plan FILE may contain MCP command payloads (for machine execution),
   but conversation output must be human-friendly
 
