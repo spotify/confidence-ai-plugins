@@ -1,0 +1,58 @@
+name: not-one-of-country-exclusion
+description: >
+  Boolean gate with a NOT_ONE_OF targeting rule on country
+  [DE, FR]. Tests the negated set-membership operator
+  mapping to Confidence targeting.
+tags: [migrate, not_one_of, set_membership, boolean]
+
+input:
+  user_message: |
+    I want to migrate my Eppo flags to Confidence.
+    Here is a flag from my project. What is the migration
+    path for this one? Describe it in plain English.
+  flag:
+    id: "flag-007"
+    key: global-feature
+    name: Global feature
+    description: Enabled everywhere except DE and FR.
+    is_archived: false
+    variation_type: BOOLEAN
+    variations:
+      - { id: "var-on", name: "On", variant_key: "on" }
+      - { id: "var-off", name: "Off", variant_key: "off" }
+    allocations:
+      - id: "alloc-non-eu"
+        key: non-eu
+        name: Non-EU allocation
+        type: FEATURE_GATE
+        percent_exposure: 100
+        is_default: false
+        targeting_rules:
+          - conditions:
+              - operator: NOT_ONE_OF
+                attribute: country
+                values: ["DE", "FR"]
+        variation_weight:
+          - { variation_key: "on", weight: 100 }
+      - id: "alloc-default"
+        key: default
+        name: Default
+        type: FEATURE_GATE
+        percent_exposure: 100
+        is_default: true
+        targeting_rules: []
+        variation_weight:
+          - { variation_key: "off", weight: 100 }
+
+expected:
+  scope: migrate
+  flag_shape: boolean
+  plan_includes:
+    - "country"
+    - "DE"
+    - "FR"
+    - "not"
+  plan_excludes:
+    - "eqRule"
+    - "setRule"
+    - "mcp__confidence"

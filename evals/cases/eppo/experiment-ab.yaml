@@ -1,0 +1,44 @@
+name: experiment-ab-50-50
+description: >
+  EXPERIMENT allocation type with a 50/50 split between
+  control and treatment. Live experiments are excluded
+  because Confidence uses different bucketing.
+tags: [excluded, experiment, boolean]
+
+input:
+  user_message: |
+    I want to migrate my Eppo flags to Confidence.
+    Here is a flag from my project. What is the migration
+    path for this one? Describe it in plain English.
+  flag:
+    id: "flag-004"
+    key: checkout-experiment
+    name: Checkout experiment
+    description: A/B experiment on the checkout flow.
+    is_archived: false
+    variation_type: BOOLEAN
+    variations:
+      - { id: "var-control", name: "Control", variant_key: "control" }
+      - { id: "var-treatment", name: "Treatment", variant_key: "treatment" }
+    allocations:
+      - id: "alloc-ab"
+        key: ab-test
+        name: Checkout A/B test
+        type: EXPERIMENT
+        percent_exposure: 100
+        is_default: false
+        targeting_rules: []
+        variation_weight:
+          - { variation_key: "control", weight: 50 }
+          - { variation_key: "treatment", weight: 50 }
+
+expected:
+  scope: excluded
+  flag_shape: boolean
+  blocked_reason: live_experiment
+  plan_includes:
+    - "experiment"
+    - "50"
+    - "exclude"
+  plan_excludes:
+    - "mcp__confidence"

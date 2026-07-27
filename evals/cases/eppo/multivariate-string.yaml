@@ -1,0 +1,47 @@
+name: multivariate-string-experiment
+description: >
+  STRING variation_type with 3 variants in an EXPERIMENT
+  allocation. Live experiments with multiple distinct
+  variants are excluded because Confidence uses different
+  bucketing.
+tags: [excluded, experiment, string, multivariate]
+
+input:
+  user_message: |
+    I want to migrate my Eppo flags to Confidence.
+    Here is a flag from my project. What is the migration
+    path for this one? Describe it in plain English.
+  flag:
+    id: "flag-010"
+    key: headline-test
+    name: Headline test
+    description: A/B/C test on landing page headline copy.
+    is_archived: false
+    variation_type: STRING
+    variations:
+      - { id: "var-a", name: "Original", variant_key: "original" }
+      - { id: "var-b", name: "Short headline", variant_key: "short" }
+      - { id: "var-c", name: "Long headline", variant_key: "long" }
+    allocations:
+      - id: "alloc-abc"
+        key: headline-abc
+        name: Headline A/B/C test
+        type: EXPERIMENT
+        percent_exposure: 100
+        is_default: false
+        targeting_rules: []
+        variation_weight:
+          - { variation_key: "original", weight: 34 }
+          - { variation_key: "short", weight: 33 }
+          - { variation_key: "long", weight: 33 }
+
+expected:
+  scope: excluded
+  flag_shape: struct
+  blocked_reason: live_experiment
+  plan_includes:
+    - "experiment"
+    - "3"
+    - "exclude"
+  plan_excludes:
+    - "mcp__confidence"

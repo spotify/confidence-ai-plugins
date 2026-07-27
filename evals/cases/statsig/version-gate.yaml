@@ -1,0 +1,40 @@
+name: version-gate-gte
+description: >
+  Gate with an app_version condition using operator
+  "version_gte" to target users on version 2.0.0 or
+  above. Should map to a Confidence targeting rule
+  with a version context field.
+tags: [migrate, boolean, version, version_gte]
+
+input:
+  user_message: |
+    I want to migrate my Statsig flags to Confidence.
+    Here is a flag from my project. What is the migration
+    path for this one? Describe it in plain English.
+  flag:
+    id: gate_003
+    name: Version Gate
+    description: Gate for app version 2.0.0 and above.
+    idType: userID
+    isEnabled: true
+    status: Active
+    type: TEMPORARY
+    rules:
+      - name: Version 2+ users
+        id: rule_003
+        passPercentage: 100
+        conditions:
+          - type: app_version
+            operator: version_gte
+            targetValue: "2.0.0"
+
+expected:
+  scope: migrate
+  flag_shape: boolean
+  plan_includes:
+    - "version"
+    - "2.0.0"
+  plan_excludes:
+    - "eqRule"
+    - "setRule"
+    - "mcp__confidence"

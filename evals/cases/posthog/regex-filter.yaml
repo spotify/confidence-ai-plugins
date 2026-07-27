@@ -1,0 +1,34 @@
+name: regex-filter-blocked
+description: >
+  Filter uses the regex operator on email. Confidence
+  has no regex matching rule, so this flag is BLOCKED.
+tags: [blocked, regex, unsupported_operator]
+
+input:
+  user_message: |
+    I want to migrate my PostHog flags to Confidence.
+    Here is a flag from my project. What is the migration
+    path for this one? Describe it in plain English.
+  flag:
+    key: beta-testers
+    name: Beta testers by email pattern
+    active: true
+    filters:
+      groups:
+        - properties:
+            - key: email
+              operator: regex
+              value: "^.*@(acme|partner)\\.com$"
+              type: person
+          rollout_percentage: 100
+    multivariate: null
+
+expected:
+  scope: blocked
+  flag_shape: boolean
+  blocked_reason: regex
+  plan_includes:
+    - "blocked"
+    - "regex"
+  plan_excludes:
+    - "mcp__confidence"

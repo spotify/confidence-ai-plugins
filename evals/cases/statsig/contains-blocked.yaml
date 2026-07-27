@@ -1,0 +1,43 @@
+name: contains-blocked-operator
+description: >
+  Gate with str_contains_any operator on a custom field.
+  Confidence has no substring/contains rule, so this
+  flag is BLOCKED.
+tags: [blocked, str_contains_any, unsupported_operator]
+
+input:
+  user_message: |
+    I want to migrate my Statsig flags to Confidence.
+    Here is a flag from my project. What is the migration
+    path for this one? Describe it in plain English.
+  flag:
+    id: gate_005
+    name: Contains Gate
+    description: Gate using string contains on username.
+    idType: userID
+    isEnabled: true
+    status: Active
+    type: PERMANENT
+    rules:
+      - name: Admin users
+        id: rule_005
+        passPercentage: 100
+        conditions:
+          - type: custom_field
+            field: username
+            operator: str_contains_any
+            targetValue:
+              - admin
+              - superuser
+
+expected:
+  scope: blocked
+  flag_shape: boolean
+  blocked_reason: str_contains_any
+  plan_includes:
+    - "blocked"
+    - "contains"
+  plan_excludes:
+    - "eqRule"
+    - "setRule"
+    - "mcp__confidence"

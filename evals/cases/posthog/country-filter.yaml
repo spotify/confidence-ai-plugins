@@ -1,0 +1,41 @@
+name: country-filter-exact-set
+description: >
+  100% rollout with an exact-match country filter for
+  US and CA. The exact operator with a list value should
+  map to a set-membership rule in Confidence. Response
+  must describe the targeting in plain English.
+tags: [migrate, exact, set_membership, boolean]
+
+input:
+  user_message: |
+    I want to migrate my PostHog flags to Confidence.
+    Here is a flag from my project. What is the migration
+    path for this one? Describe it in plain English.
+  flag:
+    key: na-promo
+    name: North America promo
+    active: true
+    filters:
+      groups:
+        - properties:
+            - key: country
+              operator: exact
+              value:
+                - US
+                - CA
+              type: person
+          rollout_percentage: 100
+    multivariate: null
+
+expected:
+  scope: migrate
+  flag_shape: boolean
+  plan_includes:
+    - "country"
+    - "US"
+    - "CA"
+  plan_excludes:
+    - "eqRule"
+    - "setRule"
+    - "addTargetingRule"
+    - "mcp__confidence"

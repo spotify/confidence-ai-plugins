@@ -1,0 +1,38 @@
+name: simple-gate-everyone
+description: >
+  Simplest case: boolean gate enabled with a single rule
+  targeting everyone (type: public) at 100%. Should produce
+  one catch-all targeting rule in Confidence.
+tags: [migrate, boolean, everyone, simple]
+
+input:
+  user_message: |
+    I want to migrate my Statsig flags to Confidence.
+    Here is a flag from my project. What is the migration
+    path for this one? Describe it in plain English.
+  flag:
+    id: gate_001
+    name: Simple Gate
+    description: Gate rolled out to everyone.
+    idType: userID
+    isEnabled: true
+    status: Active
+    type: PERMANENT
+    rules:
+      - name: Everyone
+        id: rule_001
+        passPercentage: 100
+        conditions:
+          - type: public
+
+expected:
+  scope: migrate
+  flag_shape: boolean
+  plan_includes:
+    - "simple-gate"
+    - "100%"
+    - "everyone"
+  plan_excludes:
+    - "eqRule"
+    - "setRule"
+    - "mcp__confidence"

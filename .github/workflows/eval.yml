@@ -52,7 +52,7 @@ jobs:
           BRAINTRUST_API_KEY: ${{ secrets.BRAINTRUST_API_KEY }}
           BRAINTRUST_API_URL: ${{ secrets.BRAINTRUST_API_URL }}
         run: |
-          OUTPUT=$(npx braintrust eval evals/migrate-optimizely.eval.ts 2>&1)
+          OUTPUT=$(npx braintrust eval evals/migrate-optimizely.eval.ts evals/migrate-posthog.eval.ts evals/migrate-eppo.eval.ts evals/migrate-statsig.eval.ts 2>&1)
           echo "$OUTPUT"
           echo "$OUTPUT" > eval-output.txt
 

@@ -1,0 +1,39 @@
+name: is-not-filter-exclusion
+description: >
+  100% rollout with is_not operator excluding country DE.
+  The is_not operator maps to a negation rule in
+  Confidence. Response must describe the exclusion
+  in plain English.
+tags: [migrate, is_not, negation, boolean]
+
+input:
+  user_message: |
+    I want to migrate my PostHog flags to Confidence.
+    Here is a flag from my project. What is the migration
+    path for this one? Describe it in plain English.
+  flag:
+    key: gdpr-banner-hide
+    name: Hide GDPR banner outside DE
+    active: true
+    filters:
+      groups:
+        - properties:
+            - key: country
+              operator: is_not
+              value: DE
+              type: person
+          rollout_percentage: 100
+    multivariate: null
+
+expected:
+  scope: migrate
+  flag_shape: boolean
+  plan_includes:
+    - "country"
+    - "DE"
+    - "not"
+  plan_excludes:
+    - "eqRule"
+    - "setRule"
+    - "addTargetingRule"
+    - "mcp__confidence"

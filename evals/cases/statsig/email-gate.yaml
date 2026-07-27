@@ -1,0 +1,42 @@
+name: email-gate-ends-with
+description: >
+  Gate with an email condition using operator
+  "str_ends_with_any" to match @spotify.com addresses.
+  Should map to a Confidence targeting rule with an
+  email context field and suffix match.
+tags: [migrate, boolean, email, str_ends_with_any]
+
+input:
+  user_message: |
+    I want to migrate my Statsig flags to Confidence.
+    Here is a flag from my project. What is the migration
+    path for this one? Describe it in plain English.
+  flag:
+    id: gate_010
+    name: Email Gate
+    description: Gate for Spotify employees by email domain.
+    idType: userID
+    isEnabled: true
+    status: Active
+    type: PERMANENT
+    rules:
+      - name: Spotify employees
+        id: rule_010
+        passPercentage: 100
+        conditions:
+          - type: email
+            operator: str_ends_with_any
+            targetValue:
+              - "@spotify.com"
+
+expected:
+  scope: migrate
+  flag_shape: boolean
+  plan_includes:
+    - "email"
+    - "@spotify.com"
+    - "ends with"
+  plan_excludes:
+    - "eqRule"
+    - "setRule"
+    - "mcp__confidence"

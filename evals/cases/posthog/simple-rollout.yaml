@@ -1,0 +1,34 @@
+name: simple-rollout-everyone
+description: >
+  Simplest case: boolean flag active with 100% rollout,
+  no property filters. Should produce one catch-all rule
+  enabling the flag for everyone.
+tags: [migrate, boolean, everyone, simple]
+
+input:
+  user_message: |
+    I want to migrate my PostHog flags to Confidence.
+    Here is a flag from my project. What is the migration
+    path for this one? Describe it in plain English.
+  flag:
+    key: new-homepage
+    name: New homepage
+    active: true
+    filters:
+      groups:
+        - properties: []
+          rollout_percentage: 100
+    multivariate: null
+
+expected:
+  scope: migrate
+  flag_shape: boolean
+  plan_includes:
+    - "new-homepage"
+    - "100%"
+    - "everyone"
+  plan_excludes:
+    - "eqRule"
+    - "setRule"
+    - "addTargetingRule"
+    - "mcp__confidence"

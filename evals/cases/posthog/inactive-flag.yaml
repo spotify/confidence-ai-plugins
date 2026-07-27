@@ -1,0 +1,30 @@
+name: inactive-flag-excluded
+description: >
+  Flag with active=false. Inactive flags are excluded
+  by default because they are not serving traffic and
+  do not need migration.
+tags: [excluded, inactive, boolean]
+
+input:
+  user_message: |
+    I want to migrate my PostHog flags to Confidence.
+    Here is a flag from my project. What is the migration
+    path for this one? Describe it in plain English.
+  flag:
+    key: old-campaign
+    name: Old campaign flag
+    active: false
+    filters:
+      groups:
+        - properties: []
+          rollout_percentage: 100
+    multivariate: null
+
+expected:
+  scope: excluded
+  flag_shape: boolean
+  blocked_reason: inactive
+  plan_includes:
+    - "inactive"
+  plan_excludes:
+    - "mcp__confidence"
