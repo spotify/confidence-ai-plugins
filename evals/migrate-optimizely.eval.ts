@@ -48,6 +48,7 @@ Eval("confidence-ai-plugins", {
       const response = await client.messages.create({
         model: "claude-sonnet-4-20250514",
         max_tokens: 8192,
+        thinking: { type: "disabled" },
         system: SKILL_PROMPT,
         messages: [
           {

@@ -52,8 +52,8 @@ export function FlagShape(args: { output: TaskOutput; expected: Record<string, u
   if (!text) return { name: "FlagShape", score: 0, metadata: { reason: "no_output" } };
 
   const shapeSignals: Record<string, string[]> = {
-    boolean: ["boolean", "on/off", "on and off", "enabled/disabled", "true/false"],
-    struct: ["struct", "variable", "properties", "named variant", "custom-named", "sort_algorithm", "variant_a"],
+    boolean: ["boolean", "on/off", "on and off", "on` and `off", "on or off", "enabled/disabled", "true/false", "two variations", "variations `on`", "variations: on"],
+    struct: ["struct", "variable", "properties", "named variant", "custom-named", "sort_algorithm", "variant_a", "variant_b", "variation key", "string property"],
   };
 
   const signals = shapeSignals[exp] || [];

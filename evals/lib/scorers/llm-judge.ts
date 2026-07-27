@@ -17,6 +17,7 @@ async function llmScore(
     const response = await judge.messages.create({
       model: "claude-sonnet-4-20250514",
       max_tokens: 256,
+      thinking: { type: "disabled" },
       messages: [
         {
           role: "user",
@@ -64,7 +65,12 @@ export async function Visualization(args: { output: TaskOutput }) {
 export async function Communication(args: { output: TaskOutput }) {
   return llmScore(
     "Communication",
-    "Does the response expose any internal implementation details that should be hidden from the user? Check for: MCP tool names (mcp__confidence__*), raw JSON targeting payloads with criteria/expression/ref-0, token values, API endpoint URLs, error codes, org IDs, JWT claims. Score 1.0 if clean (no internals leaked), 0.0 if internals are exposed.",
+    `The AI assistant should describe flag targeting in PLAIN ENGLISH in the conversational output shown to the user. However, it IS allowed to include machine-readable MCP command payloads (JSON with criteria/expression/ref-0, addTargetingRule, createFlag) inside a plan file section or code block — those are for machine execution, not user-facing.
+
+Score based on the CONVERSATIONAL parts (outside code blocks):
+- Score 1.0 if the conversational text uses plain English ("country is US or CA", "25% rollout to beta users") and technical payloads only appear inside code blocks or plan file sections.
+- Score 0.5 if there's some mixing — conversational text mentions internal terms alongside plain English.
+- Score 0.0 if the conversational text directly shows raw targeting payloads, MCP tool names (mcp__confidence__*), or internal operator names (eqRule, setRule) outside of code blocks.`,
     args.output?.raw_text || "",
   );
 }
