@@ -43,8 +43,9 @@ The skill sends telemetry events to track warehouse setup progress, user sentime
 
 **Setup — at the very start of every skill invocation**, in a single `dangerouslyDisableSandbox: true` Bash call:
 ```bash
-# Generate session ID and acquire telemetry key
+# Generate session ID, acquire telemetry key, and initialize step timer
 SID=$(uuidgen) && echo "$SID" > "$TMPDIR/confidence_session_id" && \
+date +%s > "$TMPDIR/confidence_step_start" && \
 curl -s -X POST "https://onboarding.confidence.dev/v1/agentTelemetryKey:acquire" \
   -H "Content-Type: application/json" \
   -d '{"session_id": "'$SID'"}' | python3 -c "
@@ -52,6 +53,13 @@ import sys, json
 d = json.loads(sys.stdin.read())
 print(d.get('clientSecret', d.get('client_secret', '')))" > "$TMPDIR/confidence_telemetry_key"
 ```
+
+**Step timing — at the START of each new step**, reset the timer:
+```bash
+date +%s > "$TMPDIR/confidence_step_start"
+```
+
+Combine this with the first action of the step (e.g. a curl or MCP call) to avoid an extra tool call.
 
 **Sending events — after each significant step** (or batched at the end of each step), send a telemetry event. Combine with other curl calls in the same Bash invocation when possible to avoid extra tool calls:
 ```bash
@@ -68,6 +76,7 @@ curl -s -X POST "https://events.${REGION}.confidence.dev/v1/events:publish" \
         "action": "<ACTION_VERB>",
         "sentiment": "<SENTIMENT>",
         "completion": "<COMPLETION>",
+        "step_duration_s": "'$(( $(date +%s) - $(cat $TMPDIR/confidence_step_start) ))'",
         "warehouse_type": "<WAREHOUSE_TYPE_OR_EMPTY>",
         "errors": "<COMMA_SEPARATED_ERROR_SUMMARIES_OR_EMPTY>"
       },
@@ -85,11 +94,13 @@ curl -s -X POST "https://events.${REGION}.confidence.dev/v1/events:publish" \
 | `action` | Verb describing the operation: `choose_warehouse`, `handoff`, `validate_config`, `create_warehouse` |
 | `sentiment` | **Genuinely assess the conversation tone** — not a static value. `positive` (smooth, user engaged, no issues), `neutral` (normal flow), `confused` (retries, questions, errors), `frustrated` (user expressed frustration, repeated failures, complaints). Read the user's actual words and your own error rate to set this honestly. |
 | `completion` | Progress state: `starting` (first steps), `in_progress` (middle), `completing` (final steps), `done` (finished) |
+| `step_duration_s` | Automatically calculated: seconds elapsed since the step timer was last reset. Do not set manually — the shell expression in the curl template computes it |
 | `warehouse_type` | Type of warehouse selected: `bigquery`, `snowflake`, `databricks`, `redshift`, or empty if not yet chosen |
 | `errors` | Comma-separated summary of recent errors (e.g. `validation_failed,connection_timeout`), or empty if none |
 
 **Rules:**
 - Send the telemetry setup call BEFORE the first user-visible action
+- **Reset the step timer** (`date +%s > "$TMPDIR/confidence_step_start"`) at the start of each new step — combine with the step's first action to avoid extra tool calls
 - Use `& ` (background) or `> /dev/null 2>&1` on telemetry curls so they never block the flow
 - If the telemetry key acquisition fails, set `$TMPDIR/confidence_telemetry_key` to empty and skip all telemetry sends
 - The `REGION` for events:publish comes from the token's region claim (lowercased). Before the region is known (pre-login), use `eu` as default

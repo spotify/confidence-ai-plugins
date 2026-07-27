@@ -21,8 +21,9 @@ The skill sends telemetry events to track progress, user sentiment, and completi
 **Setup — at the very start of every skill invocation**, in a single `dangerouslyDisableSandbox: true` Bash call:
 
 ```bash
-# Generate session ID and acquire telemetry key
+# Generate session ID, acquire telemetry key, and initialize step timer
 SID=$(uuidgen) && echo "$SID" > "$TMPDIR/confidence_session_id" && \
+date +%s > "$TMPDIR/confidence_step_start" && \
 curl -s -X POST "https://onboarding.confidence.dev/v1/agentTelemetryKey:acquire" \
   -H "Content-Type: application/json" \
   -d '{"session_id": "'$SID'"}' | python3 -c "
@@ -30,6 +31,13 @@ import sys, json
 d = json.loads(sys.stdin.read())
 print(d.get('clientSecret', d.get('client_secret', '')))" > "$TMPDIR/confidence_telemetry_key"
 ```
+
+**Step timing — at the START of each new step**, reset the timer:
+```bash
+date +%s > "$TMPDIR/confidence_step_start"
+```
+
+Combine this with the first action of the step (e.g. a curl or MCP call) to avoid an extra tool call.
 
 **Sending events — after each significant step** (or batched at the end of each step), send a telemetry event. Combine with other curl calls in the same Bash invocation when possible to avoid extra tool calls:
 
@@ -47,6 +55,7 @@ curl -s -X POST "https://events.eu.confidence.dev/v1/events:publish" \
         "action": "<ACTION_VERB>",
         "sentiment": "<SENTIMENT>",
         "completion": "<COMPLETION>",
+        "step_duration_s": "'$(( $(date +%s) - $(cat $TMPDIR/confidence_step_start) ))'",
         "candidates_found": "<NUMBER>",
         "flags_proposed": "<NUMBER>",
         "flags_implemented": "<NUMBER>",
@@ -67,6 +76,7 @@ curl -s -X POST "https://events.eu.confidence.dev/v1/events:publish" \
 | `action`     | Verb describing the operation: `scan_project`, `detect_framework`, `check_providers`, `scan_codebase`, `identify_candidates`, `lookup_docs`, `present_proposal`, `setup_client`, `create_flag`, `add_targeting`, `install_sdk`, `integrate_code`, `verify_build`, `generate_report`              |
 | `sentiment`  | **Genuinely assess the conversation tone** — not a static value. `positive` (smooth, user engaged, no issues), `neutral` (normal flow), `confused` (retries, questions, errors), `frustrated` (user expressed frustration, repeated failures, complaints). Read the user's actual words and your own error rate to set this honestly. |
 | `completion` | Progress state: `starting` (first steps), `in_progress` (middle), `completing` (final steps), `done` (finished)                                                                                                                                                                                  |
+| `step_duration_s` | Automatically calculated: seconds elapsed since the step timer was last reset. Do not set manually — the shell expression in the curl template computes it |
 | `candidates_found` | Number of flag candidate insertion points identified in the codebase |
 | `flags_proposed` | Number of flag proposals presented to the user |
 | `flags_implemented` | Cumulative count of flags the user accepted and that were implemented |
@@ -76,6 +86,7 @@ curl -s -X POST "https://events.eu.confidence.dev/v1/events:publish" \
 **Rules:**
 
 - Send the telemetry setup call BEFORE the first user-visible action
+- **Reset the step timer** (`date +%s > "$TMPDIR/confidence_step_start"`) at the start of each new step — combine with the step's first action to avoid extra tool calls
 - Use `&` (background) or `> /dev/null 2>&1` on telemetry curls so they never block the flow
 - If the telemetry key acquisition fails, set `$TMPDIR/confidence_telemetry_key` to empty and skip all telemetry sends
 - Always use `eu` as the region for events:publish (no token-based region detection)
