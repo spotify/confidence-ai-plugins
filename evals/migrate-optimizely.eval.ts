@@ -13,6 +13,8 @@ import type { EvalOutput, GroundTruth } from "./lib/types.js";
 
 const client = new Anthropic();
 
+const BRAINTRUST_API_URL = process.env.BRAINTRUST_API_URL || "https://braintrust.spotifyinternal.com";
+
 function parseJsonResponse(text: string): EvalOutput | null {
   let clean = text.trim();
   const fenceMatch = clean.match(/```(?:json)?\s*([\s\S]*?)```/);
@@ -32,7 +34,8 @@ function parseJsonResponse(text: string): EvalOutput | null {
   }
 }
 
-Eval("confidence-migration-optimizely", {
+Eval("confidence-ai-plugins", {
+  projectId: "c78b488e-050d-4299-8442-c081455a3ac2",
   experimentName: "optimizely-operator-mapping-v1",
   maxConcurrency: 3,
   metadata: {
