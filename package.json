@@ -10,13 +10,13 @@
     "eval:all": "BRAINTRUST_API_URL=https://braintrust.spotifyinternal.com npx braintrust eval evals/migrate-optimizely.eval.ts evals/migrate-posthog.eval.ts evals/migrate-eppo.eval.ts evals/migrate-statsig.eval.ts",
     "eval:local": "npx braintrust eval --no-send-logs evals/migrate-optimizely.eval.ts"
   },
-  "devDependencies": {
+  "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",
     "braintrust": "^0.0.182",
+    "yaml": "^2.9.0"
+  },
+  "devDependencies": {
     "tsx": "^4.19.0",
     "typescript": "^5.5.0"
-  },
-  "dependencies": {
-    "yaml": "^2.9.0"
   }
 }
