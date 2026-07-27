@@ -1,4 +1,4 @@
-name: Braintrust Evals
+name: Evals
 
 on:
   pull_request:
@@ -79,7 +79,7 @@ jobs:
       - name: Fail on regressions
         if: steps.eval.outputs.has_regressions == 'true'
         run: |
-          echo "::error::Eval scores regressed. Check the Braintrust experiment for details."
+          echo "::error::Eval scores regressed. Check the experiment details for more info."
           exit 1
 
       - name: Fail on critical score drop
@@ -100,7 +100,7 @@ jobs:
             const urlMatch = output.match(/(https:\/\/www\.braintrust\.dev\S+)/);
             const url = urlMatch ? urlMatch[1] : '';
 
-            const body = `## Braintrust Eval Results\n\n\`\`\`\n${summary}\n\`\`\`\n\n${url ? `[View in Braintrust](${url})` : ''}`;
+            const body = `## Eval Results\n\n\`\`\`\n${summary}\n\`\`\`\n\n${url ? `[View details](${url})` : ''}`;
 
             await github.rest.issues.createComment({
               issue_number: context.issue.number,
