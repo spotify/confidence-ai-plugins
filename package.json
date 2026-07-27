@@ -1,0 +1,17 @@
+{
+  "name": "confidence-ai-plugins-evals",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "eval:optimizely": "npx braintrust eval evals/migrate-optimizely.eval.ts",
+    "eval:optimizely:local": "npx braintrust eval --no-send-logs evals/migrate-optimizely.eval.ts",
+    "eval:optimizely:smoke": "npx braintrust eval --no-send-logs --first 3 evals/migrate-optimizely.eval.ts",
+    "extract-fixtures": "python3 evals/scripts/extract-fixtures.py"
+  },
+  "devDependencies": {
+    "braintrust": "^0.0.182",
+    "@anthropic-ai/sdk": "^0.39.0",
+    "typescript": "^5.5.0",
+    "tsx": "^4.19.0"
+  }
+}
