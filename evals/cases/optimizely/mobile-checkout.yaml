@@ -1,0 +1,56 @@
+name: mobile-checkout-semver-and-string
+description: >
+  100% rollout with audience "Modern mobile" =
+  app_version semver_ge 1.2.0 AND os exact ios.
+  Tests version range + string equality combined
+  with AND expression.
+tags: [migrate, semver, and_expression, boolean]
+
+input:
+  user_message: |
+    Analyze this Optimizely flag and classify it for
+    migration to Confidence. Produce the targeting
+    configuration and describe the flag in plain English.
+  flag:
+    key: mobile_checkout
+    name: Mobile checkout
+    description: iOS on v1.2.0+.
+    archived: false
+    variable_definitions: {}
+    variations:
+      - { key: on, name: On }
+      - { key: off, name: Off }
+    ruleset:
+      enabled: true
+      default_variation_key: off
+      rule_priorities: [modern_ios]
+      rules:
+        modern_ios:
+          type: targeted_delivery
+          percentage_included: 10000
+          audience_conditions: ["or", { audience_id: 3 }]
+          audience_ids: [3]
+          variations:
+            on: { percentage_included: 10000 }
+    referenced_audiences:
+      "3":
+        name: Modern mobile
+        conditions: >
+          ["and",
+          {"type": "custom_attribute", "name": "app_version",
+          "match_type": "semver_ge", "value": "1.2.0"},
+          {"type": "custom_attribute", "name": "os",
+          "match_type": "exact", "value": "ios"}]
+
+expected:
+  scope: migrate
+  flag_shape: boolean
+  plan_includes:
+    - "app_version"
+    - "1.2.0"
+    - "ios"
+  plan_excludes:
+    - "rangeRule"
+    - "eqRule"
+    - "versionValue"
+    - "mcp__confidence"

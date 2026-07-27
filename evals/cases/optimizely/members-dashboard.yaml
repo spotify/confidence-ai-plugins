@@ -1,0 +1,65 @@
+name: members-dashboard-and-not
+description: >
+  100% rollout with combo audience: Authenticated AND
+  NOT Internal. Tests AND expression with NOT wrapping
+  the second audience, and inlining both audiences into
+  the targeting payload.
+tags: [migrate, and_expression, not_expression, audience_inlining, boolean]
+
+input:
+  user_message: |
+    Analyze this Optimizely flag and classify it for
+    migration to Confidence. Produce the targeting
+    configuration and describe the flag in plain English.
+  flag:
+    key: members_dashboard
+    name: Members dashboard
+    description: Dashboard for authenticated non-staff users.
+    archived: false
+    variable_definitions: {}
+    variations:
+      - { key: on, name: On }
+      - { key: off, name: Off }
+    ruleset:
+      enabled: true
+      default_variation_key: off
+      rule_priorities: [auth_not_internal]
+      rules:
+        auth_not_internal:
+          type: targeted_delivery
+          percentage_included: 10000
+          audience_conditions:
+            - "and"
+            - { audience_id: 7 }
+            - ["not", { audience_id: 9 }]
+          audience_ids: [7, 9]
+          variations:
+            on: { percentage_included: 10000 }
+    referenced_audiences:
+      "7":
+        name: Authenticated users
+        conditions: >
+          ["and",
+          {"type": "custom_attribute",
+          "name": "is_logged_in",
+          "match_type": "exact", "value": true}]
+      "9":
+        name: Internal staff
+        conditions: >
+          ["and",
+          {"type": "custom_attribute",
+          "name": "is_internal",
+          "match_type": "exact", "value": true}]
+
+expected:
+  scope: migrate
+  flag_shape: boolean
+  plan_includes:
+    - "authenticated"
+    - "internal"
+    - "not"
+  plan_excludes:
+    - "eqRule"
+    - "boolValue"
+    - "ref-0"
+    - "mcp__confidence"

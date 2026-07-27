@@ -1,0 +1,52 @@
+name: winback-banner-numeric-range
+description: >
+  100% rollout with audience "Recent purchasers" =
+  days_since_last_order le 14. Tests numeric range
+  with endInclusive.
+tags: [migrate, numeric_range, boolean]
+
+input:
+  user_message: |
+    Analyze this Optimizely flag and classify it for
+    migration to Confidence. Produce the targeting
+    configuration and describe the flag in plain English.
+  flag:
+    key: winback_banner
+    name: Winback banner
+    description: Show to users who ordered in last 14 days.
+    archived: false
+    variable_definitions: {}
+    variations:
+      - { key: on, name: On }
+      - { key: off, name: Off }
+    ruleset:
+      enabled: true
+      default_variation_key: off
+      rule_priorities: [recent_buyers]
+      rules:
+        recent_buyers:
+          type: targeted_delivery
+          percentage_included: 10000
+          audience_conditions: ["or", { audience_id: 4 }]
+          audience_ids: [4]
+          variations:
+            on: { percentage_included: 10000 }
+    referenced_audiences:
+      "4":
+        name: Recent purchasers
+        conditions: >
+          ["and",
+          {"type": "custom_attribute",
+          "name": "days_since_last_order",
+          "match_type": "le", "value": 14}]
+
+expected:
+  scope: migrate
+  flag_shape: boolean
+  plan_includes:
+    - "days_since_last_order"
+    - "14"
+  plan_excludes:
+    - "rangeRule"
+    - "endInclusive"
+    - "mcp__confidence"

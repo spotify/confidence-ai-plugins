@@ -1,38 +1,29 @@
 import { Eval } from "braintrust";
 import Anthropic from "@anthropic-ai/sdk";
-import { buildDataset } from "./lib/fixtures.js";
-import { SYSTEM_PROMPT } from "./lib/system-prompt.js";
-import {
-  ScopeClassification,
-  BlockedDetection,
-  FlagShape,
-  BackendSelection,
-  TargetingPayloadStructure,
-} from "./lib/scorers.js";
-import type { EvalOutput, GroundTruth } from "./lib/types.js";
+import { buildDataset } from "./lib/loader.js";
+import { loadSkillPrompt } from "./lib/skill-prompt.js";
+import { ScopeClassification, FlagShape } from "./lib/scorers/scope.js";
+import { PlanContent } from "./lib/scorers/plan-content.js";
+import { NamingRules } from "./lib/scorers/naming.js";
+import { Tone, Visualization, Communication, EducateFirst } from "./lib/scorers/llm-judge.js";
+import type { TaskOutput, ParsedOutput } from "./lib/types.js";
 
 const HENDRIX_BASE_URL = process.env.HENDRIX_BASE_URL || "https://hendrix-genai.spotify.net/taskforce/glm-5-2";
 const HENDRIX_API_KEY = process.env.HENDRIX_API_KEY || process.env.ANTHROPIC_API_KEY || "";
 
-const client = new Anthropic({
-  apiKey: HENDRIX_API_KEY,
-  baseURL: HENDRIX_BASE_URL,
-});
+const client = new Anthropic({ apiKey: HENDRIX_API_KEY, baseURL: HENDRIX_BASE_URL });
 
-function parseJsonResponse(text: string): EvalOutput | null {
-  let clean = text.trim();
-  const fenceMatch = clean.match(/```(?:json)?\s*([\s\S]*?)```/);
-  if (fenceMatch) clean = fenceMatch[1].trim();
+const SKILL_PROMPT = loadSkillPrompt();
+
+function parseJsonFromText(text: string): ParsedOutput | null {
+  const fenceMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/);
+  const candidate = fenceMatch ? fenceMatch[1].trim() : text.trim();
   try {
-    return JSON.parse(clean) as EvalOutput;
+    return JSON.parse(candidate);
   } catch {
-    const jsonMatch = clean.match(/\{[\s\S]*\}/);
+    const jsonMatch = candidate.match(/\{[\s\S]*\}/);
     if (jsonMatch) {
-      try {
-        return JSON.parse(jsonMatch[0]) as EvalOutput;
-      } catch {
-        return null;
-      }
+      try { return JSON.parse(jsonMatch[0]); } catch { return null; }
     }
     return null;
   }
@@ -40,70 +31,55 @@ function parseJsonResponse(text: string): EvalOutput | null {
 
 Eval("confidence-ai-plugins", {
   projectId: "c78b488e-050d-4299-8442-c081455a3ac2",
-  experimentName: "optimizely-operator-mapping-v1",
+  experimentName: "optimizely-full-skill-v1",
   maxConcurrency: 3,
   metadata: {
     model: "claude-sonnet-4-20250514",
     skill: "migrate-optimizely",
-    eval_type: "operator_mapping_accuracy",
+    eval_type: "full_skill",
   },
 
-  data: buildDataset,
+  data: () => buildDataset("optimizely"),
 
-  task: async (input: { flag: Record<string, unknown> }) => {
+  task: async (input: { user_message: string; flag: Record<string, unknown> }): Promise<TaskOutput> => {
     const flagJson = JSON.stringify(input.flag, null, 2);
 
     try {
       const response = await client.messages.create({
         model: "claude-sonnet-4-20250514",
-        max_tokens: 4096,
-        system: SYSTEM_PROMPT,
+        max_tokens: 8192,
+        system: SKILL_PROMPT,
         messages: [
           {
             role: "user",
-            content: `Analyze this Optimizely flag definition and produce the Confidence migration output.\n\nFlag definition:\n${flagJson}`,
+            content: `${input.user_message}\n\nFlag definition:\n${flagJson}`,
           },
         ],
       });
 
       const textBlock = response.content.find((b: { type: string }) => b.type === "text");
-      const text = textBlock && "text" in textBlock ? (textBlock as { text: string }).text : "";
-      const parsed = parseJsonResponse(text);
+      const raw_text = textBlock && "text" in textBlock ? (textBlock as { text: string }).text : "";
+      const parsed = parseJsonFromText(raw_text);
+
       if (!parsed) {
-        console.error(`[${(input.flag as { key?: string }).key}] Failed to parse response: ${text.slice(0, 200)}`);
+        console.error(`[${input.flag.key}] No JSON in response (${raw_text.length} chars)`);
       }
-      return parsed;
+
+      return { raw_text, parsed };
     } catch (e) {
-      console.error(`[${(input.flag as { key?: string }).key}] API error:`, e);
-      return null;
+      console.error(`[${input.flag.key}] API error:`, e);
+      return { raw_text: "", parsed: null };
     }
   },
 
   scores: [
-    (args: { input: unknown; output: unknown; expected?: unknown }) => ScopeClassification({
-      input: args.input,
-      output: args.output as EvalOutput | null,
-      expected: args.expected as GroundTruth,
-    }),
-    (args: { input: unknown; output: unknown; expected?: unknown }) => BlockedDetection({
-      input: args.input,
-      output: args.output as EvalOutput | null,
-      expected: args.expected as GroundTruth,
-    }),
-    (args: { input: unknown; output: unknown; expected?: unknown }) => FlagShape({
-      input: args.input,
-      output: args.output as EvalOutput | null,
-      expected: args.expected as GroundTruth,
-    }),
-    (args: { input: unknown; output: unknown; expected?: unknown }) => BackendSelection({
-      input: args.input,
-      output: args.output as EvalOutput | null,
-      expected: args.expected as GroundTruth,
-    }),
-    (args: { input: unknown; output: unknown; expected?: unknown }) => TargetingPayloadStructure({
-      input: args.input,
-      output: args.output as EvalOutput | null,
-      expected: args.expected as GroundTruth,
-    }),
+    (args) => ScopeClassification({ output: args.output as TaskOutput, expected: args.expected as Record<string, unknown> }),
+    (args) => FlagShape({ output: args.output as TaskOutput, expected: args.expected as Record<string, unknown> }),
+    (args) => PlanContent({ output: args.output as TaskOutput, expected: args.expected as Record<string, unknown> }),
+    (args) => NamingRules({ output: args.output as TaskOutput, expected: args.expected as Record<string, unknown> }),
+    (args) => Tone({ output: args.output as TaskOutput }),
+    (args) => Visualization({ output: args.output as TaskOutput }),
+    (args) => Communication({ output: args.output as TaskOutput }),
+    (args) => EducateFirst({ output: args.output as TaskOutput }),
   ],
 });

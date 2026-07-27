@@ -1,0 +1,58 @@
+name: na-promo-set-membership
+description: >
+  100% rollout with audience "North America" =
+  country exact US OR exact CA. The OR of exact
+  conditions on the same attribute should collapse
+  to a setRule. Response must describe the targeting
+  in plain English ("country is US or CA").
+tags: [migrate, set_membership, boolean, audience_inlining]
+
+input:
+  user_message: |
+    Analyze this Optimizely flag and classify it for
+    migration to Confidence. Produce the targeting
+    configuration and describe the flag in plain English.
+  flag:
+    key: na_promo
+    name: NA promo
+    description: Promo for US/CA.
+    archived: false
+    variable_definitions: {}
+    variations:
+      - { key: on, name: On }
+      - { key: off, name: Off }
+    ruleset:
+      enabled: true
+      default_variation_key: off
+      rule_priorities: [na_only]
+      rules:
+        na_only:
+          type: targeted_delivery
+          percentage_included: 10000
+          audience_conditions: ["or", { audience_id: 2 }]
+          audience_ids: [2]
+          variations:
+            on: { percentage_included: 10000 }
+    referenced_audiences:
+      "2":
+        name: North America
+        conditions: >
+          ["and", ["or",
+          {"type": "custom_attribute", "name": "country",
+          "match_type": "exact", "value": "US"},
+          {"type": "custom_attribute", "name": "country",
+          "match_type": "exact", "value": "CA"}]]
+
+expected:
+  scope: migrate
+  flag_shape: boolean
+  plan_includes:
+    - "country"
+    - "US"
+    - "CA"
+  plan_excludes:
+    - "eqRule"
+    - "setRule"
+    - "ref-0"
+    - "addTargetingRule"
+    - "mcp__confidence"

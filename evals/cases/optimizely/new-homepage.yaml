@@ -1,0 +1,48 @@
+name: new-homepage-everyone
+description: >
+  Simplest case: boolean flag with a single 100%
+  targeted_delivery rule to everyone. No audience,
+  no variables. Should produce one catch-all rule.
+tags: [migrate, boolean, everyone, simple]
+
+input:
+  user_message: |
+    Analyze this Optimizely flag and classify it for
+    migration to Confidence. Produce the targeting
+    configuration and describe the flag in plain English.
+  flag:
+    key: new-homepage
+    name: New homepage
+    description: 100% rollout to everyone.
+    archived: false
+    variable_definitions: {}
+    variations:
+      - { key: on, name: On }
+      - { key: off, name: Off }
+    ruleset:
+      enabled: true
+      default_variation_key: off
+      rule_priorities: [everyone]
+      rules:
+        everyone:
+          type: targeted_delivery
+          percentage_included: 10000
+          audience_conditions: []
+          audience_ids: []
+          variations:
+            on: { percentage_included: 10000 }
+    referenced_audiences: {}
+
+expected:
+  scope: migrate
+  flag_shape: boolean
+  plan_includes:
+    - "new-homepage"
+    - "100%"
+    - "everyone"
+  plan_excludes:
+    - "eqRule"
+    - "setRule"
+    - "ref-0"
+    - "addTargetingRule"
+    - "mcp__confidence"
