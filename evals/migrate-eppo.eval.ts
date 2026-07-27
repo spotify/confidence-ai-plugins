@@ -33,7 +33,7 @@ Eval("confidence-ai-plugins", {
     const flagJson = JSON.stringify(input.flag, null, 2);
     try {
       const response = await client.messages.create({
-        model: process.env.EVAL_MODEL || "claude-sonnet-4-6", max_tokens: 8192, system: SKILL_PROMPT,
+        model: process.env.EVAL_MODEL || "claude-sonnet-4-6", max_tokens: 8192, system: [{ type: "text" as const, text: SKILL_PROMPT, cache_control: { type: "ephemeral" as const } }],
         messages: [{ role: "user", content: `${input.user_message}\n\nFlag definition:\n${flagJson}${CLASSIFICATION_FOOTER}` }],
       });
       let raw_text = "";

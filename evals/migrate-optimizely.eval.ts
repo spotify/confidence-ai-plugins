@@ -47,7 +47,7 @@ Eval("confidence-ai-plugins", {
       const response = await client.messages.create({
         model: process.env.EVAL_MODEL || "claude-sonnet-4-6",
         max_tokens: 8192,
-        system: SKILL_PROMPT,
+        system: [{ type: "text" as const, text: SKILL_PROMPT, cache_control: { type: "ephemeral" as const } }],
         messages: [
           {
             role: "user",
