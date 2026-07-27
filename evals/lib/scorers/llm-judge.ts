@@ -20,14 +20,14 @@ async function llmScore(
       messages: [
         {
           role: "user",
-          content: `You are an eval judge. Score the following AI assistant response on this criterion:
+          content: `{"score": 0.5, "reason": "example"} — use this exact format.
 
-CRITERION: ${criteria}
+Score this response on: ${criteria}
 
-RESPONSE TO EVALUATE:
-${text.slice(0, 6000)}
+Response (truncated):
+${text.slice(0, 4000)}
 
-IMPORTANT: Your very first line must be a JSON object and nothing else: {"score": <0.0 to 1.0>, "reason": "<one sentence>"}`,
+Output ONLY: {"score": <0.0-1.0>, "reason": "<one sentence>"}`,
         },
       ],
     });
@@ -87,7 +87,7 @@ Score based on the CONVERSATIONAL parts (outside code blocks):
 export async function EducateFirst(args: { output: TaskOutput }) {
   return llmScore(
     "EducateFirst",
-    "Does the response explain a concept (using a blockquote > or an introductory explanation) before taking the action? The skill should educate the user about what's happening and why before doing it. Score 1.0 if explanations come before actions, 0.5 if mixed, 0.0 if actions happen with no explanation.",
+    "Does the response explain a concept (using a blockquote > or an introductory explanation) before taking the migration action? Ignore any telemetry or session-setup bash scripts at the start — those are infrastructure, not user-facing actions. Focus on whether the MIGRATION-RELATED content (flag analysis, classification, targeting description) is preceded by an explanation of what the flag is and why it's being classified this way. Score 1.0 if explanations come before migration actions, 0.5 if mixed, 0.0 if migration actions happen with no explanation.",
     args.output?.raw_text || "",
   );
 }

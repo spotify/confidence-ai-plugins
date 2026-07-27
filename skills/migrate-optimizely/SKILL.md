@@ -266,15 +266,24 @@ see human-readable descriptions of what's happening, not internal
 implementation details like targeting payload formats, rule types, or
 operator names.
 
-- Do NOT say "creating plan based on eqRule / rangeRule / setRule" etc.
+- Do NOT use these terms in conversation output: `eqRule`, `setRule`,
+  `rangeRule`, `startsWithRule`, `endsWithRule`, `anyRule`, `allRule`,
+  `boolValue`, `stringValue`, `numberValue`, `versionValue`,
+  `variantAllocations`, `rolloutPercentage`, `criteria`, `expression`,
+  `ref-0`, `ref-1`, `addTargetingRule`, `createFlag`, `addFlagToClient`,
+  `audience_conditions`, `percentage_included`, `targeted_delivery`,
+  `distribution_mode`, `custom_attribute`, `match_type`
 - Do NOT show raw targeting payloads or JSON structures in conversation
 - Do NOT echo any user-provided secret (API tokens) back into the
   conversation or write them to the plan file — store them only as
   environment variables for the session
 - DO say things like: "Creating flag with rule: plan equals 'pro' AND country is US or UK"
 - DO describe rules in plain English: "app version is at least 1.2.0", "country is US or CA"
+- DO describe variants naturally: "on at 100%", "50/50 split between control and treatment"
 - The plan FILE may contain MCP command payloads (for machine execution),
   but conversation output must be human-friendly
+- When describing Optimizely concepts, use the user's vocabulary:
+  "rollout", "experiment", "audience", "flag" — not Confidence internals
 
 ## Prerequisites: Optimizely Side
 
