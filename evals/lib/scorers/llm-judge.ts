@@ -17,14 +17,12 @@ async function llmScore(
       messages: [
         {
           role: "user",
-          content: `{"score": 0.5, "reason": "example"} — use this exact format.
-
-Score this response on: ${criteria}
+          content: `Score this response on: ${criteria}
 
 Response (truncated):
 ${text.slice(0, 4000)}
 
-Output ONLY: {"score": <0.0-1.0>, "reason": "<one sentence>"}`,
+Your reply must END with a single line of JSON containing two keys, "score" (a number between 0.0 and 1.0) and "reason" (one short sentence in your own words describing what you observed). Nothing after that line.`,
         },
       ],
     });
@@ -38,11 +36,14 @@ Output ONLY: {"score": <0.0-1.0>, "reason": "<one sentence>"}`,
     // object: the judge's free-text `reason` routinely contains unescaped
     // quotes that make it invalid JSON, and a parse crash must not zero
     // out an otherwise-valid verdict.
-    const scoreMatch = allText.match(/"score"\s*:\s*([\d.]+)/);
+    // Take the LAST match — the judge's thinking may restate the requested
+    // format (or an example) before the actual verdict line at the end.
+    const scoreMatches = [...allText.matchAll(/"score"\s*:\s*([\d.]+)/g)];
+    const scoreMatch = scoreMatches.length ? scoreMatches[scoreMatches.length - 1] : null;
     if (scoreMatch) {
       const score = Math.max(0, Math.min(1, parseFloat(scoreMatch[1])));
-      const reasonMatch = allText.match(/"reason"\s*:\s*"([^"]{0,300})/);
-      const reason = reasonMatch ? reasonMatch[1] : "";
+      const reasonMatches = [...allText.matchAll(/"reason"\s*:\s*"([^"]{0,300})/g)];
+      const reason = reasonMatches.length ? reasonMatches[reasonMatches.length - 1][1] : "";
       console.log(`  [${name}] score=${score} reason=${reason || "none"}`);
       return { name, score, metadata: { reason } };
     }

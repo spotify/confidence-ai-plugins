@@ -5,6 +5,8 @@
  */
 export const CLASSIFICATION_FOOTER = `
 
+(No tools are available in this context — skip any telemetry or setup steps and reply with your analysis directly.)
+
 At the very end of your response, add these two lines exactly (pick one value each):
 Classification: migrate | excluded | blocked | archived
 Flag shape: boolean | struct

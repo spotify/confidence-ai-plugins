@@ -262,6 +262,13 @@ plain words; the exact payloads belong in the plan file only.
 | `addTargetingRule` | "add the targeting rule" |
 | `resolveFlag` | "test-resolve the flag" |
 
+- SDK and code identifiers (function names like resolve/getValue calls,
+  context keys, inline schemas such as `{ enabled: boolean }`) belong in
+  fenced code blocks only. In prose say "your code reads the flag's
+  enabled value" — never inline code syntax
+- Source-platform operator names are also jargon in prose: say
+  "a contains match" not `icontains`, "an equals match" not `exact`,
+  "is not" not `is_not` — plain words, not backticked identifiers
 - The plan FILE may contain MCP command payloads (for machine execution),
   but conversation output must be human-friendly
 
