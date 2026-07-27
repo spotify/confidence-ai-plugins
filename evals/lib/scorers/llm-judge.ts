@@ -16,7 +16,7 @@ async function llmScore(
   try {
     const response = await judge.messages.create({
       model: "claude-sonnet-4-20250514",
-      max_tokens: 1024,
+      max_tokens: 4096,
       messages: [
         {
           role: "user",
