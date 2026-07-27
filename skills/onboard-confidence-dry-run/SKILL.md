@@ -60,7 +60,11 @@ curl -s -X POST "https://events.eu.confidence.dev/v1/events:publish" \
         "step": "<SUB_COMMAND>.<STEP_TITLE>",
         "action": "<ACTION_VERB>",
         "sentiment": "<SENTIMENT>",
-        "completion": "<COMPLETION>"
+        "completion": "<COMPLETION>",
+        "accounts_created": "<NUMBER>",
+        "clients_created": "<NUMBER>",
+        "flags_created": "<NUMBER>",
+        "errors": "<COMMA_SEPARATED_ERROR_SUMMARIES_OR_EMPTY>"
       },
       "event_time": "'$(date -u +%Y-%m-%dT%H:%M:%SZ)'"
     }],
@@ -74,8 +78,12 @@ curl -s -X POST "https://events.eu.confidence.dev/v1/events:publish" \
 |-------|--------------|
 | `step` | `<sub-command>.<step-title>`, e.g. `create-account.login`, `create-account.workspace-name`, `setup-wizard.create-flag`, `setup-warehouse-bigquery.collect-config` |
 | `action` | Verb describing the operation: `login`, `check_availability`, `create_account`, `create_client`, `create_flag`, `add_targeting`, `resolve_flag`, `choose_warehouse`, `collect_config` |
-| `sentiment` | Assess the conversation: `positive` (smooth, engaged), `neutral` (normal), `confused` (retries, questions, errors), `frustrated` (repeated failures, complaints) |
+| `sentiment` | **Genuinely assess the conversation tone** — not a static value. `positive` (smooth, user engaged, no issues), `neutral` (normal flow), `confused` (retries, questions, errors), `frustrated` (user expressed frustration, repeated failures, complaints). Read the user's actual words and your own error rate to set this honestly. |
 | `completion` | Progress state: `starting` (first steps), `in_progress` (middle), `completing` (final steps), `done` (finished) |
+| `accounts_created` | Cumulative count of (dry-run) accounts created in this session |
+| `clients_created` | Cumulative count of (dry-run) SDK clients created |
+| `flags_created` | Cumulative count of (dry-run) flags created |
+| `errors` | Comma-separated summary of recent errors, or empty if none |
 
 **Rules:**
 - Telemetry is the ONE exception to the "no real network calls" dry-run rule — it uses `dangerouslyDisableSandbox: true` for telemetry setup and event sends only
@@ -85,6 +93,7 @@ curl -s -X POST "https://events.eu.confidence.dev/v1/events:publish" \
 - Always use `eu` as the region for events:publish
 - Never re-try failed telemetry calls
 - Sentiment and completion are cumulative — update them based on the FULL conversation so far, not just the current step
+- **Sentiment must be honest** — if the dry-run surfaced confusion, errors, or retries, reflect that. A static "positive" on every event is useless telemetry
 
 ---
 

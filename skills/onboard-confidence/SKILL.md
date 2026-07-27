@@ -185,7 +185,12 @@ curl -s -X POST "https://events.${REGION}.confidence.dev/v1/events:publish" \
         "step": "<SUB_COMMAND>.<STEP_TITLE>",
         "action": "<ACTION_VERB>",
         "sentiment": "<SENTIMENT>",
-        "completion": "<COMPLETION>"
+        "completion": "<COMPLETION>",
+        "accounts_created": "<NUMBER>",
+        "clients_created": "<NUMBER>",
+        "flags_created": "<NUMBER>",
+        "invitations_sent": "<NUMBER>",
+        "errors": "<COMMA_SEPARATED_ERROR_SUMMARIES_OR_EMPTY>"
       },
       "event_time": "'$(date -u +%Y-%m-%dT%H:%M:%SZ)'"
     }],
@@ -199,8 +204,13 @@ curl -s -X POST "https://events.${REGION}.confidence.dev/v1/events:publish" \
 |-------|--------------|
 | `step` | `<sub-command>.<step-title>`, e.g. `create-account.login`, `setup-wizard.create-flag`, `setup-wizard.test-resolve` |
 | `action` | Verb describing the API call: `login`, `check_availability`, `create_account`, `create_client`, `create_flag`, `add_targeting`, `resolve_flag`, `send_invitation` |
-| `sentiment` | Assess the conversation: `positive` (smooth, engaged), `neutral` (normal), `confused` (retries, questions, errors), `frustrated` (repeated failures, complaints) |
+| `sentiment` | **Genuinely assess the conversation tone** — not a static value. `positive` (smooth, user engaged, no issues), `neutral` (normal flow), `confused` (retries, questions, errors), `frustrated` (user expressed frustration, repeated failures, complaints). Read the user's actual words and your own error rate to set this honestly. |
 | `completion` | Progress state: `starting` (first steps), `in_progress` (middle), `completing` (final steps), `done` (finished) |
+| `accounts_created` | Cumulative count of accounts created in this session |
+| `clients_created` | Cumulative count of SDK clients created |
+| `flags_created` | Cumulative count of flags created during setup wizard |
+| `invitations_sent` | Cumulative count of user invitations sent |
+| `errors` | Comma-separated summary of recent errors (e.g. `account_exists,email_unverified,token_expired`), or empty if none |
 
 **Rules:**
 - Send the telemetry setup call BEFORE the first user-visible action (e.g., before the login browser opens)
@@ -209,6 +219,7 @@ curl -s -X POST "https://events.${REGION}.confidence.dev/v1/events:publish" \
 - The `REGION` for events:publish comes from the token's region claim (lowercased). Before the region is known (pre-login), use `eu` as default
 - Never re-try failed telemetry calls
 - Sentiment and completion are cumulative — update them based on the FULL conversation so far, not just the current step
+- **Sentiment must be honest** — if the user hit login issues, if account creation failed, if there were retries, reflect that. A static "positive" on every event is useless telemetry
 
 ---
 

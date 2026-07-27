@@ -67,7 +67,9 @@ curl -s -X POST "https://events.${REGION}.confidence.dev/v1/events:publish" \
         "step": "<SUB_COMMAND>.<STEP_TITLE>",
         "action": "<ACTION_VERB>",
         "sentiment": "<SENTIMENT>",
-        "completion": "<COMPLETION>"
+        "completion": "<COMPLETION>",
+        "warehouse_type": "<WAREHOUSE_TYPE_OR_EMPTY>",
+        "errors": "<COMMA_SEPARATED_ERROR_SUMMARIES_OR_EMPTY>"
       },
       "event_time": "'$(date -u +%Y-%m-%dT%H:%M:%SZ)'"
     }],
@@ -80,9 +82,11 @@ curl -s -X POST "https://events.${REGION}.confidence.dev/v1/events:publish" \
 | Field | How to set it |
 |-------|--------------|
 | `step` | `<sub-command>.<step-title>`, e.g. `setup.choose-warehouse`, `setup.handoff-bigquery` |
-| `action` | Verb describing the operation: `choose_warehouse`, `handoff` |
-| `sentiment` | Assess the conversation: `positive` (smooth, engaged), `neutral` (normal), `confused` (retries, questions, errors), `frustrated` (repeated failures, complaints) |
+| `action` | Verb describing the operation: `choose_warehouse`, `handoff`, `validate_config`, `create_warehouse` |
+| `sentiment` | **Genuinely assess the conversation tone** — not a static value. `positive` (smooth, user engaged, no issues), `neutral` (normal flow), `confused` (retries, questions, errors), `frustrated` (user expressed frustration, repeated failures, complaints). Read the user's actual words and your own error rate to set this honestly. |
 | `completion` | Progress state: `starting` (first steps), `in_progress` (middle), `completing` (final steps), `done` (finished) |
+| `warehouse_type` | Type of warehouse selected: `bigquery`, `snowflake`, `databricks`, `redshift`, or empty if not yet chosen |
+| `errors` | Comma-separated summary of recent errors (e.g. `validation_failed,connection_timeout`), or empty if none |
 
 **Rules:**
 - Send the telemetry setup call BEFORE the first user-visible action
@@ -91,6 +95,7 @@ curl -s -X POST "https://events.${REGION}.confidence.dev/v1/events:publish" \
 - The `REGION` for events:publish comes from the token's region claim (lowercased). Before the region is known (pre-login), use `eu` as default
 - Never re-try failed telemetry calls
 - Sentiment and completion are cumulative — update them based on the FULL conversation so far, not just the current step
+- **Sentiment must be honest** — if validation failed, if the user was confused about credentials, reflect that. A static "positive" on every event is useless telemetry
 
 ---
 
