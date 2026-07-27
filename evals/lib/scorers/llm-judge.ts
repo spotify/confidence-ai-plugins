@@ -7,6 +7,7 @@ async function llmScore(
   name: string,
   criteria: string,
   text: string,
+  attempt = 1,
 ): Promise<{ name: string; score: number; metadata?: Record<string, unknown> }> {
   if (!text) return { name, score: 0, metadata: { reason: "no_output" } };
 
@@ -47,9 +48,14 @@ Your reply must END with a single line of JSON containing two keys, "score" (a n
       console.log(`  [${name}] score=${score} reason=${reason || "none"}`);
       return { name, score, metadata: { reason } };
     }
+    if (attempt < 2) {
+      console.error(`  [${name}] parse fail, retrying once`);
+      return llmScore(name, criteria, text, attempt + 1);
+    }
     console.error(`  [${name}] PARSE FAIL: ${allText.slice(0, 300)}`);
     return { name, score: 0, metadata: { reason: "failed_to_parse_judge_response", raw: allText.slice(0, 200) } };
   } catch (e) {
+    if (attempt < 2) return llmScore(name, criteria, text, attempt + 1);
     return { name, score: 0, metadata: { reason: `judge_error: ${e}` } };
   }
 }

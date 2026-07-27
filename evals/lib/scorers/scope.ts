@@ -47,6 +47,13 @@ export function FlagShape(args: { output: TaskOutput; expected: Record<string, u
   const exp = (expected.flag_shape as string)?.toLowerCase();
   if (!exp) return { name: "FlagShape", score: 1, metadata: { reason: "no_expected_shape" } };
 
+  // Shape only matters for flags that will actually be created in
+  // Confidence — for excluded/blocked/archived flags the verdict is moot.
+  const scope = (expected.scope as string)?.toLowerCase();
+  if (scope && scope !== "migrate") {
+    return { name: "FlagShape", score: 1, metadata: { reason: "not_applicable_non_migrate" } };
+  }
+
   const text = output?.raw_text || "";
 
   // 1. Explicit verdict line (deterministic)
