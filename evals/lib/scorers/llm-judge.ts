@@ -16,8 +16,7 @@ async function llmScore(
   try {
     const response = await judge.messages.create({
       model: "claude-sonnet-4-20250514",
-      max_tokens: 256,
-      thinking: { type: "disabled" },
+      max_tokens: 1024,
       messages: [
         {
           role: "user",
@@ -33,14 +32,17 @@ Reply with ONLY a JSON object: {"score": <0.0 to 1.0>, "reason": "<one sentence>
       ],
     });
 
-    const raw = response.content.find((b: { type: string }) => b.type === "text");
-    const json = raw && "text" in raw ? (raw as { text: string }).text : "";
-    const match = json.match(/\{[\s\S]*\}/);
+    let allText = "";
+    for (const block of response.content) {
+      if ("text" in block && typeof (block as { text: unknown }).text === "string") allText += (block as { text: string }).text;
+      if ("thinking" in block && typeof (block as { thinking: unknown }).thinking === "string") allText += (block as { thinking: string }).thinking;
+    }
+    const match = allText.match(/\{\s*"score"\s*:\s*[\d.]+[\s\S]*?\}/);
     if (match) {
       const parsed = JSON.parse(match[0]);
       return { name, score: parsed.score ?? 0, metadata: { reason: parsed.reason } };
     }
-    return { name, score: 0, metadata: { reason: "failed_to_parse_judge_response" } };
+    return { name, score: 0, metadata: { reason: "failed_to_parse_judge_response", raw: allText.slice(0, 200) } };
   } catch (e) {
     return { name, score: 0, metadata: { reason: `judge_error: ${e}` } };
   }

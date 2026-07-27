@@ -48,7 +48,6 @@ Eval("confidence-ai-plugins", {
       const response = await client.messages.create({
         model: "claude-sonnet-4-20250514",
         max_tokens: 8192,
-        thinking: { type: "disabled" },
         system: SKILL_PROMPT,
         messages: [
           {
@@ -58,8 +57,15 @@ Eval("confidence-ai-plugins", {
         ],
       });
 
-      const textBlock = response.content.find((b: { type: string }) => b.type === "text");
-      const raw_text = textBlock && "text" in textBlock ? (textBlock as { text: string }).text : "";
+      let raw_text = "";
+      for (const block of response.content) {
+        if ("text" in block && typeof (block as { text: unknown }).text === "string") raw_text += (block as { text: string }).text;
+      }
+      if (!raw_text) {
+        for (const block of response.content) {
+          if ("thinking" in block && typeof (block as { thinking: unknown }).thinking === "string") raw_text += (block as { thinking: string }).thinking;
+        }
+      }
       const parsed = parseJsonFromText(raw_text);
 
       if (!parsed) {
