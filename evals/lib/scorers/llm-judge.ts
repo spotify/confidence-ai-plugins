@@ -1,10 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { TaskOutput } from "../types.js";
 
-const HENDRIX_BASE_URL = process.env.HENDRIX_BASE_URL || "https://hendrix-genai.spotify.net/taskforce/glm-5-2";
-const HENDRIX_API_KEY = process.env.HENDRIX_API_KEY || process.env.ANTHROPIC_API_KEY || "";
-
-const judge = new Anthropic({ apiKey: HENDRIX_API_KEY, baseURL: HENDRIX_BASE_URL });
+const judge = new Anthropic();
 
 async function llmScore(
   name: string,

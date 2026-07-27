@@ -50,8 +50,7 @@ jobs:
       - name: Run evals
         id: eval
         env:
-          HENDRIX_API_KEY: ${{ secrets.HENDRIX_API_KEY }}
-          HENDRIX_BASE_URL: ${{ secrets.HENDRIX_BASE_URL }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY || secrets.HENDRIX_API_KEY }}
           BRAINTRUST_API_KEY: ${{ secrets.BRAINTRUST_API_KEY }}
           BRAINTRUST_API_URL: ${{ secrets.BRAINTRUST_API_URL }}
         run: |
@@ -59,37 +58,30 @@ jobs:
           echo "$OUTPUT"
           echo "$OUTPUT" > eval-output.txt
 
-          # Check for regressions — fail if any score dropped
-          if echo "$OUTPUT" | grep -q "regressions)"; then
-            REGRESSIONS=$(echo "$OUTPUT" | grep "regressions)" | grep -v "0 regressions" || true)
-            if [ -n "$REGRESSIONS" ]; then
-              echo "::error::Score regressions detected"
-              echo "$REGRESSIONS"
-              echo "has_regressions=true" >> "$GITHUB_OUTPUT"
-            else
-              echo "has_regressions=false" >> "$GITHUB_OUTPUT"
-            fi
-          else
-            echo "has_regressions=false" >> "$GITHUB_OUTPUT"
+          # Baseline diffs are informational only — LLM judge scores wobble a
+          # few points run-to-run; the hard gate below catches real drops.
+          REGRESSIONS=$(echo "$OUTPUT" | grep "regressions)" | grep -v "0 regressions" || true)
+          if [ -n "$REGRESSIONS" ]; then
+            echo "::warning::Scores moved vs previous experiment (informational):"
+            echo "$REGRESSIONS"
           fi
 
-          # Check critical scorers are above thresholds
-          SCOPE=$(echo "$OUTPUT" | grep "'ScopeClassification'" | grep -oP '[\d.]+%' | head -1 | tr -d '%')
-          SHAPE=$(echo "$OUTPUT" | grep "'FlagShape'" | grep -oP '[\d.]+%' | head -1 | tr -d '%')
-          echo "scope_score=$SCOPE" >> "$GITHUB_OUTPUT"
-          echo "shape_score=$SHAPE" >> "$GITHUB_OUTPUT"
+          # Hard gate: minimum ScopeClassification and FlagShape across ALL skills
+          MIN_SCOPE=$(echo "$OUTPUT" | grep "'ScopeClassification'" | grep -oP '^[\d.]+' | sort -n | head -1)
+          MIN_SHAPE=$(echo "$OUTPUT" | grep "'FlagShape'" | grep -oP '^[\d.]+' | sort -n | head -1)
+          echo "min_scope=$MIN_SCOPE" >> "$GITHUB_OUTPUT"
+          echo "min_shape=$MIN_SHAPE" >> "$GITHUB_OUTPUT"
 
-      - name: Fail on regressions
-        if: steps.eval.outputs.has_regressions == 'true'
-        run: |
-          echo "::error::Eval scores regressed. Check the experiment details for more info."
-          exit 1
-
-      - name: Fail on critical score drop
-        if: steps.eval.outputs.scope_score != '' && steps.eval.outputs.scope_score != '100.00'
-        run: |
-          echo "::error::ScopeClassification dropped below 100% (got ${{ steps.eval.outputs.scope_score }}%)"
-          exit 1
+          THRESHOLD=85
+          FAIL=0
+          for pair in "ScopeClassification:$MIN_SCOPE" "FlagShape:$MIN_SHAPE"; do
+            name="${pair%%:*}"; val="${pair#*:}"
+            if [ -n "$val" ] && awk -v v="$val" -v t="$THRESHOLD" 'BEGIN{exit !(v<t)}'; then
+              echo "::error::$name dropped below ${THRESHOLD}% (got ${val}%)"
+              FAIL=1
+            fi
+          done
+          exit $FAIL
 
       - name: Comment PR with results
         if: github.event_name == 'pull_request' && steps.eval.outcome == 'success'

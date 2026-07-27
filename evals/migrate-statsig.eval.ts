@@ -2,15 +2,14 @@ import { Eval } from "braintrust";
 import Anthropic from "@anthropic-ai/sdk";
 import { buildDataset } from "./lib/loader.js";
 import { loadSkillPrompt } from "./lib/skill-prompt.js";
+import { CLASSIFICATION_FOOTER } from "./lib/classification-footer.js";
 import { ScopeClassification, FlagShape } from "./lib/scorers/scope.js";
 import { PlanContent } from "./lib/scorers/plan-content.js";
 import { NamingRules } from "./lib/scorers/naming.js";
 import { Tone, Visualization, Communication, EducateFirst } from "./lib/scorers/llm-judge.js";
 import type { TaskOutput, ParsedOutput } from "./lib/types.js";
 
-const HENDRIX_BASE_URL = process.env.HENDRIX_BASE_URL || "https://hendrix-genai.spotify.net/taskforce/glm-5-2";
-const HENDRIX_API_KEY = process.env.HENDRIX_API_KEY || process.env.ANTHROPIC_API_KEY || "";
-const client = new Anthropic({ apiKey: HENDRIX_API_KEY, baseURL: HENDRIX_BASE_URL });
+const client = new Anthropic();
 const SKILL_PROMPT = loadSkillPrompt("migrate-statsig");
 
 function parseJsonFromText(text: string): ParsedOutput | null {
@@ -34,7 +33,7 @@ Eval("confidence-ai-plugins", {
     try {
       const response = await client.messages.create({
         model: process.env.EVAL_MODEL || "claude-sonnet-4-6", max_tokens: 8192, system: SKILL_PROMPT,
-        messages: [{ role: "user", content: `${input.user_message}\n\nFlag definition:\n${flagJson}` }],
+        messages: [{ role: "user", content: `${input.user_message}\n\nFlag definition:\n${flagJson}${CLASSIFICATION_FOOTER}` }],
       });
       let raw_text = "";
       for (const block of response.content) {
