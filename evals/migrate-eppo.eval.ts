@@ -25,6 +25,7 @@ function parseJsonFromText(text: string): ParsedOutput | null {
 Eval("confidence-ai-plugins", {
   projectId: "c78b488e-050d-4299-8442-c081455a3ac2",
   experimentName: "eppo-full-skill-v1",
+  baseExperimentName: "eppo-full-skill-v1",
   maxConcurrency: 3,
   metadata: { model: process.env.EVAL_MODEL || "claude-sonnet-4-6", skill: "migrate-eppo", eval_type: "full_skill" },
   data: () => buildDataset("eppo"),

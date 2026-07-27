@@ -83,21 +83,25 @@ jobs:
           done
           exit $FAIL
 
+      - name: Build summary table
+        if: always() && steps.eval.outcome != 'skipped'
+        run: |
+          if [ -f eval-output.txt ]; then
+            python3 evals/scripts/summarize.py eval-output.txt > eval-summary.md || true
+            cat eval-summary.md >> "$GITHUB_STEP_SUMMARY" || true
+          fi
+
       - name: Comment PR with results
         if: github.event_name == 'pull_request' && steps.eval.outcome == 'success'
         uses: actions/github-script@v7
         with:
           script: |
             const fs = require('fs');
-            if (!fs.existsSync('eval-output.txt')) return;
-            const output = fs.readFileSync('eval-output.txt', 'utf8');
-            const summaryMatch = output.match(/=+SUMMARY=+([\s\S]*?)(?:See results|$)/);
-            if (!summaryMatch) return;
-            const summary = summaryMatch[1].trim();
-            const urlMatch = output.match(/(https:\/\/www\.braintrust\.dev\S+)/);
-            const url = urlMatch ? urlMatch[1] : '';
+            if (!fs.existsSync('eval-summary.md')) return;
+            const table = fs.readFileSync('eval-summary.md', 'utf8').trim();
+            if (!table || table.startsWith('No eval summaries')) return;
 
-            const body = `## Eval Results\n\n\`\`\`\n${summary}\n\`\`\`\n\n${url ? `[View details](${url})` : ''}`;
+            const body = `## Eval Results\n\n${table}`;
 
             await github.rest.issues.createComment({
               issue_number: context.issue.number,

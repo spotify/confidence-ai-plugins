@@ -51,7 +51,11 @@ Output ONLY: {"score": <0.0-1.0>, "reason": "<one sentence>"}`,
 export async function Tone(args: { output: TaskOutput }) {
   return llmScore(
     "Tone",
-    "Does the response use plain English to describe targeting rules? Does it avoid technical jargon like operator names (eqRule, setRule, rangeRule), rule type identifiers, or JSON structure syntax? Score 1.0 if fully plain English, 0.0 if it exposes internal technical terms.",
+    `Evaluate ONLY the conversational prose (ignore fenced code blocks — machine-readable payloads belong there and are fine). Also fine in prose: backticked references to the user's OWN field/flag names (like \`is_beta\`, \`country\`, \`my-flag\`) and plain percentages.
+
+Does the prose describe targeting in plain English ("country is US or CA", "25% of beta users")? Penalize only internal implementation jargon in prose: Confidence operator names (eqRule, setRule, rangeRule, variantAllocations, criteria/expression/ref-0), source-platform internal field names used as jargon (percentage_included, passPercentage, percent_exposure, targetValue, rollout_percentage), or raw JSON structures outside code blocks.
+
+Score 1.0 = prose fully plain English. 0.5 = some internal jargon mixed into prose. 0.0 = prose dominated by internal jargon or raw payloads.`,
     args.output?.raw_text || "",
   );
 }

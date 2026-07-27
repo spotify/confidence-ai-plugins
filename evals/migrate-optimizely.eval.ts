@@ -30,6 +30,7 @@ function parseJsonFromText(text: string): ParsedOutput | null {
 Eval("confidence-ai-plugins", {
   projectId: "c78b488e-050d-4299-8442-c081455a3ac2",
   experimentName: "optimizely-full-skill-v1",
+  baseExperimentName: "optimizely-full-skill-v1",
   maxConcurrency: 3,
   metadata: {
     model: process.env.EVAL_MODEL || "claude-sonnet-4-6",
