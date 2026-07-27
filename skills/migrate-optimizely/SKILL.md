@@ -266,24 +266,33 @@ see human-readable descriptions of what's happening, not internal
 implementation details like targeting payload formats, rule types, or
 operator names.
 
-- Do NOT use these terms in conversation output: `eqRule`, `setRule`,
-  `rangeRule`, `startsWithRule`, `endsWithRule`, `anyRule`, `allRule`,
-  `boolValue`, `stringValue`, `numberValue`, `versionValue`,
-  `variantAllocations`, `rolloutPercentage`, `criteria`, `expression`,
-  `ref-0`, `ref-1`, `addTargetingRule`, `createFlag`, `addFlagToClient`,
-  `audience_conditions`, `percentage_included`, `targeted_delivery`,
-  `distribution_mode`, `custom_attribute`, `match_type`
-- Do NOT show raw targeting payloads or JSON structures in conversation
+- Do NOT use **any** of these terms in conversation output — they are
+  internal implementation details the user should never see:
+  - Confidence targeting internals: `eqRule`, `setRule`, `rangeRule`,
+    `startsWithRule`, `endsWithRule`, `anyRule`, `allRule`, `boolValue`,
+    `stringValue`, `numberValue`, `versionValue`, `variantAllocations`,
+    `rolloutPercentage`, `criteria`, `expression`, `ref-0`, `ref-1`,
+    `addTargetingRule`, `createFlag`, `addFlagToClient`, `criterion`
+  - Optimizely source field names: `audience_conditions`,
+    `percentage_included`, `targeted_delivery`, `distribution_mode`,
+    `custom_attribute`, `match_type`, `default_variation_key`,
+    `rule_priorities`, `variation_id`, `basis points`
+  - Do NOT write `match_type: "substring"` — write "email contains @test"
+  - Do NOT write `percentage_included: 2500` — write "25% rollout"
+  - Do NOT write `default_variation_key: off` — write "defaults to off"
+  - Do NOT write `{ "on": 100 }` — write "on at 100%"
+- Do NOT show raw JSON structures, targeting payloads, or code-style
+  `key: value` syntax in conversation — use natural sentences instead
 - Do NOT echo any user-provided secret (API tokens) back into the
-  conversation or write them to the plan file — store them only as
-  environment variables for the session
+  conversation or write them to the plan file
 - DO say things like: "Creating flag with rule: plan equals 'pro' AND country is US or UK"
 - DO describe rules in plain English: "app version is at least 1.2.0", "country is US or CA"
 - DO describe variants naturally: "on at 100%", "50/50 split between control and treatment"
+- DO translate Optimizely concepts to the user's vocabulary:
+  "rollout" not "targeted_delivery", "experiment" not "a/b rule",
+  "audience" not "audience_conditions", "flag" not "feature"
 - The plan FILE may contain MCP command payloads (for machine execution),
   but conversation output must be human-friendly
-- When describing Optimizely concepts, use the user's vocabulary:
-  "rollout", "experiment", "audience", "flag" — not Confidence internals
 
 ## Prerequisites: Optimizely Side
 
