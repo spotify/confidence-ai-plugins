@@ -28,6 +28,8 @@ expected:
   plan_includes:
     - "30%"
     - "partial"
+    - "bucket"
+    - "excluded"
   plan_excludes:
     - "eqRule"
     - "setRule"

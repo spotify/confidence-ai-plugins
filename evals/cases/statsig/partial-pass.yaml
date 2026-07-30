@@ -1,0 +1,43 @@
+name: partial-pass-percentage
+description: >
+  Gate with passPercentage at 25 (< 100). Partial pass
+  percentages are excluded because Confidence uses a
+  different bucketing hash — the 25% cohort cannot be
+  reproduced. User can opt-in at execute time.
+tags: [excluded, partial_rollout, boolean]
+
+input:
+  user_message: |
+    I want to migrate my Statsig flags to Confidence.
+    Here is a flag from my project. What is the migration
+    path for this one? Describe it in plain English.
+  flag:
+    id: gate_partial
+    name: Beta rollout gate
+    description: 25% rollout to beta users.
+    idType: userID
+    isEnabled: true
+    status: Active
+    type: PERMANENT
+    rules:
+      - name: Beta users
+        id: rule_beta
+        passPercentage: 25
+        conditions:
+          - type: custom_field
+            targetValue: ["true"]
+            operator: any
+            field: is_beta
+
+expected:
+  scope: excluded
+  flag_shape: boolean
+  blocked_reason: partial_pass_percentage
+  plan_includes:
+    - "25%"
+    - "partial"
+    - "bucket"
+    - "excluded"
+  plan_excludes:
+    - "eqRule"
+    - "mcp__confidence"
