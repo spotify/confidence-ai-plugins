@@ -1,10 +1,10 @@
 name: partial-exposure-gate
 description: >
   Feature gate with percent_exposure at 25 (< 100).
-  Partial exposures are excluded because Confidence uses
-  a different bucketing hash — the 25% cohort cannot be
-  reproduced.
-tags: [excluded, partial_exposure, boolean]
+  Partial exposures are migratable using rolloutPercentage
+  on the Confidence targeting rule. The model should warn
+  about re-bucketing (different hash means a different 25%).
+tags: [migrate, partial_exposure, boolean]
 
 input:
   user_message: |
@@ -46,12 +46,11 @@ input:
           - { variation_key: "off", weight: 100 }
 
 expected:
-  scope: excluded
+  scope: migrate
   flag_shape: boolean
-  blocked_reason: partial_exposure
   plan_includes:
     - "25%"
-    - "partial"
+    - "rolloutPercentage"
+    - "re-bucket"
   plan_excludes:
     - "eqRule"
-    - "mcp__confidence"

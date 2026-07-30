@@ -261,7 +261,7 @@ exactly one category during the scan, and present the scope summary
 | Category | How to detect | Default |
 |----------|--------------|---------|
 | **Stable flag / full rollout** | `rollout_percentage` 100 (or absent) on every group, single effective variant | **Migrate** |
-| **Partial-% rollout** | `rollout_percentage` between 1 and 99 (top-level or per-group) | **Exclude** — the sampled cohort can't be reproduced; users would flicker in/out of the feature |
+| **Partial-% rollout** | `rollout_percentage` between 1 and 99 (top-level or per-group) | **Migrate** — use `rolloutPercentage` on the Confidence targeting rule; warn that users will be re-bucketed (different hash) so the exact cohort changes |
 | **Live A/B experiment** | `multivariate.variants` with 2+ variants, actively measured | **Exclude** — migrating reshuffles users between arms and corrupts metrics; conclude it in PostHog first |
 | **Concluded / stale experiment** | multivariate flag no longer actively measured | **Ask** — migrate as a rollout to a confirmed variant, or exclude |
 | **Inactive flag** | `active: false` | **Exclude** — ask once; opt-in migrates them OFF |
