@@ -63,3 +63,12 @@ expected:
     - "boolValue"
     - "ref-0"
     - "mcp__confidence"
+  resolutions:
+    - context: { is_logged_in: true, is_internal: false }
+      variant: "on"
+    - context: { is_logged_in: true, is_internal: true }
+      variant: "off"
+    - context: { is_logged_in: false }
+      variant: "off"
+    - context: {}
+      variant: "off"

@@ -261,7 +261,7 @@ exactly one category during the scan, and present the scope summary
 | Category | How to detect | Default |
 |----------|--------------|---------|
 | **Stable flag / full rollout** | `rollout_percentage` 100 (or absent) on every group, single effective variant | **Migrate** |
-| **Partial-% rollout** | `rollout_percentage` between 1 and 99 (top-level or per-group) | **Exclude** — the sampled cohort can't be reproduced; users would flicker in/out of the feature |
+| **Partial-% rollout** | `rollout_percentage` between 1 and 99 (top-level or per-group) | **Exclude** — the sampled cohort can't be reproduced (different bucketing hash); user can opt-in at execute time, at which point ask for confirmation and the desired rollout percentage |
 | **Live A/B experiment** | `multivariate.variants` with 2+ variants, actively measured | **Exclude** — migrating reshuffles users between arms and corrupts metrics; conclude it in PostHog first |
 | **Concluded / stale experiment** | multivariate flag no longer actively measured | **Ask** — migrate as a rollout to a confirmed variant, or exclude |
 | **Inactive flag** | `active: false` | **Exclude** — ask once; opt-in migrates them OFF |
@@ -1272,6 +1272,13 @@ During execution, each flag will be created one by one, interactively.
 **Confidence rollout:** <rolloutPercentage for the rule + variant split inside the rule — see Multivariant A/B Split Handling>
 **Action:** [ ] Migrate  [ ] Skip
 
+If any rule or the whole flag is BLOCKED (e.g. unsupported operator
+like `icontains`, `is_not_set`, or cohort targeting), replace the
+**Action** line with:
+
+**Status:** BLOCKED — <one-line reason>
+**Action:** [ ] Skip (no migrate option available until the block is resolved)
+
 **MCP Commands:**
 <createFlag, addTargetingRule (ONE rule with all variant assignments and their split), resolveFlag with full parameters>
 <resolveFlag MUST include both a positive-case and negative-case test>
@@ -1342,6 +1349,27 @@ loop below applies only to the `call-site rewrite` style.
      `[x] Skip` ticked. List those flags back to the user and ask
      them to tick a box for each before re-running execute. Migration
      is opt-in — never assume a default.
+   - REFUSE TO PROCEED if any flag is marked `BLOCKED` and the user
+     hasn't either resolved the block or ticked `[x] Skip`. Surface the
+     BLOCKED flags and the reason for each.
+   - Override handling: If a previously excluded flag is now ticked
+     `[x] Migrate`, migrate it — but restate the plan-recorded caveat
+     at that flag's checkpoint before proceeding. The user must
+     explicitly confirm before you continue.
+     For **partial-rollout** flags specifically:
+       1. Explain the risk: "This flag was excluded because it uses a
+          partial rollout (X%). Confidence uses a different bucketing
+          hash, so the exact cohort of users will change — users
+          currently in the X% may move out, and new users may move in."
+       2. Ask: "Do you still want to migrate this flag? [Yes / Skip]"
+       3. If yes, ask: "What rollout percentage should I use in
+          Confidence?" (suggest the original percentage as default)
+       4. Use `rolloutPercentage` in the `addTargetingRule` call.
+     BLOCKED flags are NEVER overridable by checkbox alone —
+     the blocking condition (e.g. "uses unsupported operator")
+     must be resolved or removed in the plan before the flag can be
+     migrated. If a BLOCKED flag is ticked `[x] Migrate` without the
+     block being resolved, refuse and surface the unresolved block.
 2. FOR EACH FLAG marked [x] Migrate:
    - Show flag name, description, and rules in plain English
    - ASK: "Create this flag in Confidence? [Yes / Skip / Pause]"

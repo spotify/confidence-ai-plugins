@@ -3,7 +3,7 @@ description: >
   Feature gate with percent_exposure at 25 (< 100).
   Partial exposures are excluded because Confidence uses
   a different bucketing hash — the 25% cohort cannot be
-  reproduced.
+  reproduced. User can opt-in at execute time.
 tags: [excluded, partial_exposure, boolean]
 
 input:
@@ -52,6 +52,8 @@ expected:
   plan_includes:
     - "25%"
     - "partial"
+    - "bucket"
+    - "excluded"
   plan_excludes:
     - "eqRule"
     - "mcp__confidence"

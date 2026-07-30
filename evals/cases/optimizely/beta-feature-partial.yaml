@@ -47,6 +47,8 @@ expected:
   plan_includes:
     - "25%"
     - "partial"
+    - "bucket"
+    - "excluded"
   plan_excludes:
     - "eqRule"
     - "mcp__confidence"

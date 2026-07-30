@@ -46,3 +46,8 @@ expected:
     - "ref-0"
     - "addTargetingRule"
     - "mcp__confidence"
+  resolutions:
+    - context: { country: "US" }
+      variant: "on"
+    - context: {}
+      variant: "on"

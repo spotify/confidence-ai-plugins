@@ -40,3 +40,12 @@ expected:
     - "eqRule"
     - "setRule"
     - "mcp__confidence"
+  resolutions:
+    - context: { email: "user@spotify.com" }
+      variant: "on"
+    - context: { email: "test@spotify.com" }
+      variant: "on"
+    - context: { email: "user@gmail.com" }
+      variant: "off"
+    - context: {}
+      variant: "off"

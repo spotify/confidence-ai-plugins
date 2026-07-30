@@ -1946,6 +1946,24 @@ updates this table AND the flag's Action line after EVERY flag. -->
    - REFUSE TO PROCEED if any flag is marked `BLOCKED` and the user
      hasn't either resolved the block or ticked `[x] Skip`. Surface the
      BLOCKED flags and the reason for each.
+   - Override handling: If a previously excluded flag is now ticked
+     `[x] Migrate`, migrate it — but restate the plan-recorded caveat
+     at that flag's checkpoint before proceeding. The user must
+     explicitly confirm before you continue.
+     For **partial-rollout** flags specifically:
+       1. Explain the risk: "This flag was excluded because it uses a
+          partial rollout (X%). Confidence uses a different bucketing
+          hash, so the exact cohort of users will change — users
+          currently in the X% may move out, and new users may move in."
+       2. Ask: "Do you still want to migrate this flag? [Yes / Skip]"
+       3. If yes, ask: "What rollout percentage should I use in
+          Confidence?" (suggest the original percentage as default)
+       4. Use `rolloutPercentage` in the `addTargetingRule` call.
+     BLOCKED flags are NEVER overridable by checkbox alone —
+     the blocking condition (e.g. "uses unsupported operator")
+     must be resolved or removed in the plan before the flag can be
+     migrated. If a BLOCKED flag is ticked `[x] Migrate` without the
+     block being resolved, refuse and surface the unresolved block.
 2. FOR EACH FLAG marked [x] Migrate:
    - review-each mode:
      a. Show flag name (display name if set), type, description, and

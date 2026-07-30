@@ -50,3 +50,14 @@ expected:
     - "rangeRule"
     - "endInclusive"
     - "mcp__confidence"
+  resolutions:
+    - context: { days_since_last_order: 3 }
+      variant: "on"
+    - context: { days_since_last_order: 14 }
+      variant: "on"
+    - context: { days_since_last_order: 15 }
+      variant: "off"
+    - context: { days_since_last_order: 40 }
+      variant: "off"
+    - context: {}
+      variant: "off"

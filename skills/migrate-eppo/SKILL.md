@@ -225,7 +225,7 @@ summary (with counts) for confirmation before planning.
 | Category | How to detect | Default |
 |----------|--------------|---------|
 | **Stable gate / full rollout** | FEATURE_GATE allocations, `percent_exposure` 100, one effective variant per allocation | **Migrate** |
-| **Partial exposure** | `percent_exposure` below 100 on any allocation | **Exclude** — the sampled cohort can't be reproduced; subjects would flicker in/out |
+| **Partial exposure** | `percent_exposure` below 100 on any allocation | **Exclude** — the sampled cohort can't be reproduced (different bucketing hash); user can opt-in at execute time, at which point ask for confirmation and the desired rollout percentage |
 | **Live experiment** | EXPERIMENT-type allocation with 2+ entries in `variation_weight`, actively measured | **Exclude** — migrating reshuffles subjects between arms and corrupts metrics; conclude it in Eppo first |
 | **Concluded / stale experiment** | EXPERIMENT allocation no longer actively measured | **Ask** — migrate as a rollout to a confirmed variant, or exclude |
 | **Switchback** | allocation `type: SWITCHBACK` | **Blocked** — time-windowed assignment has no Confidence equivalent |
@@ -1447,6 +1447,24 @@ line with:
    - REFUSE TO PROCEED if any flag is marked `BLOCKED` and the user
      hasn't either resolved the block or ticked `[x] Skip`. Surface the
      BLOCKED flags and the reason for each.
+   - Override handling: If a previously excluded flag is now ticked
+     `[x] Migrate`, migrate it — but restate the plan-recorded caveat
+     at that flag's checkpoint before proceeding. The user must
+     explicitly confirm before you continue.
+     For **partial-exposure** flags specifically:
+       1. Explain the risk: "This flag was excluded because it uses a
+          partial exposure (X%). Confidence uses a different bucketing
+          hash, so the exact cohort of subjects will change — subjects
+          currently in the X% may move out, and new subjects may move in."
+       2. Ask: "Do you still want to migrate this flag? [Yes / Skip]"
+       3. If yes, ask: "What rollout percentage should I use in
+          Confidence?" (suggest the original percentage as default)
+       4. Use `rolloutPercentage` in the `addTargetingRule` call.
+     BLOCKED flags are NEVER overridable by checkbox alone —
+     the blocking condition (e.g. "uses unsupported SWITCHBACK type")
+     must be resolved or removed in the plan before the flag can be
+     migrated. If a BLOCKED flag is ticked `[x] Migrate` without the
+     block being resolved, refuse and surface the unresolved block.
 2. FOR EACH FLAG marked [x] Migrate:
    - Show flag name, description, and rules in plain English
    - ASK: "Create this flag in Confidence? [Yes / Skip / Pause]"

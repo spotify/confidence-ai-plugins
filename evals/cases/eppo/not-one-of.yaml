@@ -56,3 +56,12 @@ expected:
     - "eqRule"
     - "setRule"
     - "mcp__confidence"
+  resolutions:
+    - context: { country: "US" }
+      variant: "on"
+    - context: { country: "GB" }
+      variant: "on"
+    - context: { country: "DE" }
+      variant: "off"
+    - context: { country: "FR" }
+      variant: "off"

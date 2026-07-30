@@ -39,3 +39,12 @@ expected:
     - "eqRule"
     - "setRule"
     - "mcp__confidence"
+  resolutions:
+    - context: { age: 18 }
+      variant: "on"
+    - context: { age: 21 }
+      variant: "on"
+    - context: { age: 17 }
+      variant: "off"
+    - context: {}
+      variant: "off"

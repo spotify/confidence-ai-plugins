@@ -54,3 +54,16 @@ expected:
     - "eqRule"
     - "versionValue"
     - "mcp__confidence"
+  resolutions:
+    - context: { os: "ios", app_version: "1.3.0" }
+      variant: "on"
+    - context: { os: "ios", app_version: "1.2.0" }
+      variant: "on"
+    - context: { os: "ios", app_version: "1.1.0" }
+      variant: "off"
+    - context: { os: "android", app_version: "2.0.0" }
+      variant: "off"
+    - context: { os: "ios" }
+      variant: "off"
+    - context: {}
+      variant: "off"
