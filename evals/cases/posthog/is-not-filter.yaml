@@ -37,3 +37,10 @@ expected:
     - "setRule"
     - "addTargetingRule"
     - "mcp__confidence"
+  resolutions:
+    - context: { country: "US" }
+      variant: "on"
+    - context: { country: "CA" }
+      variant: "on"
+    - context: { country: "DE" }
+      variant: "off"

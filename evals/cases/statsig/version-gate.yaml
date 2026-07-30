@@ -38,3 +38,12 @@ expected:
     - "eqRule"
     - "setRule"
     - "mcp__confidence"
+  resolutions:
+    - context: { app_version: "2.0.0" }
+      variant: "on"
+    - context: { app_version: "2.1.0" }
+      variant: "on"
+    - context: { app_version: "1.9.9" }
+      variant: "off"
+    - context: {}
+      variant: "off"

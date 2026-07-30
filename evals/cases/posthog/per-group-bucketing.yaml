@@ -33,3 +33,8 @@ expected:
     - "setRule"
     - "addTargetingRule"
     - "mcp__confidence"
+  resolutions:
+    - context: { company_id: "acme" }
+      variant: "on"
+    - context: {}
+      variant: "on"
