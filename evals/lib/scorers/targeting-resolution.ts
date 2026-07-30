@@ -12,6 +12,16 @@ interface Resolution {
   variant: string;
 }
 
+const POSITIVE_VARIANTS = new Set(["on", "enabled", "true"]);
+const NEGATIVE_VARIANTS = new Set(["off", "disabled", "false"]);
+
+function normalizeVariant(v: string): string {
+  const lower = v.toLowerCase();
+  if (POSITIVE_VARIANTS.has(lower)) return "on";
+  if (NEGATIVE_VARIANTS.has(lower)) return "off";
+  return lower;
+}
+
 function extractTargetingPayload(text: string): TargetingPayload | null {
   // Look for a fenced block tagged "targeting" or "targeting-json"
   const taggedMatch = text.match(/```(?:targeting-json|targeting)\s*([\s\S]*?)```/);
@@ -98,18 +108,20 @@ export function TargetingResolution(args: {
     try {
       const result = resolve(payload.targeting_rules, payload.catch_all, res.context);
 
+      const expectedNorm = normalizeVariant(res.variant);
+
       if (result.isProbabilistic) {
-        // For probabilistic splits, check that the expected variant is in the allocations
         const matchingRule = payload.targeting_rules[result.ruleIndex];
-        const allocatedVariants = Object.keys(matchingRule.variantAllocations);
-        const match = allocatedVariants.includes(res.variant);
+        const allocatedVariants = Object.keys(matchingRule.variantAllocations).map(normalizeVariant);
+        const match = allocatedVariants.includes(expectedNorm);
         if (match) passed++;
         else failures.push(`context ${JSON.stringify(res.context)}: expected "${res.variant}" to be in allocations [${allocatedVariants.join(", ")}]`);
         details.push({ context: res.context, expected: res.variant, actual: `split(${allocatedVariants.join(",")})`, match });
       } else {
-        const match = result.variant === res.variant;
+        const actualNorm = normalizeVariant(result.variant);
+        const match = actualNorm === expectedNorm;
         if (match) passed++;
-        else failures.push(`context ${JSON.stringify(res.context)}: expected "${res.variant}", got "${result.variant}"`);
+        else failures.push(`context ${JSON.stringify(res.context)}: expected "${res.variant}" (${expectedNorm}), got "${result.variant}" (${actualNorm})`);
         details.push({ context: res.context, expected: res.variant, actual: result.variant, match });
       }
     } catch (e) {
