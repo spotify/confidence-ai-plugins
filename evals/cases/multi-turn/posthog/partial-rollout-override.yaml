@@ -37,6 +37,8 @@ conversation:
   - "30"
   - "Yes"
   - "Yes"
+  - "Yes"
+  - "Yes"
 
 assertions:
   - type: text_contains_question

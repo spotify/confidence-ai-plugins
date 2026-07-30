@@ -31,6 +31,8 @@ conversation:
   - "1"
   - "Yes, execute"
   - "Yes"
+  - "Yes"
+  - "Yes"
 
 assertions:
   - type: tool_called
