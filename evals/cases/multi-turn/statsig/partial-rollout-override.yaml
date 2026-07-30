@@ -1,0 +1,63 @@
+name: partial-rollout-override-flow
+description: >
+  A 25% partial rollout (excluded by default) is overridden by
+  the user ticking [x] Migrate. The model must warn about
+  re-bucketing risk, ask for confirmation, ask for rollout
+  percentage, then create the flag.
+skill: migrate-statsig
+tags: [multi-turn, partial-rollout, override]
+
+source_flags:
+  - id: gate_partial
+    name: Beta rollout gate
+    description: 25% rollout to beta users.
+    idType: userID
+    isEnabled: true
+    status: Active
+    type: PERMANENT
+    rules:
+      - name: Beta users
+        id: rule_beta
+        passPercentage: 25
+        conditions:
+          - type: custom_field
+            targetValue: ["true"]
+            operator: any
+            field: is_beta
+
+conversation:
+  - |
+    /migrate-statsig plan flags
+
+    Here are the flags from my project:
+
+    ```json
+    [{"id":"gate_partial","name":"Beta rollout gate","description":"25% rollout to beta users.","idType":"userID","isEnabled":true,"status":"Active","type":"PERMANENT","rules":[{"name":"Beta users","id":"rule_beta","passPercentage":25,"conditions":[{"type":"custom_field","targetValue":["true"],"operator":"any","field":"is_beta"}]}]}]
+    ```
+  - "test-app"
+  - "1"
+  - "user_id"
+  - "1"
+  - "Yes, execute"
+  - |
+    I've marked [x] Migrate on Beta rollout gate. Execute the plan.
+  - "Yes, I understand the bucketing risk. Proceed."
+  - "25"
+  - "Yes"
+  - "Yes"
+
+assertions:
+  - type: text_contains_question
+    pattern: "bucket"
+  - type: text_contains
+    pattern: "25%"
+  - type: text_before_tool
+    pattern: "bucket"
+    tool_name: mcp__confidence_flags__createFlag
+  - type: tool_called
+    tool_name: mcp__confidence_flags__createFlag
+  - type: tool_called
+    tool_name: mcp__confidence_flags__addTargetingRule
+  - type: tool_called_before
+    first: mcp__confidence_flags__createFlag
+    second: mcp__confidence_flags__addTargetingRule

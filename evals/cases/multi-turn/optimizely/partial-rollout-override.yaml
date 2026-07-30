@@ -58,12 +58,17 @@ conversation:
   - "Yes"
 
 assertions:
-  - type: text_contains
+  - type: text_contains_question
     pattern: "bucket"
-    case_sensitive: false
   - type: text_contains
     pattern: "25%"
+  - type: text_before_tool
+    pattern: "bucket"
+    tool_name: mcp__confidence_flags__createFlag
   - type: tool_called
     tool_name: mcp__confidence_flags__createFlag
   - type: tool_called
     tool_name: mcp__confidence_flags__addTargetingRule
+  - type: tool_called_before
+    first: mcp__confidence_flags__createFlag
+    second: mcp__confidence_flags__addTargetingRule

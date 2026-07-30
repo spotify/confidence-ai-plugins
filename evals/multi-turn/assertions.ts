@@ -106,6 +106,51 @@ export function toolCallArgContains(toolName: string, argName: string, pattern: 
   };
 }
 
+export function textBeforeTool(pattern: string, toolName: string): Assertion {
+  return (trace: Trace): AssertionResult => {
+    const lowerPattern = pattern.toLowerCase();
+    const matchingText = trace.textBlocks.find((tb) =>
+      tb.text.toLowerCase().includes(lowerPattern),
+    );
+    const toolCall = getToolCallsByName(trace, toolName)[0];
+
+    if (!matchingText) {
+      return {
+        passed: false,
+        message: `Text containing '${pattern}' not found`,
+        assertionName: `textBeforeTool(${pattern}, ${toolName})`,
+      };
+    }
+    if (!toolCall) {
+      return {
+        passed: false,
+        message: `Tool '${toolName}' was never called`,
+        assertionName: `textBeforeTool(${pattern}, ${toolName})`,
+      };
+    }
+    const passed = matchingText.position < toolCall.position;
+    return {
+      passed,
+      message: passed ? "" : `Text '${pattern}' (pos ${matchingText.position}) should appear before ${toolName} (pos ${toolCall.position})`,
+      assertionName: `textBeforeTool(${pattern}, ${toolName})`,
+    };
+  };
+}
+
+export function textContainsQuestion(pattern: string): Assertion {
+  return (trace: Trace): AssertionResult => {
+    const text = getAllText(trace).toLowerCase();
+    const hasPattern = text.includes(pattern.toLowerCase());
+    const hasQuestion = text.includes("?");
+    const passed = hasPattern && hasQuestion;
+    return {
+      passed,
+      message: passed ? "" : `Expected text to contain '${pattern}' with a question mark (confirmation ask)`,
+      assertionName: `textContainsQuestion(${pattern})`,
+    };
+  };
+}
+
 const ASSERTION_FACTORIES: Record<string, (def: AssertionDef) => Assertion> = {
   tool_called: (d) => toolCalled(d.tool_name!),
   tool_not_called: (d) => toolNotCalled(d.tool_name!),
@@ -114,6 +159,8 @@ const ASSERTION_FACTORIES: Record<string, (def: AssertionDef) => Assertion> = {
   text_not_contains: (d) => textNotContains(d.pattern!, { caseSensitive: d.case_sensitive }),
   tool_called_before: (d) => toolCalledBefore(d.first!, d.second!),
   tool_call_arg_contains: (d) => toolCallArgContains(d.tool_name!, d.arg_name!, d.pattern!),
+  text_before_tool: (d) => textBeforeTool(d.pattern!, d.tool_name!),
+  text_contains_question: (d) => textContainsQuestion(d.pattern!),
 };
 
 export function parseAssertion(def: AssertionDef): Assertion {
