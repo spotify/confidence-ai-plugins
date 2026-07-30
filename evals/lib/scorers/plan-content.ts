@@ -1,5 +1,9 @@
 import type { TaskOutput } from "../types.js";
 
+function stripFencedBlocks(text: string): string {
+  return text.replace(/```[\s\S]*?```/g, "");
+}
+
 export function PlanContent(args: { output: TaskOutput; expected: Record<string, unknown> }) {
   const { output, expected } = args;
   const text = output?.raw_text || "";
@@ -11,6 +15,11 @@ export function PlanContent(args: { output: TaskOutput; expected: Record<string,
   if (includes.length === 0 && excludes.length === 0) {
     return { name: "PlanContent", score: 1, metadata: { reason: "no_assertions" } };
   }
+
+  // plan_includes checks the full text (keywords should appear somewhere).
+  // plan_excludes checks only prose (code blocks stripped) so that
+  // targeting payloads in fenced JSON don't trigger false failures.
+  const proseOnly = stripFencedBlocks(text);
 
   let passed = 0;
   let total = 0;
@@ -27,7 +36,7 @@ export function PlanContent(args: { output: TaskOutput; expected: Record<string,
 
   for (const s of excludes) {
     total++;
-    if (!text.toLowerCase().includes(s.toLowerCase())) {
+    if (!proseOnly.toLowerCase().includes(s.toLowerCase())) {
       passed++;
     } else {
       failures.push(`should not contain: "${s}"`);

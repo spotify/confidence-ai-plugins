@@ -14,6 +14,10 @@ export interface TestCase {
     plan_excludes?: string[];
     targeting_rules?: Array<Record<string, unknown>>;
     catch_all?: { variant: string; allocation: number };
+    resolutions?: Array<{
+      context: Record<string, unknown>;
+      variant: string;
+    }>;
   };
 }
 

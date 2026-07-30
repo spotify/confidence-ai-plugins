@@ -7,6 +7,7 @@ import { ScopeClassification, FlagShape } from "./lib/scorers/scope.js";
 import { PlanContent } from "./lib/scorers/plan-content.js";
 import { NamingRules } from "./lib/scorers/naming.js";
 import { Tone, Visualization, Communication, EducateFirst } from "./lib/scorers/llm-judge.js";
+import { TargetingResolution } from "./lib/scorers/targeting-resolution.js";
 import type { TaskOutput, ParsedOutput } from "./lib/types.js";
 
 const client = new Anthropic();
@@ -87,5 +88,6 @@ Eval("confidence-ai-plugins", {
     (args) => Visualization({ output: args.output as TaskOutput, metadata: args.metadata as Record<string, unknown> }),
     (args) => Communication({ output: args.output as TaskOutput }),
     (args) => EducateFirst({ output: args.output as TaskOutput }),
+    (args) => TargetingResolution({ output: args.output as TaskOutput, expected: args.expected as Record<string, unknown> }),
   ],
 });
