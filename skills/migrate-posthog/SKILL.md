@@ -1272,6 +1272,13 @@ During execution, each flag will be created one by one, interactively.
 **Confidence rollout:** <rolloutPercentage for the rule + variant split inside the rule — see Multivariant A/B Split Handling>
 **Action:** [ ] Migrate  [ ] Skip
 
+If any rule or the whole flag is BLOCKED (e.g. unsupported operator
+like `icontains`, `is_not_set`, or cohort targeting), replace the
+**Action** line with:
+
+**Status:** BLOCKED — <one-line reason>
+**Action:** [ ] Skip (no migrate option available until the block is resolved)
+
 **MCP Commands:**
 <createFlag, addTargetingRule (ONE rule with all variant assignments and their split), resolveFlag with full parameters>
 <resolveFlag MUST include both a positive-case and negative-case test>
