@@ -1,0 +1,37 @@
+name: disabled-gate-excluded
+description: >
+  Gate with isEnabled: false. Disabled gates are excluded
+  by default per the scope policy — not worth migrating.
+tags: [excluded, disabled, boolean]
+
+input:
+  user_message: |
+    I want to migrate my Statsig flags to Confidence.
+    Here is a flag from my project. What is the migration
+    path for this one? Describe it in plain English.
+  flag:
+    id: gate_004
+    name: Disabled Gate
+    description: A feature gate that has been turned off.
+    idType: userID
+    isEnabled: false
+    status: Active
+    type: PERMANENT
+    rules:
+      - name: Everyone
+        id: rule_004
+        passPercentage: 100
+        conditions:
+          - type: public
+
+expected:
+  scope: excluded
+  flag_shape: boolean
+  blocked_reason: disabled
+  plan_includes:
+    - "disabled"
+    - "exclude"
+  plan_excludes:
+    - "eqRule"
+    - "setRule"
+    - "mcp__confidence"

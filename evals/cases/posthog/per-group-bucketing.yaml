@@ -1,0 +1,35 @@
+name: per-group-bucketing
+description: >
+  100% rollout with aggregation_group_type_index=1,
+  meaning the flag is bucketed by a group entity (e.g.
+  company) rather than individual users. Confidence
+  supports group-level targeting, so this is migratable.
+tags: [migrate, group_bucketing, boolean]
+
+input:
+  user_message: |
+    I want to migrate my PostHog flags to Confidence.
+    Here is a flag from my project. What is the migration
+    path for this one? Describe it in plain English.
+  flag:
+    key: enterprise-feature
+    name: Enterprise feature
+    active: true
+    filters:
+      groups:
+        - properties: []
+          rollout_percentage: 100
+      aggregation_group_type_index: 1
+    multivariate: null
+
+expected:
+  scope: migrate
+  flag_shape: boolean
+  plan_includes:
+    - "enterprise-feature"
+    - "group"
+  plan_excludes:
+    - "eqRule"
+    - "setRule"
+    - "addTargetingRule"
+    - "mcp__confidence"

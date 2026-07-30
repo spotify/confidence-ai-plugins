@@ -1,0 +1,56 @@
+name: numeric-gte-age-check
+description: >
+  Boolean gate with a GTE condition on age >= 18.
+  Tests numeric comparison operator mapping.
+tags: [migrate, numeric, gte, boolean]
+
+input:
+  user_message: |
+    I want to migrate my Eppo flags to Confidence.
+    Here is a flag from my project. What is the migration
+    path for this one? Describe it in plain English.
+  flag:
+    id: "flag-003"
+    key: age-gate
+    name: Age gate
+    description: Feature only for users aged 18 and above.
+    is_archived: false
+    variation_type: BOOLEAN
+    variations:
+      - { id: "var-on", name: "On", variant_key: "on" }
+      - { id: "var-off", name: "Off", variant_key: "off" }
+    allocations:
+      - id: "alloc-adults"
+        key: adults
+        name: Adults only
+        type: FEATURE_GATE
+        percent_exposure: 100
+        is_default: false
+        targeting_rules:
+          - conditions:
+              - operator: GTE
+                attribute: age
+                values: [18]
+        variation_weight:
+          - { variation_key: "on", weight: 100 }
+      - id: "alloc-default"
+        key: default
+        name: Default
+        type: FEATURE_GATE
+        percent_exposure: 100
+        is_default: true
+        targeting_rules: []
+        variation_weight:
+          - { variation_key: "off", weight: 100 }
+
+expected:
+  scope: migrate
+  flag_shape: boolean
+  plan_includes:
+    - "age"
+    - "18"
+    - "greater"
+  plan_excludes:
+    - "eqRule"
+    - "setRule"
+    - "mcp__confidence"

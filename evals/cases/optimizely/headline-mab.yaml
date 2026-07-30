@@ -1,0 +1,49 @@
+name: headline-mab-adaptive
+description: >
+  Multi-armed bandit with stats_accelerator distribution.
+  Adaptive allocation is excluded because Confidence
+  allocations are static.
+tags: [excluded, adaptive, multi_armed_bandit, struct]
+
+input:
+  user_message: |
+    I want to migrate my Optimizely flags to Confidence.
+    Here is a flag from my project. What is the migration
+    path for this one? Describe it in plain English.
+  flag:
+    key: headline_mab
+    name: Headline MAB
+    description: Multi-armed bandit for headline optimization.
+    archived: false
+    variable_definitions: {}
+    variations:
+      - { key: variant_a, name: Variant A }
+      - { key: variant_b, name: Variant B }
+      - { key: variant_c, name: Variant C }
+    ruleset:
+      enabled: true
+      default_variation_key: variant_a
+      rule_priorities: [mab_test]
+      rules:
+        mab_test:
+          type: multi_armed_bandit
+          percentage_included: 10000
+          distribution_mode: stats_accelerator
+          audience_conditions: []
+          audience_ids: []
+          variations:
+            variant_a: { percentage_included: 3333 }
+            variant_b: { percentage_included: 3333 }
+            variant_c: { percentage_included: 3334 }
+    referenced_audiences: {}
+
+expected:
+  scope: excluded
+  flag_shape: struct
+  blocked_reason: adaptive_distribution
+  plan_includes:
+    - "adaptive"
+    - "bandit"
+    - "exclude"
+  plan_excludes:
+    - "mcp__confidence"

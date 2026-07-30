@@ -1,0 +1,39 @@
+name: archived-flag-skipped
+description: >
+  Flag with is_archived: true. Archived flags are skipped
+  by default — scope is "archived".
+tags: [archived, boolean]
+
+input:
+  user_message: |
+    I want to migrate my Eppo flags to Confidence.
+    Here is a flag from my project. What is the migration
+    path for this one? Describe it in plain English.
+  flag:
+    id: "flag-008"
+    key: old-promo
+    name: Old promo
+    description: A promotional flag that was archived long ago.
+    is_archived: true
+    variation_type: BOOLEAN
+    variations:
+      - { id: "var-on", name: "On", variant_key: "on" }
+      - { id: "var-off", name: "Off", variant_key: "off" }
+    allocations:
+      - id: "alloc-default"
+        key: default
+        name: Default allocation
+        type: FEATURE_GATE
+        percent_exposure: 100
+        is_default: true
+        targeting_rules: []
+        variation_weight:
+          - { variation_key: "on", weight: 100 }
+
+expected:
+  scope: archived
+  flag_shape: boolean
+  plan_includes:
+    - "archived"
+  plan_excludes:
+    - "mcp__confidence"

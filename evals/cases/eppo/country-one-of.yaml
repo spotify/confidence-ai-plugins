@@ -1,0 +1,57 @@
+name: country-one-of-targeting
+description: >
+  Boolean gate with a ONE_OF targeting rule on country
+  [US, CA]. Tests the set-membership operator mapping
+  to Confidence targeting.
+tags: [migrate, one_of, set_membership, boolean]
+
+input:
+  user_message: |
+    I want to migrate my Eppo flags to Confidence.
+    Here is a flag from my project. What is the migration
+    path for this one? Describe it in plain English.
+  flag:
+    id: "flag-002"
+    key: country-gate
+    name: Country gate
+    description: Enabled for US and CA users only.
+    is_archived: false
+    variation_type: BOOLEAN
+    variations:
+      - { id: "var-on", name: "On", variant_key: "on" }
+      - { id: "var-off", name: "Off", variant_key: "off" }
+    allocations:
+      - id: "alloc-na"
+        key: north-america
+        name: North America
+        type: FEATURE_GATE
+        percent_exposure: 100
+        is_default: false
+        targeting_rules:
+          - conditions:
+              - operator: ONE_OF
+                attribute: country
+                values: ["US", "CA"]
+        variation_weight:
+          - { variation_key: "on", weight: 100 }
+      - id: "alloc-default"
+        key: default
+        name: Default
+        type: FEATURE_GATE
+        percent_exposure: 100
+        is_default: true
+        targeting_rules: []
+        variation_weight:
+          - { variation_key: "off", weight: 100 }
+
+expected:
+  scope: migrate
+  flag_shape: boolean
+  plan_includes:
+    - "country"
+    - "US"
+    - "CA"
+  plan_excludes:
+    - "eqRule"
+    - "setRule"
+    - "mcp__confidence"

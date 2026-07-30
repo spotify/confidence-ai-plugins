@@ -1,0 +1,50 @@
+name: browser-gate-non-custom-attribute
+description: >
+  Audience uses type "browser" instead of "custom_attribute".
+  Non-custom-attribute leaves have no Confidence equivalent.
+  BLOCKED.
+tags: [blocked, non_custom_attribute, unsupported_operator]
+
+input:
+  user_message: |
+    I want to migrate my Optimizely flags to Confidence.
+    Here is a flag from my project. What is the migration
+    path for this one? Describe it in plain English.
+  flag:
+    key: browser_gate
+    name: Browser gate
+    description: Gate for Chrome users only.
+    archived: false
+    variable_definitions: {}
+    variations:
+      - { key: on, name: On }
+      - { key: off, name: Off }
+    ruleset:
+      enabled: true
+      default_variation_key: off
+      rule_priorities: [chrome_only]
+      rules:
+        chrome_only:
+          type: targeted_delivery
+          percentage_included: 10000
+          audience_conditions: ["or", { audience_id: 11 }]
+          audience_ids: [11]
+          variations:
+            on: { percentage_included: 10000 }
+    referenced_audiences:
+      "11":
+        name: Chrome users
+        conditions: >
+          ["and",
+          {"type": "browser", "name": "gc",
+          "match_type": "exact", "value": "gc"}]
+
+expected:
+  scope: blocked
+  flag_shape: boolean
+  blocked_reason: non_custom_attribute
+  plan_includes:
+    - "blocked"
+    - "browser"
+  plan_excludes:
+    - "mcp__confidence"

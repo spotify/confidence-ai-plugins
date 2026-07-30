@@ -277,13 +277,66 @@ see human-readable descriptions of what's happening, not internal
 implementation details like targeting payload formats, rule types, or
 operator names.
 
-- Do NOT say "creating plan based on eqRule / rangeRule / setRule" etc.
-- Do NOT show raw targeting payloads or JSON structures in conversation
+- Do NOT use **any** of these terms in conversation output — they are
+  internal implementation details the user should never see:
+  - Confidence targeting internals: `eqRule`, `setRule`, `rangeRule`,
+    `startsWithRule`, `endsWithRule`, `anyRule`, `allRule`, `boolValue`,
+    `stringValue`, `numberValue`, `versionValue`, `variantAllocations`,
+    `rolloutPercentage`, `criteria`, `expression`, `ref-0`, `ref-1`,
+    `addTargetingRule`, `createFlag`, `addFlagToClient`, `criterion`
+  - Optimizely source field names: `audience_conditions`,
+    `percentage_included`, `targeted_delivery`, `distribution_mode`,
+    `custom_attribute`, `match_type`, `default_variation_key`,
+    `rule_priorities`, `variation_id`, `basis points`
+  - Do NOT write `match_type: "substring"` — write "email contains @test"
+  - Do NOT write `percentage_included: 2500` — write "25% rollout"
+  - Do NOT write `default_variation_key: off` — write "defaults to off"
+  - Do NOT write `{ "on": 100 }` — write "on at 100%"
+- Do NOT show raw JSON structures, targeting payloads, or code-style
+  `key: value` syntax in conversation — use natural sentences instead
 - Do NOT echo any user-provided secret (API tokens) back into the
-  conversation or write them to the plan file — store them only as
-  environment variables for the session
+  conversation or write them to the plan file
 - DO say things like: "Creating flag with rule: plan equals 'pro' AND country is US or UK"
 - DO describe rules in plain English: "app version is at least 1.2.0", "country is US or CA"
+- DO describe variants naturally: "on at 100%", "50/50 split between control and treatment"
+- DO translate Optimizely concepts to the user's vocabulary:
+  "rollout" not "targeted_delivery", "experiment" not "a/b rule",
+  "audience" not "audience_conditions", "flag" not "feature"
+
+### Plain-language substitution table (use in ALL conversation output)
+
+This applies **especially** when explaining why a flag is blocked, what a
+workaround would be, or how source targeting maps to Confidence — the
+places where technical vocabulary leaks most. Describe the mapping in
+plain words; the exact payloads belong in the plan file only.
+
+| Instead of | Say |
+|------------|-----|
+| `eqRule` | "an equals rule" / "matches exactly" |
+| `setRule` | "a value-set rule" / "is one of ..." |
+| `rangeRule` | "a numeric range rule" / "is at least/at most ..." |
+| `startsWithRule` / `endsWithRule` | "a starts-with rule" / "an ends-with rule" |
+| `versionValue` | "a version comparison" |
+| `variantAllocations` | "the variant split" / "50/50 split" |
+| `createFlag` | "create the flag" |
+| `addFlagToClient` | "attach the flag to your client" |
+| `addTargetingRule` | "add the targeting rule" |
+| `resolveFlag` | "test-resolve the flag" |
+
+- SDK and code identifiers (function names like resolve/getValue calls,
+  context keys, inline schemas such as `{ enabled: boolean }`) belong in
+  fenced code blocks only. In prose say "your code reads the flag's
+  enabled value" — never inline code syntax
+- Source-platform operator names are also jargon in prose: say
+  "a contains match" not `icontains`, "an equals match" not `exact`,
+  "is not" not `is_not` — plain words, not backticked identifiers
+- Describe source flag STATE in words, never as inline key:value
+  fragments: say "the flag is archived" not `archived: true`, "the gate
+  is disabled" not `enabled: false` / `isEnabled: false`, "the flag is
+  inactive" not `active: false`
+- Never inline SDK call expressions or property paths in prose — no
+  `checkGate(user, ...)`, no `my-flag.enabled`; put them in fenced code
+  blocks or say "when your code checks the gate"
 - The plan FILE may contain MCP command payloads (for machine execution),
   but conversation output must be human-friendly
 
@@ -547,6 +600,11 @@ walk it). The list endpoints return `{ "items": [...], "page": N,
 Optimizely Feature Experimentation has one configurable type — the
 **flag** — but a flag's behavior in each environment is governed by an
 ordered **ruleset**. All become Confidence flags:
+
+> **Agent-internal mapping — never quote these shapes in conversation
+> prose.** Describe the flag in words ("a simple on/off flag", "a flag
+> with named variants"); literal schemas like `{ enabled }` belong only
+> in the plan file or fenced code blocks.
 
 | Optimizely concept | What it is | Confidence flag shape |
 |--------------------|-----------|-----------------------|

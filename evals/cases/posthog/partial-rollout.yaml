@@ -1,0 +1,33 @@
+name: partial-rollout-excluded
+description: >
+  30% rollout with no filters. Partial rollouts are
+  excluded because Confidence uses a different bucketing
+  hash — the 30% cohort cannot be reproduced.
+tags: [excluded, partial_rollout, boolean]
+
+input:
+  user_message: |
+    I want to migrate my PostHog flags to Confidence.
+    Here is a flag from my project. What is the migration
+    path for this one? Describe it in plain English.
+  flag:
+    key: new-onboarding
+    name: New onboarding flow
+    active: true
+    filters:
+      groups:
+        - properties: []
+          rollout_percentage: 30
+    multivariate: null
+
+expected:
+  scope: excluded
+  flag_shape: boolean
+  blocked_reason: partial_rollout
+  plan_includes:
+    - "30%"
+    - "partial"
+  plan_excludes:
+    - "eqRule"
+    - "setRule"
+    - "mcp__confidence"

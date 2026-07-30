@@ -1,0 +1,35 @@
+name: archived-gate-skipped
+description: >
+  Gate with status "Archived". Archived gates are skipped
+  by default — scope is "archived".
+tags: [archived, boolean]
+
+input:
+  user_message: |
+    I want to migrate my Statsig flags to Confidence.
+    Here is a flag from my project. What is the migration
+    path for this one? Describe it in plain English.
+  flag:
+    id: gate_008
+    name: Archived Gate
+    description: An old gate that was archived.
+    idType: userID
+    isEnabled: true
+    status: Archived
+    type: PERMANENT
+    rules:
+      - name: Everyone
+        id: rule_008
+        passPercentage: 100
+        conditions:
+          - type: public
+
+expected:
+  scope: archived
+  flag_shape: boolean
+  plan_includes:
+    - "archived"
+  plan_excludes:
+    - "eqRule"
+    - "setRule"
+    - "mcp__confidence"

@@ -213,6 +213,31 @@ claude mcp add confidence-docs --transport http --url https://mcp.confidence.dev
 
 The user will be prompted to authenticate via OAuth in their browser.
 
+## Migration Scope Policy (what migrates, what doesn't)
+
+Confidence uses a different bucketing hash than Eppo, so a subject's
+variant assignment **cannot** be preserved across the move. Stable
+flags migrate cleanly; anything that samples a percentage of subjects
+or actively measures an experiment does not. Classify **every** flag
+into exactly one category during the scan, and present the scope
+summary (with counts) for confirmation before planning.
+
+| Category | How to detect | Default |
+|----------|--------------|---------|
+| **Stable gate / full rollout** | FEATURE_GATE allocations, `percent_exposure` 100, one effective variant per allocation | **Migrate** |
+| **Partial exposure** | `percent_exposure` below 100 on any allocation | **Exclude** — the sampled cohort can't be reproduced; subjects would flicker in/out |
+| **Live experiment** | EXPERIMENT-type allocation with 2+ entries in `variation_weight`, actively measured | **Exclude** — migrating reshuffles subjects between arms and corrupts metrics; conclude it in Eppo first |
+| **Concluded / stale experiment** | EXPERIMENT allocation no longer actively measured | **Ask** — migrate as a rollout to a confirmed variant, or exclude |
+| **Switchback** | allocation `type: SWITCHBACK` | **Blocked** — time-windowed assignment has no Confidence equivalent |
+| **Inactive in environment** | environment override `active: false` | **Exclude** — ask once; opt-in migrates them OFF |
+| **Archived** | `is_archived: true` | **Skip** by default |
+| **Blocked** | Unsupported operators (generic `MATCHES` regex, `IS_NULL`) | **Excluded until resolved** |
+
+**Excluded ≠ forgotten.** Every excluded flag appears in the plan with
+its category and a one-line reason. The user can override any
+category's default at the scope-confirmation step — record overrides
+in the plan.
+
 ## User-Facing Communication Rules
 
 **NEVER expose internal technical details to the user.** The user should
@@ -220,13 +245,62 @@ see human-readable descriptions of what's happening, not internal
 implementation details like targeting payload formats, rule types, or
 operator names.
 
-- Do NOT say "creating plan based on eqRule / rangeRule / setRule" etc.
+- Do NOT use **any** of these terms in conversation output — they are
+  internal implementation details the user should never see:
+  - Confidence targeting internals: `eqRule`, `setRule`, `rangeRule`,
+    `startsWithRule`, `endsWithRule`, `anyRule`, `allRule`, `boolValue`,
+    `stringValue`, `numberValue`, `versionValue`, `variantAllocations`,
+    `rolloutPercentage`, `criteria`, `expression`, `ref-0`, `ref-1`,
+    `addTargetingRule`, `createFlag`, `addFlagToClient`, `criterion`
+  - Eppo source field names: `allocations`, `variation_weight`,
+    `percent_exposure`, `targeting_rules`, `is_default`, `variant_key`,
+    `ONE_OF`, `NOT_ONE_OF`, `MATCHES`, `IS_NULL`
+  - Do NOT write code-style `key: value` syntax in conversation — use
+    natural sentences ("shown to 25% of matched users", not `percent_exposure: 25`)
 - Do NOT show raw targeting payloads or JSON structures in conversation
 - Do NOT echo any user-provided secret (API keys, tokens) back into the
   conversation or write them to the plan file — store them only as
   environment variables for the session
 - DO say things like: "Creating flag with rule: plan equals 'pro' AND country is US or UK"
 - DO describe rules in plain English: "age between 18 and 65", "plan is not free"
+- DO translate to the user's vocabulary: "rollout" not `allocation`,
+  "experiment" not `EXPERIMENT allocation`, "targeting" not
+  `targeting_rules`
+
+### Plain-language substitution table (use in ALL conversation output)
+
+This applies **especially** when explaining why a flag is blocked, what a
+workaround would be, or how source targeting maps to Confidence — the
+places where technical vocabulary leaks most. Describe the mapping in
+plain words; the exact payloads belong in the plan file only.
+
+| Instead of | Say |
+|------------|-----|
+| `eqRule` | "an equals rule" / "matches exactly" |
+| `setRule` | "a value-set rule" / "is one of ..." |
+| `rangeRule` | "a numeric range rule" / "is at least/at most ..." |
+| `startsWithRule` / `endsWithRule` | "a starts-with rule" / "an ends-with rule" |
+| `versionValue` | "a version comparison" |
+| `variantAllocations` | "the variant split" / "50/50 split" |
+| `createFlag` | "create the flag" |
+| `addFlagToClient` | "attach the flag to your client" |
+| `addTargetingRule` | "add the targeting rule" |
+| `resolveFlag` | "test-resolve the flag" |
+
+- SDK and code identifiers (function names like resolve/getValue calls,
+  context keys, inline schemas such as `{ enabled: boolean }`) belong in
+  fenced code blocks only. In prose say "your code reads the flag's
+  enabled value" — never inline code syntax
+- Source-platform operator names are also jargon in prose: say
+  "a contains match" not `icontains`, "an equals match" not `exact`,
+  "is not" not `is_not` — plain words, not backticked identifiers
+- Describe source flag STATE in words, never as inline key:value
+  fragments: say "the flag is archived" not `archived: true`, "the gate
+  is disabled" not `enabled: false` / `isEnabled: false`, "the flag is
+  inactive" not `active: false`
+- Never inline SDK call expressions or property paths in prose — no
+  `checkGate(user, ...)`, no `my-flag.enabled`; put them in fenced code
+  blocks or say "when your code checks the gate"
 - The plan FILE may contain MCP command payloads (for machine execution),
   but conversation output must be human-friendly
 
@@ -1775,6 +1849,11 @@ Based on SDK guide from `confidence-docs` MCP:
 
 **Server-target mapping (per-call context):**
 
+> **Agent-internal mapping — never quote these call expressions in
+> conversation prose.** Summarize code changes in words ("gate checks
+> become boolean flag reads"); the literal before/after expressions
+> belong only in the plan file or fenced code blocks.
+
 | Eppo call | OpenFeature call |
 |-----------|------------------|
 | `client.get_string_assignment(k, sk, attrs, default)` | `client.getStringValue("k.prop", default, { targetingKey: sk, ...attrs })` |
@@ -1804,6 +1883,11 @@ Step 2 SDK guide for the exact form):
 
 **Client-target mapping (ambient context):** the per-call site drops its
 `sk`/`attrs` arguments; emit a one-time context setup instead.
+
+> **Agent-internal mapping — never quote these call expressions in
+> conversation prose.** Summarize code changes in words ("gate checks
+> become boolean flag reads"); the literal before/after expressions
+> belong only in the plan file or fenced code blocks.
 
 | Eppo call | Confidence client call | Plus, once |
 |-----------|------------------------|------------|

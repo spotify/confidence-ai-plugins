@@ -1,0 +1,82 @@
+name: Evals
+
+# PR runs are intentionally disabled — each full run costs real model
+# credits. Run evals locally with a Hendrix key (see evals/README.md),
+# or trigger this workflow manually. The push-to-main run keeps a
+# canonical baseline in Braintrust.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'skills/migrate-optimizely/**'
+      - 'skills/migrate-posthog/**'
+      - 'skills/migrate-eppo/**'
+      - 'skills/migrate-statsig/**'
+      - 'evals/**'
+  workflow_dispatch:
+
+concurrency:
+  group: evals-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  eval:
+    name: Run migration skill evals
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: |
+          npm ci
+          test -d node_modules/@anthropic-ai/sdk || { echo "::error::Dependencies not installed"; exit 1; }
+
+      - name: Run evals
+        id: eval
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY || secrets.HENDRIX_API_KEY }}
+          BRAINTRUST_API_KEY: ${{ secrets.BRAINTRUST_API_KEY }}
+          BRAINTRUST_API_URL: ${{ secrets.BRAINTRUST_API_URL }}
+        run: |
+          OUTPUT=$(npx --no braintrust eval evals/migrate-optimizely.eval.ts evals/migrate-posthog.eval.ts evals/migrate-eppo.eval.ts evals/migrate-statsig.eval.ts 2>&1)
+          echo "$OUTPUT"
+          echo "$OUTPUT" > eval-output.txt
+
+          # Baseline diffs are informational only — LLM judge scores wobble a
+          # few points run-to-run; the hard gate below catches real drops.
+          REGRESSIONS=$(echo "$OUTPUT" | grep "regressions)" | grep -v "0 regressions" || true)
+          if [ -n "$REGRESSIONS" ]; then
+            echo "::warning::Scores moved vs previous experiment (informational):"
+            echo "$REGRESSIONS"
+          fi
+
+          # Hard gate: EVERY scorer, on EVERY skill, must be >= 90%
+          FAIL=0
+          while IFS= read -r line; do
+            val=$(echo "$line" | grep -oP '^[\d.]+')
+            scorer=$(echo "$line" | grep -oP "'\w+'" | tr -d "'")
+            THRESHOLD=90
+            [ "$scorer" = "Tone" ] && THRESHOLD=85  # LLM-judged, higher run-to-run wobble
+            if [ -n "$val" ] && awk -v v="$val" -v t="$THRESHOLD" 'BEGIN{exit !(v<t)}'; then
+              echo "::error::$scorer is below ${THRESHOLD}% (got ${val}%)"
+              FAIL=1
+            fi
+          done < <(echo "$OUTPUT" | grep -P "^[\d.]+%.*'\w+'\s+score")
+          exit $FAIL
+
+      - name: Build summary table
+        if: always() && steps.eval.outcome != 'skipped'
+        run: |
+          if [ -f eval-output.txt ]; then
+            python3 evals/scripts/summarize.py eval-output.txt >> "$GITHUB_STEP_SUMMARY" || true
+          fi

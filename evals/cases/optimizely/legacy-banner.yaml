@@ -1,0 +1,50 @@
+name: legacy-banner-disabled
+description: >
+  Ruleset enabled=false. Disabled/paused flags are
+  excluded by default per the scope policy.
+tags: [excluded, disabled_ruleset, boolean]
+
+input:
+  user_message: |
+    I want to migrate my Optimizely flags to Confidence.
+    Here is a flag from my project. What is the migration
+    path for this one? Describe it in plain English.
+  flag:
+    key: legacy_banner
+    name: Legacy banner
+    description: Old promotional banner, currently disabled.
+    archived: false
+    variable_definitions: {}
+    variations:
+      - { key: on, name: On }
+      - { key: off, name: Off }
+    ruleset:
+      enabled: false
+      default_variation_key: off
+      rule_priorities: [na_only]
+      rules:
+        na_only:
+          type: targeted_delivery
+          percentage_included: 10000
+          audience_conditions: ["or", { audience_id: 2 }]
+          audience_ids: [2]
+          variations:
+            on: { percentage_included: 10000 }
+    referenced_audiences:
+      "2":
+        name: North America
+        conditions: >
+          ["and", ["or",
+          {"type": "custom_attribute", "name": "country",
+          "match_type": "exact", "value": "US"},
+          {"type": "custom_attribute", "name": "country",
+          "match_type": "exact", "value": "CA"}]]
+
+expected:
+  scope: excluded
+  flag_shape: boolean
+  blocked_reason: disabled_ruleset
+  plan_includes:
+    - "disabled"
+  plan_excludes:
+    - "mcp__confidence"

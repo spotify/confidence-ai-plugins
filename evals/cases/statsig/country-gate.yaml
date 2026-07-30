@@ -1,0 +1,42 @@
+name: country-gate-us-ca
+description: >
+  Gate with a country condition using operator "any" to
+  match users in the US or CA. Should map to a Confidence
+  targeting rule with a country context field.
+tags: [migrate, boolean, country, any_operator]
+
+input:
+  user_message: |
+    I want to migrate my Statsig flags to Confidence.
+    Here is a flag from my project. What is the migration
+    path for this one? Describe it in plain English.
+  flag:
+    id: gate_002
+    name: Country Gate
+    description: Gate for US and Canadian users.
+    idType: userID
+    isEnabled: true
+    status: Active
+    type: PERMANENT
+    rules:
+      - name: US and CA users
+        id: rule_002
+        passPercentage: 100
+        conditions:
+          - type: country
+            operator: any
+            targetValue:
+              - US
+              - CA
+
+expected:
+  scope: migrate
+  flag_shape: boolean
+  plan_includes:
+    - "country"
+    - "US"
+    - "CA"
+  plan_excludes:
+    - "eqRule"
+    - "setRule"
+    - "mcp__confidence"

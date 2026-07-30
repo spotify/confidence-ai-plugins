@@ -1,0 +1,52 @@
+name: plan-badge-exists-blocked
+description: >
+  Audience uses exists match on "plan" attribute.
+  Confidence has no working presence operator — a
+  ruleless criterion errors at resolve. BLOCKED.
+tags: [blocked, exists, unsupported_operator]
+
+input:
+  user_message: |
+    I want to migrate my Optimizely flags to Confidence.
+    Here is a flag from my project. What is the migration
+    path for this one? Describe it in plain English.
+  flag:
+    key: plan_badge
+    name: Plan badge
+    description: Show badge if user has a plan attribute.
+    archived: false
+    variable_definitions: {}
+    variations:
+      - { key: on, name: On }
+      - { key: off, name: Off }
+    ruleset:
+      enabled: true
+      default_variation_key: off
+      rule_priorities: [has_plan]
+      rules:
+        has_plan:
+          type: targeted_delivery
+          percentage_included: 10000
+          audience_conditions: ["or", { audience_id: 10 }]
+          audience_ids: [10]
+          variations:
+            on: { percentage_included: 10000 }
+    referenced_audiences:
+      "10":
+        name: Has plan
+        conditions: >
+          ["and",
+          {"type": "custom_attribute",
+          "name": "plan",
+          "match_type": "exists"}]
+
+expected:
+  scope: blocked
+  flag_shape: boolean
+  blocked_reason: exists
+  plan_includes:
+    - "blocked"
+    - "exists"
+    - "presence"
+  plan_excludes:
+    - "mcp__confidence"

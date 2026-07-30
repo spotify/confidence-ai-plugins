@@ -1,0 +1,41 @@
+name: multivariate-experiment-excluded
+description: >
+  A live multivariate A/B experiment with 50/50 split
+  across two variants. Live experiments with traffic
+  allocation are excluded because migrating mid-experiment
+  would disrupt results.
+tags: [excluded, live_experiment, boolean]
+
+input:
+  user_message: |
+    I want to migrate my PostHog flags to Confidence.
+    Here is a flag from my project. What is the migration
+    path for this one? Describe it in plain English.
+  flag:
+    key: checkout-redesign
+    name: Checkout redesign experiment
+    active: true
+    filters:
+      groups:
+        - properties: []
+          rollout_percentage: 100
+    multivariate:
+      variants:
+        - key: control
+          name: Control
+          rollout_percentage: 50
+        - key: test
+          name: Test
+          rollout_percentage: 50
+
+expected:
+  scope: excluded
+  flag_shape: struct
+  blocked_reason: live_experiment
+  plan_includes:
+    - "experiment"
+    - "exclude"
+  plan_excludes:
+    - "eqRule"
+    - "setRule"
+    - "mcp__confidence"

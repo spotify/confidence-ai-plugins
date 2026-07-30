@@ -1,0 +1,37 @@
+name: numeric-range-gte
+description: >
+  100% rollout with a gte filter on age >= 18.
+  The gte operator maps to a numeric comparison rule
+  in Confidence. Response must mention the age threshold.
+tags: [migrate, gte, numeric, boolean]
+
+input:
+  user_message: |
+    I want to migrate my PostHog flags to Confidence.
+    Here is a flag from my project. What is the migration
+    path for this one? Describe it in plain English.
+  flag:
+    key: adult-content
+    name: Adult content gate
+    active: true
+    filters:
+      groups:
+        - properties:
+            - key: age
+              operator: gte
+              value: 18
+              type: person
+          rollout_percentage: 100
+    multivariate: null
+
+expected:
+  scope: migrate
+  flag_shape: boolean
+  plan_includes:
+    - "age"
+    - "18"
+  plan_excludes:
+    - "eqRule"
+    - "setRule"
+    - "addTargetingRule"
+    - "mcp__confidence"

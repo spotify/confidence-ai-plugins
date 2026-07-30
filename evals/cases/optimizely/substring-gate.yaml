@@ -1,0 +1,49 @@
+name: substring-gate-blocked
+description: >
+  Audience uses substring match on email. Confidence
+  has no substring/contains rule, so this flag is BLOCKED.
+tags: [blocked, substring, unsupported_operator]
+
+input:
+  user_message: |
+    I want to migrate my Optimizely flags to Confidence.
+    Here is a flag from my project. What is the migration
+    path for this one? Describe it in plain English.
+  flag:
+    key: substring_gate
+    name: Substring gate
+    description: Gate using email substring match.
+    archived: false
+    variable_definitions: {}
+    variations:
+      - { key: on, name: On }
+      - { key: off, name: Off }
+    ruleset:
+      enabled: true
+      default_variation_key: off
+      rule_priorities: [email_check]
+      rules:
+        email_check:
+          type: targeted_delivery
+          percentage_included: 10000
+          audience_conditions: ["or", { audience_id: 5 }]
+          audience_ids: [5]
+          variations:
+            on: { percentage_included: 10000 }
+    referenced_audiences:
+      "5":
+        name: Test email substring
+        conditions: >
+          ["and",
+          {"type": "custom_attribute", "name": "email",
+          "match_type": "substring", "value": "@test"}]
+
+expected:
+  scope: blocked
+  flag_shape: boolean
+  blocked_reason: substring
+  plan_includes:
+    - "blocked"
+    - "substring"
+  plan_excludes:
+    - "mcp__confidence"

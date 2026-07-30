@@ -1,0 +1,59 @@
+name: pricing-test-ab-with-fallthrough
+description: >
+  A/B test at 50% allocation then a 100% everyone fallback.
+  Live A/B with 2+ distinct variants is excluded.
+tags: [excluded, live_ab_test, fallthrough]
+
+input:
+  user_message: |
+    I want to migrate my Optimizely flags to Confidence.
+    Here is a flag from my project. What is the migration
+    path for this one? Describe it in plain English.
+  flag:
+    key: pricing_test
+    name: Pricing test
+    description: A/B pricing experiment for logged-in users.
+    archived: false
+    variable_definitions: {}
+    variations:
+      - { key: on, name: On }
+      - { key: off, name: Off }
+    ruleset:
+      enabled: true
+      default_variation_key: off
+      rule_priorities: [ab_pricing, everyone_fallback]
+      rules:
+        ab_pricing:
+          type: a/b
+          percentage_included: 5000
+          audience_conditions: ["or", { audience_id: 7 }]
+          audience_ids: [7]
+          variations:
+            on: { percentage_included: 5000 }
+            off: { percentage_included: 5000 }
+        everyone_fallback:
+          type: targeted_delivery
+          percentage_included: 10000
+          audience_conditions: []
+          audience_ids: []
+          variations:
+            on: { percentage_included: 10000 }
+    referenced_audiences:
+      "7":
+        name: Authenticated users
+        conditions: >
+          ["and",
+          {"type": "custom_attribute",
+          "name": "is_logged_in",
+          "match_type": "exact", "value": true}]
+
+expected:
+  scope: excluded
+  flag_shape: boolean
+  blocked_reason: live_ab_test
+  plan_includes:
+    - "A/B"
+    - "experiment"
+    - "exclude"
+  plan_excludes:
+    - "mcp__confidence"

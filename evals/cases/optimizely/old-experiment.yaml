@@ -1,0 +1,41 @@
+name: old-experiment-archived
+description: >
+  Flag with archived=true. Archived flags are skipped
+  by default — scope is "archived".
+tags: [archived, boolean]
+
+input:
+  user_message: |
+    I want to migrate my Optimizely flags to Confidence.
+    Here is a flag from my project. What is the migration
+    path for this one? Describe it in plain English.
+  flag:
+    key: old_experiment
+    name: Old experiment
+    description: An experiment that was archived long ago.
+    archived: true
+    variable_definitions: {}
+    variations:
+      - { key: on, name: On }
+      - { key: off, name: Off }
+    ruleset:
+      enabled: true
+      default_variation_key: off
+      rule_priorities: [na_only]
+      rules:
+        na_only:
+          type: targeted_delivery
+          percentage_included: 10000
+          audience_conditions: []
+          audience_ids: []
+          variations:
+            on: { percentage_included: 10000 }
+    referenced_audiences: {}
+
+expected:
+  scope: archived
+  flag_shape: boolean
+  plan_includes:
+    - "archived"
+  plan_excludes:
+    - "mcp__confidence"

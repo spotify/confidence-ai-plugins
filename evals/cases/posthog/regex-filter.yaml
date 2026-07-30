@@ -1,0 +1,35 @@
+name: regex-filter-blocked
+description: >
+  Filter uses a generic regex (character classes and
+  quantifiers mid-pattern) that maps to neither a
+  starts-with nor an ends-with rule. BLOCKED.
+tags: [blocked, regex, unsupported_operator]
+
+input:
+  user_message: |
+    I want to migrate my PostHog flags to Confidence.
+    Here is a flag from my project. What is the migration
+    path for this one? Describe it in plain English.
+  flag:
+    key: beta-testers
+    name: Beta testers by email pattern
+    active: true
+    filters:
+      groups:
+        - properties:
+            - key: email
+              operator: regex
+              value: "^[a-z]{3}-[0-9]{4}-(eu|us)$"
+              type: person
+          rollout_percentage: 100
+    multivariate: null
+
+expected:
+  scope: blocked
+  flag_shape: boolean
+  blocked_reason: regex
+  plan_includes:
+    - "blocked"
+    - "regex"
+  plan_excludes:
+    - "mcp__confidence"

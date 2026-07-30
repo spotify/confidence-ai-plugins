@@ -1,0 +1,52 @@
+name: beta-feature-partial-rollout
+description: >
+  25% targeted_delivery to a boolean audience (is_beta=true).
+  Partial rollouts are excluded because Confidence uses a
+  different bucketing hash — the 25% cohort can't be
+  reproduced.
+tags: [excluded, partial_rollout, boolean]
+
+input:
+  user_message: |
+    I want to migrate my Optimizely flags to Confidence.
+    Here is a flag from my project. What is the migration
+    path for this one? Describe it in plain English.
+  flag:
+    key: beta_feature
+    name: Beta feature
+    description: 25% rollout to beta users.
+    archived: false
+    variable_definitions: {}
+    variations:
+      - { key: on, name: On }
+      - { key: off, name: Off }
+    ruleset:
+      enabled: true
+      default_variation_key: off
+      rule_priorities: [beta_rollout]
+      rules:
+        beta_rollout:
+          type: targeted_delivery
+          percentage_included: 2500
+          audience_conditions: ["or", { audience_id: 1 }]
+          audience_ids: [1]
+          variations:
+            on: { percentage_included: 10000 }
+    referenced_audiences:
+      "1":
+        name: Beta users
+        conditions: >
+          ["and", {"type": "custom_attribute",
+          "name": "is_beta", "match_type": "exact",
+          "value": true}]
+
+expected:
+  scope: excluded
+  flag_shape: boolean
+  blocked_reason: partial_rollout
+  plan_includes:
+    - "25%"
+    - "partial"
+  plan_excludes:
+    - "eqRule"
+    - "mcp__confidence"

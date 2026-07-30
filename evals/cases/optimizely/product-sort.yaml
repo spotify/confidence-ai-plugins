@@ -1,0 +1,58 @@
+name: product-sort-ab-test
+description: >
+  A/B test with 2 distinct variants and flag variables
+  (sort_algorithm string, show_amounts bool). Live A/B
+  test with 2+ variants is excluded. Flag shape is struct
+  because it has variable_definitions.
+tags: [excluded, live_ab_test, struct, variables]
+
+input:
+  user_message: |
+    I want to migrate my Optimizely flags to Confidence.
+    Here is a flag from my project. What is the migration
+    path for this one? Describe it in plain English.
+  flag:
+    key: product_sort
+    name: Product sort experiment
+    description: A/B test for product sorting algorithm.
+    archived: false
+    variable_definitions:
+      sort_algorithm: { type: string, default_value: "relevance" }
+      show_amounts: { type: boolean, default_value: "false" }
+    variations:
+      - key: control
+        name: Control
+        variables:
+          sort_algorithm: { value: "relevance" }
+          show_amounts: { value: "false" }
+      - key: treatment
+        name: Treatment
+        variables:
+          sort_algorithm: { value: "popularity" }
+          show_amounts: { value: "true" }
+    ruleset:
+      enabled: true
+      default_variation_key: control
+      rule_priorities: [ab_test]
+      rules:
+        ab_test:
+          type: a/b
+          percentage_included: 10000
+          distribution_mode: manual
+          audience_conditions: []
+          audience_ids: []
+          variations:
+            control: { percentage_included: 5000 }
+            treatment: { percentage_included: 5000 }
+    referenced_audiences: {}
+
+expected:
+  scope: excluded
+  flag_shape: struct
+  blocked_reason: live_ab_test
+  plan_includes:
+    - "A/B"
+    - "experiment"
+    - "exclude"
+  plan_excludes:
+    - "mcp__confidence"
