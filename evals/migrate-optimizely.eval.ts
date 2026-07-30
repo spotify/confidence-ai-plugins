@@ -89,6 +89,5 @@ Eval("confidence-ai-plugins", {
     (args) => Communication({ output: args.output as TaskOutput }),
     (args) => EducateFirst({ output: args.output as TaskOutput }),
     (args) => TargetingResolution({ output: args.output as TaskOutput, expected: args.expected as Record<string, unknown> }),
-    () => ({ name: "AssertionsPassed", score: null as number | null, metadata: { reason: "not_applicable_single_turn" } }),
   ],
 });

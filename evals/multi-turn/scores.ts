@@ -14,18 +14,6 @@ function summarizeToolCalls(trace: Trace): Record<string, number> {
   return counts;
 }
 
-const SINGLE_TURN_SCORERS = [
-  "ScopeClassification",
-  "FlagShape",
-  "PlanContent",
-  "NamingRules",
-  "Tone",
-  "Visualization",
-  "Communication",
-  "EducateFirst",
-  "TargetingResolution",
-];
-
 export function multiTurnScores() {
   return [
     (args: Record<string, unknown>) => {
@@ -57,10 +45,5 @@ export function multiTurnScores() {
         },
       };
     },
-    ...SINGLE_TURN_SCORERS.map((name) => () => ({
-      name,
-      score: null as number | null,
-      metadata: { reason: "not_applicable_multi_turn" },
-    })),
   ];
 }
