@@ -37,10 +37,13 @@ conversation:
     [{"id":"flag-001","key":"simple-gate","name":"Simple gate","description":"100% rollout to everyone, no targeting.","is_archived":false,"variation_type":"BOOLEAN","variations":[{"id":"var-on","name":"On","variant_key":"on"},{"id":"var-off","name":"Off","variant_key":"off"}],"allocations":[{"id":"alloc-default","key":"default","name":"Default allocation","type":"FEATURE_GATE","percent_exposure":100,"is_default":true,"targeting_rules":[],"variation_weight":[{"variation_key":"on","weight":100}]}]}]
     ```
   - "test-app"
+  - "production"
   - "1"
   - "user_id"
   - "1"
   - "Yes, execute"
+  - "Yes"
+  - "Yes"
   - "Yes"
 
 assertions:
