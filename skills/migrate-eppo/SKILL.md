@@ -225,7 +225,7 @@ summary (with counts) for confirmation before planning.
 | Category | How to detect | Default |
 |----------|--------------|---------|
 | **Stable gate / full rollout** | FEATURE_GATE allocations, `percent_exposure` 100, one effective variant per allocation | **Migrate** |
-| **Partial exposure** | `percent_exposure` below 100 on any allocation | **Migrate** — use `rolloutPercentage` on the Confidence targeting rule; warn that subjects will be re-bucketed (different hash) so the exact cohort changes |
+| **Partial exposure** | `percent_exposure` below 100 on any allocation | **Exclude** — the sampled cohort can't be reproduced (different bucketing hash); user can opt-in at execute time, at which point ask for confirmation and the desired rollout percentage |
 | **Live experiment** | EXPERIMENT-type allocation with 2+ entries in `variation_weight`, actively measured | **Exclude** — migrating reshuffles subjects between arms and corrupts metrics; conclude it in Eppo first |
 | **Concluded / stale experiment** | EXPERIMENT allocation no longer actively measured | **Ask** — migrate as a rollout to a confirmed variant, or exclude |
 | **Switchback** | allocation `type: SWITCHBACK` | **Blocked** — time-windowed assignment has no Confidence equivalent |

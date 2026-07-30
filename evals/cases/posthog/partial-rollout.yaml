@@ -1,10 +1,10 @@
-name: partial-rollout-migrated
+name: partial-rollout-excluded
 description: >
   30% rollout with no filters. Partial rollouts are
-  migratable using rolloutPercentage on the Confidence
-  targeting rule. The model should warn about re-bucketing
-  (different hash means a different 30%).
-tags: [migrate, partial_rollout, boolean]
+  excluded because Confidence uses a different bucketing
+  hash — the 30% cohort cannot be reproduced.
+  User can opt-in at execute time.
+tags: [excluded, partial_rollout, boolean]
 
 input:
   user_message: |
@@ -22,12 +22,13 @@ input:
     multivariate: null
 
 expected:
-  scope: migrate
+  scope: excluded
   flag_shape: boolean
+  blocked_reason: partial_rollout
   plan_includes:
     - "30%"
-    - "rolloutPercentage"
-    - "re-bucket"
+    - "partial"
   plan_excludes:
     - "eqRule"
     - "setRule"
+    - "mcp__confidence"
