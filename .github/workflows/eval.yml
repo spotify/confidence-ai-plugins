@@ -1,18 +1,8 @@
 name: Evals
 
-# PR runs are intentionally disabled — each full run costs real model
-# credits. Run evals locally with a Hendrix key (see evals/README.md),
-# or trigger this workflow manually. The push-to-main run keeps a
-# canonical baseline in Braintrust.
+# Run evals locally with a Hendrix key (see evals/README.md),
+# or trigger this workflow manually via workflow_dispatch.
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'skills/migrate-optimizely/**'
-      - 'skills/migrate-posthog/**'
-      - 'skills/migrate-eppo/**'
-      - 'skills/migrate-statsig/**'
-      - 'evals/**'
   workflow_dispatch:
 
 concurrency:
