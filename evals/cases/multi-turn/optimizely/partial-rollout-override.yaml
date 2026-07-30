@@ -49,10 +49,12 @@ conversation:
   - "1"
   - "user_id"
   - "1"
+  - "Yes, execute"
   - |
     I've marked [x] Migrate on beta-feature. Execute the plan.
   - "Yes, I understand the bucketing risk. Proceed."
   - "25"
+  - "Yes"
   - "Yes"
 
 assertions:

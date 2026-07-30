@@ -48,7 +48,7 @@ conversation:
   - "1"
   - "user_id"
   - "1"
-  - "[x] Migrate browser-gate\nexecute"
+  - "No, skip it. Don't migrate this flag."
 
 assertions:
   - type: tool_not_called

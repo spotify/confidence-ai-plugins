@@ -39,13 +39,22 @@ conversation:
     [{"key":"new-homepage","name":"New homepage","description":"100% rollout to everyone.","archived":false,"variable_definitions":{},"variations":[{"key":"on","name":"On"},{"key":"off","name":"Off"}],"ruleset":{"enabled":true,"default_variation_key":"off","rule_priorities":["everyone"],"rules":{"everyone":{"type":"targeted_delivery","percentage_included":10000,"audience_conditions":[],"audience_ids":[],"variations":{"on":{"percentage_included":10000}}}}},"referenced_audiences":{}}]
     ```
   - "test-app"
-  - "1"
+  - "review each flag individually"
   - "user_id"
-  - "execute"
+  - |
+    /migrate-optimizely execute plan
+
+    Here is the plan:
+
+    | # | Flag | Scope | Action |
+    |---|------|-------|--------|
+    | 1 | new-homepage | migrate | [ ] Migrate  [ ] Skip |
+
+    Execute this plan now.
 
 assertions:
   - type: tool_not_called
     tool_name: mcp__confidence_flags__createFlag
   - type: text_contains
-    pattern: "tick"
+    pattern: "[ ]"
     case_sensitive: false
