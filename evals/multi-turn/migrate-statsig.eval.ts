@@ -1,12 +1,9 @@
 import { Eval } from "braintrust";
 import { loadMultiTurnScenarios } from "./loader.js";
 import { runConversation } from "./driver.js";
-import type { Scenario, Trace } from "./types.js";
-
-interface TaskOutput {
-  trace: Trace;
-  error?: string;
-}
+import { multiTurnScores } from "./scores.js";
+import type { TaskOutput } from "./scores.js";
+import type { Scenario } from "./types.js";
 
 Eval("confidence-ai-plugins", {
   projectId: "c78b488e-050d-4299-8442-c081455a3ac2",
@@ -41,19 +38,5 @@ Eval("confidence-ai-plugins", {
     }
   },
 
-  scores: [
-    (args) => {
-      const { trace, error } = args.output as TaskOutput;
-      const scenario = args.input as Scenario;
-      if (error) return { name: "AssertionsPassed", score: 0, metadata: { error } };
-      const results = scenario.assertions.map((a) => a(trace));
-      const passed = results.filter((r) => r.passed).length;
-      const total = results.length;
-      return {
-        name: "AssertionsPassed",
-        score: total > 0 ? passed / total : 1,
-        metadata: { passed, total, results: results.map((r) => ({ name: r.assertionName, passed: r.passed, message: r.message })), numTurns: trace.result.numTurns, totalApiCalls: trace.result.totalApiCalls },
-      };
-    },
-  ],
+  scores: multiTurnScores(),
 });
