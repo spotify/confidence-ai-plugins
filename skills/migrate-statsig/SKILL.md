@@ -1636,13 +1636,20 @@ with:
 
 ### For flag plans
 
+**CONSENT GATE (mandatory pre-check — run this BEFORE any flag
+creation):** Scan every flag in the plan. If ANY flag has BOTH boxes
+empty (`[ ] Migrate  [ ] Skip`), you MUST stop immediately. Do NOT
+create any flags. Do NOT call createFlag. Instead, list the unticked
+flags back to the user and ask them to tick `[x] Migrate` or
+`[x] Skip` for each one. This applies in BOTH modes
+(migrate-all-eligible and review-each). Silence is NOT consent —
+never assume a default for an unticked flag.
+
 ```
 1. READ the plan file
    - Client is already in the plan — use it, do NOT re-ask
    - Unit-ID → entity mapping is in the plan
-   - REFUSE TO PROCEED if any flag has neither `[x] Migrate` nor
-     `[x] Skip` ticked. List those flags back and ask the user to tick a
-     box for each. Migration is opt-in — never assume a default.
+   - Run the CONSENT GATE above. If any flag is unticked, STOP HERE.
    - REFUSE TO PROCEED if any flag is marked `BLOCKED` and the user
      hasn't either resolved the block or ticked `[x] Skip`. Surface the
      BLOCKED flags and the reason for each.

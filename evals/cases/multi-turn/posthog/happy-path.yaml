@@ -1,0 +1,46 @@
+name: happy-path-full-migration
+description: >
+  Full migration flow: user provides one simple flag (100% rollout
+  to everyone), model scans, produces plan, user confirms, model
+  creates flag via MCP tools.
+skill: migrate-posthog
+tags: [multi-turn, happy-path, e2e]
+
+source_flags:
+  - key: new-homepage
+    name: New homepage
+    active: true
+    filters:
+      groups:
+        - properties: []
+          rollout_percentage: 100
+    multivariate: null
+
+conversation:
+  - |
+    /migrate-posthog plan flags
+
+    Here are the flags from my project:
+
+    ```json
+    [{"key":"new-homepage","name":"New homepage","active":true,"filters":{"groups":[{"properties":[],"rollout_percentage":100}]},"multivariate":null}]
+    ```
+  - "test-app"
+  - "1"
+  - "user_id"
+  - "1"
+  - "Yes, execute"
+  - "Yes"
+  - "Yes"
+  - "Yes"
+
+assertions:
+  - type: tool_called
+    tool_name: mcp__confidence_flags__listClients
+  - type: tool_called
+    tool_name: mcp__confidence_flags__createFlag
+  - type: tool_called
+    tool_name: mcp__confidence_flags__addTargetingRule
+  - type: tool_called_before
+    first: mcp__confidence_flags__createFlag
+    second: mcp__confidence_flags__addTargetingRule

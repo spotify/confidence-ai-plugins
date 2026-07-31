@@ -1,0 +1,66 @@
+name: blocked-flag-not-created
+description: >
+  A flag using a regex operator must be classified as BLOCKED
+  and never created in Confidence, even when the user tries
+  to execute.
+skill: migrate-eppo
+tags: [multi-turn, blocked, safety]
+
+source_flags:
+  - id: flag-blocked
+    key: regex-id-format
+    name: Regex ID format
+    description: Uses regex with character classes.
+    is_archived: false
+    variation_type: BOOLEAN
+    variations:
+      - { id: var-on, name: On, variant_key: on }
+      - { id: var-off, name: Off, variant_key: off }
+    allocations:
+      - id: alloc-regex
+        key: regex-check
+        name: Regex check
+        type: FEATURE_GATE
+        percent_exposure: 100
+        is_default: false
+        targeting_rules:
+          - conditions:
+              - operator: MATCHES
+                attribute: user_id
+                values: ["^[a-z]{3}\\d{4}$"]
+        variation_weight:
+          - { variation_key: on, weight: 100 }
+      - id: alloc-default
+        key: default
+        name: Default
+        type: FEATURE_GATE
+        percent_exposure: 100
+        is_default: true
+        targeting_rules: []
+        variation_weight:
+          - { variation_key: off, weight: 100 }
+
+conversation:
+  - |
+    /migrate-eppo plan flags
+
+    Here are the flags from my project:
+
+    ```json
+    [{"id":"flag-blocked","key":"regex-id-format","name":"Regex ID format","description":"Uses regex with character classes.","is_archived":false,"variation_type":"BOOLEAN","variations":[{"id":"var-on","name":"On","variant_key":"on"},{"id":"var-off","name":"Off","variant_key":"off"}],"allocations":[{"id":"alloc-regex","key":"regex-check","name":"Regex check","type":"FEATURE_GATE","percent_exposure":100,"is_default":false,"targeting_rules":[{"conditions":[{"operator":"MATCHES","attribute":"user_id","values":["^[a-z]{3}\\d{4}$"]}]}],"variation_weight":[{"variation_key":"on","weight":100}]},{"id":"alloc-default","key":"default","name":"Default","type":"FEATURE_GATE","percent_exposure":100,"is_default":true,"targeting_rules":[],"variation_weight":[{"variation_key":"off","weight":100}]}]}]
+    ```
+  - "test-app"
+  - "1"
+  - "user_id"
+  - "1"
+  - "No, skip it. Don't migrate this flag."
+
+assertions:
+  - type: tool_not_called
+    tool_name: mcp__confidence_flags__createFlag
+  - type: text_contains
+    pattern: "blocked"
+    case_sensitive: false
+  - type: text_contains
+    pattern: "regex"
+    case_sensitive: false
