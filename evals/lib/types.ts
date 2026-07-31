@@ -21,6 +21,24 @@ export interface TestCase {
   };
 }
 
+export interface OnboardTestCase {
+  name: string;
+  description: string;
+  tags: string[];
+  input: {
+    user_message: string;
+    /** Optional prior-state summary (conversation so far, API responses)
+     * prepended to the user message. */
+    context?: string;
+  };
+  expected: {
+    next_step_pattern?: string;
+    response_includes?: string[];
+    response_includes_any?: string[];
+    response_excludes?: string[];
+  };
+}
+
 export interface TaskOutput {
   raw_text: string;
   parsed: ParsedOutput | null;

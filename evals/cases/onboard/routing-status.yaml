@@ -1,0 +1,8 @@
+name: routing-status
+description: >
+  A status question routes to the lightweight status command (MCP-first).
+tags: [routing]
+input:
+  user_message: "What's my Confidence account status?"
+expected:
+  next_step_pattern: "^status"

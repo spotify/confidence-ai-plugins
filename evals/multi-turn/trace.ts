@@ -27,7 +27,12 @@ export function getToolCallsByName(trace: Trace, name: string): ToolCall[] {
 }
 
 export function getAllText(trace: Trace): string {
-  return trace.textBlocks.map((tb) => tb.text).join("\n");
+  // AskUserQuestion inputs are shown to the user (questions + option labels),
+  // so text assertions — including leak checks — must cover them too.
+  const askText = trace.toolCalls
+    .filter((tc) => tc.name === "AskUserQuestion")
+    .map((tc) => JSON.stringify(tc.input));
+  return [...trace.textBlocks.map((tb) => tb.text), ...askText].join("\n");
 }
 
 export function getFinalText(trace: Trace): string {

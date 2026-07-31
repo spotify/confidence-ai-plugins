@@ -1,0 +1,39 @@
+name: wizard-no-redundant-question
+description: >
+  The user already said "create a new account" in their first message. The
+  wizard must NOT re-ask create-vs-sign-in — it should go straight into the
+  signup flow (auth with the signup client ID).
+skill: onboard-confidence
+tags: [multi-turn, setup-wizard, no-redundant-questions]
+
+conversation:
+  - "Onboard me to Confidence — I want to create a new account."
+  - >
+    Workspace name acme, display name Acme Inc, region EU, Google login,
+    the suggested admin email is fine, no domain restrictions.
+
+ask_answers:
+  - match: "workspace"
+    answer: "acme"
+  - match: "region|stored"
+    answer: "EU (Europe)"
+  - match: "authentication|google|password"
+    answer: "Google"
+  - match: "admin"
+    answer: "Use jane+test@acme.com"
+  - match: "domain"
+    answer: "No restrictions"
+
+assertions:
+  # Must not re-ask the question the user already answered.
+  - type: tool_call_arg_not_contains
+    tool_name: AskUserQuestion
+    arg_name: questions
+    pattern: "sign in to an existing account"
+  # Went straight to signup auth.
+  - type: tool_call_arg_contains
+    tool_name: Bash
+    arg_name: command
+    pattern: "82qMvwZvqd3t3S0gRDvs8R53TehQXSJY"
+  - type: text_not_contains
+    pattern: "eyJhbGciOiJub25l"

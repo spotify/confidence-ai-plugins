@@ -1,0 +1,21 @@
+name: error-work-email
+description: >
+  The API rejects a free-provider admin email. The agent explains the work
+  email requirement in plain English and re-collects the field.
+tags: [error-interpretation]
+input:
+  context: |
+    (Conversation so far: you are running the create-account flow. The user
+    chose workspace name "acme", display name "Acme Inc", region EU, Google
+    auth, and gave admin email jane@gmail.com. You just sent the account
+    creation request and the API responded:
+    HTTP 400
+    {"code":3,"message":"adminEmail must be a work email address; free email providers are not allowed"})
+  user_message: "Did it work?"
+expected:
+  next_step_pattern: "^create-account"
+  response_includes:
+    - "work email"
+  response_excludes:
+    - "400"
+    - "adminEmail"

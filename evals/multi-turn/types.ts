@@ -69,12 +69,44 @@ export interface MockState {
   contextFields: string[];
 }
 
+/** Scripted answer for a mocked AskUserQuestion call. `match` is a regex
+ * tested against the question text, header, and option labels; the first
+ * matching entry supplies the answer. Unmatched questions fall back to the
+ * first option (usually the happy path) with a console warning. */
+export interface AskAnswerDef {
+  match: string;
+  answer: string;
+}
+
+/** Scripted response override for the mocked Bash tool. `match` is a regex
+ * tested against the command; `responses` are consumed in order across the
+ * conversation (the last one repeats once exhausted). Overrides are checked
+ * before the built-in default routes. */
+export interface BashResponseDef {
+  match: string;
+  responses: string[];
+}
+
+/** Scripted response override for a mock MCP tool, by short tool name
+ * (e.g. "getIdentityInfo"). Consumed in order; last repeats. */
+export interface ToolResponseDef {
+  tool: string;
+  responses: string[];
+}
+
 export interface Scenario {
   name: string;
   description: string;
   skill: string;
+  /** SKILL.md files to load as the system prompt. Defaults to [skill].
+   * Multiple entries are concatenated (e.g. a dispatcher skill plus the
+   * skill it hands off to). */
+  skills?: string[];
   tags: string[];
   sourceFlags: Record<string, unknown>[];
   conversation: string[];
   assertions: Assertion[];
+  askAnswers: AskAnswerDef[];
+  bashResponses: BashResponseDef[];
+  toolResponses: ToolResponseDef[];
 }

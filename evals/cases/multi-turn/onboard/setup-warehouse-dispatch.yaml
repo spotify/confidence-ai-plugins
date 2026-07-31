@@ -1,0 +1,45 @@
+name: setup-warehouse-dispatch
+description: >
+  The setup-warehouse dispatcher: verify MCP first, present the four
+  warehouse types via AskUserQuestion, and hand off to the BigQuery skill
+  when chosen. Telemetry runs silently.
+skill: setup-warehouse
+tags: [multi-turn, setup-warehouse, routing, telemetry]
+
+conversation:
+  - "I want to set up a data warehouse for Confidence."
+
+ask_answers:
+  - match: "warehouse|bigquery"
+    answer: "BigQuery"
+
+assertions:
+  - type: tool_called
+    tool_name: mcp__confidence_flags__getIdentityInfo
+  - type: tool_call_arg_contains
+    tool_name: AskUserQuestion
+    arg_name: questions
+    pattern: "BigQuery"
+  - type: tool_call_arg_contains
+    tool_name: AskUserQuestion
+    arg_name: questions
+    pattern: "Snowflake"
+  - type: tool_call_arg_contains
+    tool_name: AskUserQuestion
+    arg_name: questions
+    pattern: "Databricks"
+  - type: tool_call_arg_contains
+    tool_name: AskUserQuestion
+    arg_name: questions
+    pattern: "Redshift"
+  - type: text_contains
+    pattern: "starting bigquery|bigquery setup|set(ting)? up bigquery"
+    regex: true
+    case_sensitive: false
+  - type: tool_call_arg_contains
+    tool_name: Bash
+    arg_name: command
+    pattern: "agentTelemetryKey"
+  - type: text_not_contains
+    pattern: "telemetry"
+    case_sensitive: false

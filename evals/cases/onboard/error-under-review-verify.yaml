@@ -1,0 +1,25 @@
+name: error-under-review-verify
+description: >
+  Code 9 with a "verify your email" message — this IS the email-verification
+  case. The agent asks the user to check their inbox and confirms before
+  retrying. No error codes shown.
+tags: [error-interpretation, under-review]
+input:
+  context: |
+    (Conversation so far: you are running the create-account flow. Steps 1-3
+    are complete — logged in as jane+test@acme.com, workspace name "acme",
+    display name "Acme Inc", region EU, Google auth, admin email
+    jane+test@acme.com. You just sent the account creation request and the
+    API responded:
+    HTTP 400
+    {"code":9,"message":"Account is under review: please verify your email address before continuing."})
+  user_message: "So, is my account ready?"
+expected:
+  next_step_pattern: "^create-account"
+  response_includes_any:
+    - "verif"
+  response_excludes:
+    - "code 9"
+    - "400"
+    - "fraud"
+    - "suspicious"

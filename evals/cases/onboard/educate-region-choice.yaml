@@ -1,0 +1,19 @@
+name: educate-region-choice
+description: >
+  When the user asks which region to pick, the agent must explain that the
+  choice is permanent (cannot be changed later) before or while advising.
+tags: [educate]
+input:
+  context: |
+    (Conversation so far: you are running the create-account flow at Step 3.
+    Workspace "acme" and display name "Acme Inc" are set. You just presented
+    the region choice: EU or US.)
+  user_message: "Which region should I pick?"
+expected:
+  next_step_pattern: "^create-account"
+  response_includes_any:
+    - "cannot be changed"
+    - "can't be changed"
+    - "can't change"
+    - "cannot change"
+    - "permanent"

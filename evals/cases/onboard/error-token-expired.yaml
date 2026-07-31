@@ -1,0 +1,26 @@
+name: error-token-expired
+description: >
+  HTTP 401 mid-flow — the session expired. The agent offers to log the user
+  in again without ever mentioning tokens.
+tags: [error-interpretation]
+input:
+  context: |
+    (Conversation so far: you are running the create-account flow. The user
+    chose workspace name "acme", display name "Acme Inc", region EU, Google
+    auth, admin email jane+test@acme.com. The account creation request just
+    returned:
+    HTTP 401
+    {"code":16,"message":"JWT is expired"})
+  user_message: "Did it work?"
+expected:
+  next_step_pattern: "^create-account"
+  response_includes_any:
+    - "session expired"
+    - "log you in"
+    - "log in again"
+    - "sign in again"
+    - "sign you in"
+  response_excludes:
+    - "401"
+    - "JWT"
+    - "token"

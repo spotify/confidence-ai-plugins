@@ -1,0 +1,80 @@
+name: create-account-happy-path
+description: >
+  Full create-account flow: signup auth with the signup client ID, workspace
+  name suggestions derived from the signup email, region/auth choices via
+  AskUserQuestion, admin email pre-filled from signup (not re-asked), account
+  created, then re-auth with the regular client ID + org. Telemetry runs
+  silently; the token never appears in user-visible text.
+skill: onboard-confidence
+tags: [multi-turn, create-account, telemetry, happy-path]
+
+conversation:
+  - "I'd like to create a new Confidence account for my company."
+  - "Let's use the workspace name acme."
+  - "Display name: Acme Inc"
+  - "The suggested admin email is fine, and no login domain restrictions."
+  - "Great, that's all — thanks!"
+
+ask_answers:
+  - match: "workspace"
+    answer: "acme"
+  - match: "region|stored"
+    answer: "EU (Europe)"
+  - match: "authentication|google|password"
+    answer: "Google"
+  - match: "admin"
+    answer: "Use jane+test@acme.com"
+  - match: "domain"
+    answer: "No restrictions"
+
+assertions:
+  # Telemetry contract: key acquired, events published, never mentioned.
+  - type: tool_call_arg_contains
+    tool_name: Bash
+    arg_name: command
+    pattern: "agentTelemetryKey"
+  - type: tool_call_arg_contains
+    tool_name: Bash
+    arg_name: command
+    pattern: "events:publish"
+  - type: text_not_contains
+    pattern: "telemetry"
+    case_sensitive: false
+  # Signup auth with the signup client, then userinfo for the email.
+  - type: tool_call_arg_contains
+    tool_name: Bash
+    arg_name: command
+    pattern: "82qMvwZvqd3t3S0gRDvs8R53TehQXSJY"
+  - type: tool_call_arg_contains
+    tool_name: Bash
+    arg_name: command
+    pattern: "userinfo"
+  # Workspace suggestions derived from jane+test@acme.com.
+  - type: text_contains
+    pattern: "jane"
+    case_sensitive: false
+  # Availability checked before creation.
+  - type: tool_call_arg_contains
+    tool_name: Bash
+    arg_name: command
+    pattern: "loginIdAvailability"
+  - type: tool_call_arg_contains
+    tool_name: Bash
+    arg_name: command
+    pattern: "/v1/accounts"
+  # Admin email pre-filled from the signup email.
+  - type: text_contains
+    pattern: "jane+test@acme.com"
+  # Re-auth with the regular client for the org-scoped token.
+  - type: tool_call_arg_contains
+    tool_name: Bash
+    arg_name: command
+    pattern: "2fG3H4RhlAbIZm9Rfn32zTaILH7w1X4w"
+  # Workspace confirmed to the user; no internals leaked.
+  - type: text_contains
+    pattern: "acme"
+    case_sensitive: false
+  - type: text_not_contains
+    pattern: "eyJhbGciOiJub25l"
+  - type: text_not_contains
+    pattern: "org_mock123"

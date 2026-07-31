@@ -1,0 +1,48 @@
+name: create-account-work-email-rejected
+description: >
+  The user supplies a free-provider admin email. Whether the skill catches
+  it upfront (the skill documents the work-email rule) or the API rejects
+  it, the user must get a plain-English explanation and the account must be
+  created once a work email is provided. No HTTP codes in prose.
+skill: onboard-confidence
+tags: [multi-turn, create-account, error-recovery]
+
+# Only reject requests that actually carry the free-provider email — a model
+# that catches the rule upfront and never sends it gets the default 200.
+bash_responses:
+  - match: 'jane@gmail\.com'
+    responses:
+      - |-
+        {"code":3,"message":"adminEmail must be a work email address; free email providers are not allowed"}
+        400
+
+conversation:
+  - >
+    Create a Confidence account. Workspace name: acme. Display name:
+    Acme Inc. Region: EU. Login with Google. Admin email: jane@gmail.com.
+    No domain restrictions.
+  - "Ah right — use jane@acme.com instead."
+  - "Perfect, thanks!"
+
+ask_answers:
+  - match: "region|stored"
+    answer: "EU (Europe)"
+  - match: "authentication|google|password"
+    answer: "Google"
+  # If the model catches the gmail address upfront and asks for a
+  # replacement before the user's second turn arrives:
+  - match: "admin|gmail|work email"
+    answer: "Use jane@acme.com"
+
+assertions:
+  - type: text_contains
+    pattern: "work email"
+    case_sensitive: false
+  - type: tool_call_arg_contains
+    tool_name: Bash
+    arg_name: command
+    pattern: "jane@acme.com"
+  - type: text_not_contains
+    pattern: "400"
+  - type: text_not_contains
+    pattern: "eyJhbGciOiJub25l"

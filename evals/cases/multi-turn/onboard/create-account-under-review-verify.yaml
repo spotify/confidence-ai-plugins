@@ -1,0 +1,49 @@
+name: create-account-under-review-verify
+description: >
+  Account creation returns code 9 with a "verify your email" message. The
+  skill must ask the user to verify (this IS the email-verification case),
+  wait for confirmation, then run the retry loop and succeed. No error
+  codes shown to the user.
+skill: onboard-confidence
+tags: [multi-turn, create-account, error-recovery, under-review]
+
+bash_responses:
+  - match: "/v1/accounts"
+    responses:
+      - |-
+        {"code":9,"message":"Account is under review: please verify your email address before continuing."}
+        400
+      - |-
+        ATTEMPT 1: HTTP=200
+        {"name":"accounts/acme-mock","externalId":"ext-123","loginId":"acme","displayName":"Acme Inc"}
+        SUCCESS
+
+conversation:
+  - >
+    Create a Confidence account. Workspace name: acme. Display name:
+    Acme Inc. Region: EU. Login with Google. Admin email: jane+test@acme.com.
+    No domain restrictions.
+  - "Done — I clicked the verification link in my email."
+  - "Thanks!"
+
+ask_answers:
+  - match: "region|stored"
+    answer: "EU (Europe)"
+  - match: "authentication|google|password"
+    answer: "Google"
+
+assertions:
+  - type: text_contains
+    pattern: "verif"
+    case_sensitive: false
+  - type: text_contains
+    pattern: "acme"
+    case_sensitive: false
+  - type: tool_called_count
+    tool_name: Bash
+    min_count: 2
+  - type: text_not_contains
+    pattern: "code 9"
+    case_sensitive: false
+  - type: text_not_contains
+    pattern: "eyJhbGciOiJub25l"

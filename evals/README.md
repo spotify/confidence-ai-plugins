@@ -1,10 +1,12 @@
 # Skill Evals
 
 Automated quality evaluation for the migration skills (`migrate-optimizely`,
-`migrate-posthog`, `migrate-eppo`, `migrate-statsig`). Each eval sends a
-skill's full `SKILL.md` as the system prompt plus a source-platform flag
-definition, and scores the model's response on 8 dimensions. Results are
-logged to Braintrust (project **Confidence ai plugins** on
+`migrate-posthog`, `migrate-eppo`, `migrate-statsig`) and the onboarding
+skills (`onboard-confidence`, `setup-warehouse`, `setup-warehouse-bigquery`).
+Each single-turn eval sends a skill's full `SKILL.md` as the system prompt
+plus one case message and scores the model's response; multi-turn evals run
+scripted conversations against mocked tools. Results are logged to
+Braintrust (project **Confidence ai plugins** on
 `braintrust.spotifyinternal.com`).
 
 ## Run it with a Hendrix key (recommended)
@@ -84,6 +86,72 @@ To add a case, drop a YAML file in the skill's directory — the loader picks
 it up automatically. Ground truth is hand-written; if the model disagrees
 with a case, check whether the case (or the skill) is wrong before assuming
 the model is.
+
+## Onboarding evals
+
+The onboarding skill acts through Bash (bundled `auth.py`, curl to REST
+endpoints), AskUserQuestion, and MCP tools — so its evals mock all three.
+
+### Single-turn (`onboard-confidence.eval.ts`, cases in `cases/onboard/`)
+
+Each case is one message (optionally with an `input.context` block holding a
+prior-state summary or a raw API error) answered with no tools. A footer
+(`lib/onboard-footer.ts`) forces a `Next step: <sub-command>.<step>` verdict
+line. Case schema:
+
+```yaml
+name: error-under-review-fraud
+tags: [error-interpretation]
+input:
+  context: |
+    (Conversation so far: ... the API responded: {"code":9,"message":"...flagged as suspicious."})
+  user_message: "So, is my account ready?"
+expected:
+  next_step_pattern: "^create-account"   # regex on the verdict line
+  response_includes: ["confidence-support@spotify.com"]  # all must appear
+  response_includes_any: ["flagged", "review"]           # at least one
+  response_excludes: ["verify your email", "code 9"]     # none in prose
+```
+
+| Scorer | Type | What it checks |
+|--------|------|----------------|
+| NextStep | deterministic | verdict line matches `next_step_pattern` |
+| ResponseContent | deterministic | includes / includes_any / excludes |
+| NoInternalLeak | deterministic | no Auth0 client IDs, JWTs, `Bearer`, org IDs, curl, telemetry mention (binary: any leak = 0) |
+| OnboardCommunication | LLM judge | plain-English status, no payloads/codes/internals |
+| OnboardEducateFirst | LLM judge | concept explained before asking for input |
+| OnboardStepTracker | LLM judge | step tracker present (cases tagged `interactive`) |
+
+### Multi-turn (`multi-turn/onboard-confidence.eval.ts`, cases in `cases/multi-turn/onboard/`)
+
+Scripted conversations against a mock harness (`multi-turn/onboard-tools.ts`):
+
+- **Bash** is regex-routed to canned outputs (auth script → mock JWT,
+  availability checks, account creation, telemetry endpoints, gcloud/bq).
+  Scenarios override per-command with `bash_responses` (consumed in order —
+  e.g. a 409 then a 200).
+- **AskUserQuestion** answers come from `ask_answers` — each entry's `match`
+  regex is tested against the question text, header, and option labels;
+  unmatched questions fall back to the first option with a warning.
+- **MCP tools** are mocked with in-memory state (clients, flags, warehouse);
+  `tool_responses` overrides any tool's results in order (e.g. a failing
+  `getIdentityInfo` before the user authenticates).
+- `skill:` selects the SKILL.md to load (`onboard-confidence`,
+  `setup-warehouse`, `setup-warehouse-bigquery`); `skills:` can list several
+  to concatenate (dispatcher + hand-off target).
+
+Telemetry is asserted, not skipped: happy-path scenarios check the telemetry
+key is acquired and events are published, and that telemetry is never
+mentioned in user-visible text. Scoring is `AssertionsPassed` (declarative
+assertions, including the new `tool_call_arg_not_contains`) plus a
+conversation-level `NoInternalLeak` LLM judge over all user-visible text.
+
+```bash
+npm run eval:onboard:local              # single-turn, Hendrix, no upload
+npm run eval:multi-turn:onboard:local   # multi-turn, Hendrix, no upload
+npm run eval:onboard                    # single-turn → Braintrust (onboard-single-turn-v1)
+npm run eval:multi-turn:onboard         # multi-turn → Braintrust (onboard-multi-turn-v1)
+```
 
 ## CI
 

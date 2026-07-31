@@ -1,0 +1,37 @@
+name: setup-wizard-mcp-not-connected
+description: >
+  The confidence-flags MCP is not authenticated at wizard step 2. The skill
+  must instruct the user to run /mcp, treat the user's next message as
+  confirmation (no extra questions), retry getIdentityInfo, and proceed.
+skill: onboard-confidence
+tags: [multi-turn, setup-wizard, error-recovery, mcp]
+
+tool_responses:
+  - tool: getIdentityInfo
+    responses:
+      - "Error: MCP server confidence-flags is not authenticated. The user must run /mcp and authenticate the server."
+      - '{"user":{"name":"users/mock-user","fullName":"Jane Doe","email":"jane+test@acme.com"},"account":"accounts/acme-mock","accountMemberships":[{"account":"accounts/acme-mock","displayName":"Acme Inc","loginId":"acme","region":"EU"}]}'
+
+conversation:
+  - "Run the Confidence setup wizard. I already have an account and I'm signed in."
+  - "done"
+  - "Call the client Web App, frontend type."
+
+ask_answers:
+  - match: "sign in|create a new account"
+    answer: "Sign in to an existing account"
+  - match: "client type|frontend|backend"
+    answer: "Frontend"
+  - match: "on/off|boolean|custom variant"
+    answer: "Simple on/off (boolean)"
+
+assertions:
+  - type: text_contains
+    pattern: "/mcp"
+  - type: tool_called_count
+    tool_name: mcp__confidence_flags__getIdentityInfo
+    min_count: 2
+  - type: tool_called
+    tool_name: mcp__confidence_flags__createClient
+  - type: text_not_contains
+    pattern: "eyJhbGciOiJub25l"

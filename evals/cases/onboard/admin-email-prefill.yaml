@@ -1,0 +1,19 @@
+name: admin-email-prefill
+description: >
+  The admin email must default to the signup email — presented as the
+  pre-filled suggestion, not asked from scratch.
+tags: [derivation, no-redundant-questions]
+input:
+  context: |
+    (Conversation so far: you are running the create-account flow. Step 1
+    complete — signed up as jane+test@acme.com. Step 2 complete — workspace
+    name "acme". Step 3 in progress: display name "Acme Inc", region EU,
+    Google auth are set. Admin email is next.)
+  user_message: "What about the admin email?"
+expected:
+  next_step_pattern: "^create-account"
+  response_includes:
+    - "jane+test@acme.com"
+  response_includes_any:
+    - "work email"
+    - "work address"

@@ -1,0 +1,18 @@
+name: validation-login-id
+description: >
+  An invalid workspace name ("AB" — uppercase and too short) must be
+  rejected locally with the rules explained, not sent to the API.
+tags: [validation]
+input:
+  context: |
+    (Conversation so far: you are running the create-account flow at Step 2,
+    workspace name. Signed up as jane+test@acme.com.)
+  user_message: "Let's call the workspace AB"
+expected:
+  next_step_pattern: "^create-account"
+  response_includes_any:
+    - "lowercase"
+    - "3"
+  response_excludes:
+    - "regex"
+    - "^[a-z]"

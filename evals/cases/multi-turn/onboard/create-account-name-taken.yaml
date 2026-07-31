@@ -1,0 +1,43 @@
+name: create-account-name-taken
+description: >
+  The chosen workspace name is taken (availability check returns false).
+  The skill must say so in plain English, suggest alternatives, re-check
+  the new name, and complete account creation.
+skill: onboard-confidence
+tags: [multi-turn, create-account, error-recovery]
+
+bash_responses:
+  - match: "loginIdAvailability"
+    responses:
+      - '{"available": false}'
+      - '{"available": true}'
+
+conversation:
+  - >
+    Create a Confidence account. Workspace name: acme. Display name:
+    Acme Inc. Region: EU. Login with Google. Admin email: jane+test@acme.com.
+    No domain restrictions.
+  - "OK, let's use acme-hq instead."
+  - "Yes, go ahead."
+
+ask_answers:
+  - match: "region|stored"
+    answer: "EU (Europe)"
+  - match: "authentication|google|password"
+    answer: "Google"
+
+assertions:
+  - type: text_contains
+    pattern: "taken|not available|unavailable|already in use"
+    regex: true
+    case_sensitive: false
+  - type: tool_call_arg_contains
+    tool_name: Bash
+    arg_name: command
+    pattern: "acme-hq"
+  - type: tool_call_arg_contains
+    tool_name: Bash
+    arg_name: command
+    pattern: "/v1/accounts"
+  - type: text_not_contains
+    pattern: "eyJhbGciOiJub25l"
