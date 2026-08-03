@@ -1,26 +1,34 @@
 import Anthropic from "@anthropic-ai/sdk";
-import type { Scenario, Trace, ToolCall, ToolResult, TextBlock, MockState } from "./types.js";
+import type { Scenario, Trace, ToolCall, ToolResult, TextBlock } from "./types.js";
 import { loadSkillPrompt } from "../lib/skill-prompt.js";
-import { MOCK_TOOLS, dispatchTool, createMockState } from "./tools.js";
+import { migrationHarness } from "./tools.js";
+import { onboardHarness } from "./onboard-tools.js";
 import { buildTrace } from "./trace.js";
 
 const MAX_TOOL_ROUNDS_PER_TURN = 20;
 
-const EVAL_PREAMBLE = `You are in an eval environment with mock MCP tools available.
-- There is no filesystem — present plans inline in your response.
-- Skip telemetry setup steps.
-- The MCP tools (createFlag, addTargetingRule, resolveFlag, etc.) are available and functional.
-- Proceed with the migration flow as instructed in the skill.
+/** Everything skill-family-specific the conversation loop needs: which
+ * SKILL.md files to load, the eval preamble, the tool definitions, and a
+ * per-scenario dispatcher holding the mock state. */
+export interface SkillHarness {
+  preamble: string;
+  skillDirs: (scenario: Scenario) => string[];
+  tools: Anthropic.Tool[];
+  createDispatcher: (scenario: Scenario) => (name: string, input: Record<string, unknown>) => string;
+}
 
-`;
+function harnessFor(scenario: Scenario): SkillHarness {
+  return scenario.skill.startsWith("migrate-") ? migrationHarness : onboardHarness;
+}
 
 export async function runConversation(scenario: Scenario): Promise<Trace> {
   const client = new Anthropic();
   const model = process.env.EVAL_MODEL || "claude-sonnet-4-6";
-  const skillName = scenario.skill.replace("migrate-", "");
-  const systemPrompt = EVAL_PREAMBLE + loadSkillPrompt(`migrate-${skillName}`);
+  const harness = harnessFor(scenario);
+  const systemPrompt =
+    harness.preamble + harness.skillDirs(scenario).map(loadSkillPrompt).join("\n\n---\n\n");
+  const dispatch = harness.createDispatcher(scenario);
 
-  const state: MockState = createMockState();
   const messages: Anthropic.MessageParam[] = [];
   const toolCalls: ToolCall[] = [];
   const toolResults: ToolResult[] = [];
@@ -39,7 +47,7 @@ export async function runConversation(scenario: Scenario): Promise<Trace> {
         max_tokens: 8192,
         system: [{ type: "text", text: systemPrompt, cache_control: { type: "ephemeral" } }],
         messages,
-        tools: MOCK_TOOLS,
+        tools: harness.tools,
       });
 
       const assistantContent = response.content;
@@ -63,7 +71,7 @@ export async function runConversation(scenario: Scenario): Promise<Trace> {
         const toolResultBlocks: Anthropic.ToolResultBlockParam[] = [];
         for (const block of assistantContent) {
           if (block.type === "tool_use") {
-            const resultText = dispatchTool(block.name, block.input as Record<string, unknown>, state);
+            const resultText = dispatch(block.name, block.input as Record<string, unknown>);
             toolResults.push({
               toolCallId: block.id,
               toolName: block.name,

@@ -91,17 +91,38 @@ export function toolCalledBefore(first: string, second: string): Assertion {
   };
 }
 
+/** Stringify a tool-call arg for matching: strings as-is, everything else
+ * (e.g. AskUserQuestion's questions array) as JSON. */
+function argAsString(val: unknown): string {
+  if (typeof val === "string") return val;
+  if (val === undefined || val === null) return "";
+  return JSON.stringify(val);
+}
+
 export function toolCallArgContains(toolName: string, argName: string, pattern: string): Assertion {
   return (trace: Trace): AssertionResult => {
     const calls = getToolCallsByName(trace, toolName);
-    const found = calls.some((tc) => {
-      const val = tc.input[argName];
-      return typeof val === "string" && val.toLowerCase().includes(pattern.toLowerCase());
-    });
+    const found = calls.some((tc) =>
+      argAsString(tc.input[argName]).toLowerCase().includes(pattern.toLowerCase()),
+    );
     return {
       passed: found,
       message: found ? "" : `No ${toolName} call has '${argName}' containing '${pattern}'`,
       assertionName: `toolCallArgContains(${toolName}, ${argName}, ${pattern})`,
+    };
+  };
+}
+
+export function toolCallArgNotContains(toolName: string, argName: string, pattern: string): Assertion {
+  return (trace: Trace): AssertionResult => {
+    const calls = getToolCallsByName(trace, toolName);
+    const offending = calls.find((tc) =>
+      argAsString(tc.input[argName]).toLowerCase().includes(pattern.toLowerCase()),
+    );
+    return {
+      passed: !offending,
+      message: offending ? `A ${toolName} call has '${argName}' containing '${pattern}'` : "",
+      assertionName: `toolCallArgNotContains(${toolName}, ${argName}, ${pattern})`,
     };
   };
 }
@@ -159,6 +180,7 @@ const ASSERTION_FACTORIES: Record<string, (def: AssertionDef) => Assertion> = {
   text_not_contains: (d) => textNotContains(d.pattern!, { caseSensitive: d.case_sensitive }),
   tool_called_before: (d) => toolCalledBefore(d.first!, d.second!),
   tool_call_arg_contains: (d) => toolCallArgContains(d.tool_name!, d.arg_name!, d.pattern!),
+  tool_call_arg_not_contains: (d) => toolCallArgNotContains(d.tool_name!, d.arg_name!, d.pattern!),
   text_before_tool: (d) => textBeforeTool(d.pattern!, d.tool_name!),
   text_contains_question: (d) => textContainsQuestion(d.pattern!),
 };

@@ -1,0 +1,24 @@
+name: status-check
+description: >
+  Status is a lightweight command: it must use MCP (getIdentityInfo +
+  listClients) and display identity and account in a readable summary,
+  without leaking org IDs or tokens.
+skill: onboard-confidence
+tags: [multi-turn, status]
+
+conversation:
+  - "What's my Confidence account status?"
+
+assertions:
+  - type: tool_called
+    tool_name: mcp__confidence_flags__getIdentityInfo
+  - type: tool_called
+    tool_name: mcp__confidence_flags__listClients
+  - type: text_contains
+    pattern: "Acme Inc"
+  - type: text_contains
+    pattern: "jane+test@acme.com"
+  - type: text_not_contains
+    pattern: "org_mock123"
+  - type: text_not_contains
+    pattern: "eyJhbGciOiJub25l"

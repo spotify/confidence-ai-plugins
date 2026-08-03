@@ -1,0 +1,49 @@
+name: create-account-under-review-fraud
+description: >
+  Account creation returns code 9 with a "flagged as suspicious" message.
+  The skill must NOT assume email verification — it must parse the actual
+  message, point the user to support, and not auto-retry.
+skill: onboard-confidence
+tags: [multi-turn, create-account, error-recovery, under-review, fraud]
+
+bash_responses:
+  - match: "/v1/accounts"
+    responses:
+      - |-
+        {"code":9,"message":"Account creation is under review: your account has been flagged as suspicious."}
+        400
+
+conversation:
+  - >
+    Create a Confidence account. Workspace name: acme. Display name:
+    Acme Inc. Region: EU. Login with Google. Admin email: jane+test@acme.com.
+    No domain restrictions.
+  - "Hmm, okay. What should I do now?"
+
+ask_answers:
+  - match: "region|stored"
+    answer: "EU (Europe)"
+  - match: "authentication|google|password"
+    answer: "Google"
+  - match: "proceed|retry|try again|support"
+    answer: "Not right now — I'll wait"
+
+assertions:
+  - type: text_contains
+    pattern: "confidence-support@spotify.com"
+  - type: text_contains
+    pattern: "flagged|review"
+    regex: true
+    case_sensitive: false
+  # Must not misdiagnose as the email-verification case.
+  - type: text_not_contains
+    pattern: "verify your email"
+    case_sensitive: false
+  - type: text_not_contains
+    pattern: "verification link"
+    case_sensitive: false
+  - type: text_not_contains
+    pattern: "code 9"
+    case_sensitive: false
+  - type: text_not_contains
+    pattern: "eyJhbGciOiJub25l"

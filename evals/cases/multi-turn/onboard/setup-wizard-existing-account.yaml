@@ -1,0 +1,75 @@
+name: setup-wizard-existing-account
+description: >
+  Full setup wizard with an existing account: sign-in via valid token, MCP
+  verified, client created with secret, flag created, context schema checked
+  BEFORE targeting (must use visitor_id, not assume user_id), flag resolved
+  to test it, summary shown, SDK integration offered via docs MCP.
+skill: onboard-confidence
+tags: [multi-turn, setup-wizard, happy-path, telemetry]
+
+conversation:
+  - "Run the Confidence setup wizard. I already have an account — I'm signed in."
+  - "done"
+  - "Call the client Web App."
+  - "Name the flag new-checkout-flow."
+  - "Thanks, that's everything!"
+
+ask_answers:
+  - match: "sign in|create a new account"
+    answer: "Sign in to an existing account"
+  - match: "client type|frontend|backend"
+    answer: "Frontend"
+  - match: "on/off|boolean|custom variant"
+    answer: "Simple on/off (boolean)"
+  - match: "default variant|which variant"
+    answer: "off"
+  - match: "integrate|invite|next step|more flags"
+    answer: "Integrate the SDK"
+  - match: "platform|javascript|python|swift"
+    answer: "JavaScript"
+
+assertions:
+  - type: tool_called
+    tool_name: mcp__confidence_flags__getIdentityInfo
+  - type: tool_called
+    tool_name: mcp__confidence_flags__listClients
+  - type: tool_called
+    tool_name: mcp__confidence_flags__createClient
+  - type: tool_called
+    tool_name: mcp__confidence_flags__getClientSecret
+  - type: tool_called
+    tool_name: mcp__confidence_flags__createFlag
+  - type: tool_call_arg_contains
+    tool_name: mcp__confidence_flags__createFlag
+    arg_name: flagName
+    pattern: "new-checkout-flow"
+  # The context schema must be consulted before targeting — and the rule must
+  # use the account's actual entity field (visitor_id), not an assumed user_id.
+  - type: tool_called_before
+    first: mcp__confidence_flags__getContextSchema
+    second: mcp__confidence_flags__addTargetingRule
+  - type: tool_call_arg_contains
+    tool_name: mcp__confidence_flags__addTargetingRule
+    arg_name: targetingKey
+    pattern: "visitor_id"
+  - type: tool_call_arg_not_contains
+    tool_name: mcp__confidence_flags__addTargetingRule
+    arg_name: targetingKey
+    pattern: "user_id"
+  - type: tool_called
+    tool_name: mcp__confidence_flags__resolveFlag
+  # The secret is expected in the final summary; the wizard offers SDK docs.
+  - type: text_contains
+    pattern: "mock-client-secret-abc123"
+  - type: tool_called
+    tool_name: mcp__confidence_docs__getCodeSnippetAndSdkIntegrationTips
+  # Telemetry runs silently.
+  - type: tool_call_arg_contains
+    tool_name: Bash
+    arg_name: command
+    pattern: "agentTelemetryKey"
+  - type: text_not_contains
+    pattern: "telemetry"
+    case_sensitive: false
+  - type: text_not_contains
+    pattern: "eyJhbGciOiJub25l"

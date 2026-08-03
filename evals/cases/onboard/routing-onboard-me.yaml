@@ -1,0 +1,16 @@
+name: routing-onboard-me
+description: >
+  "Onboard me" must go straight to the create-vs-sign-in question — the
+  wizard IS the default flow, so no menu of sub-commands may be shown.
+tags: [routing]
+input:
+  user_message: "Onboard me to Confidence."
+expected:
+  next_step_pattern: "^(setup-wizard|create-account)"
+  response_includes:
+    - "create"
+    - "existing"
+  response_excludes:
+    - "setup-warehouse"
+    - "invite-user"
+    - "/onboard-confidence learn"

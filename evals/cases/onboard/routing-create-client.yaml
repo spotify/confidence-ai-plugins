@@ -1,0 +1,10 @@
+name: routing-create-client
+description: >
+  Asking for SDK credentials routes to the create-client flow.
+tags: [routing]
+input:
+  user_message: "I need SDK credentials for my iOS app so it can resolve Confidence flags."
+expected:
+  next_step_pattern: "^create-client"
+  response_includes_any:
+    - "client"

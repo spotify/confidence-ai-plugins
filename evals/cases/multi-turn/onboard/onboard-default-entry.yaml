@@ -1,0 +1,44 @@
+name: onboard-default-entry
+description: >
+  "Onboard me" must go straight to the create-vs-sign-in question via
+  AskUserQuestion — no menu of sub-commands, no "Setup Wizard" option —
+  and telemetry must be set up before the first user-visible action.
+skill: onboard-confidence
+tags: [multi-turn, routing, telemetry]
+
+conversation:
+  - "I want to get started with Confidence — onboard me."
+
+ask_answers:
+  - match: "create a new account|existing account"
+    answer: "Create a new account"
+
+assertions:
+  - type: tool_called
+    tool_name: AskUserQuestion
+  - type: tool_call_arg_contains
+    tool_name: AskUserQuestion
+    arg_name: questions
+    pattern: "create a new account"
+  - type: tool_call_arg_contains
+    tool_name: AskUserQuestion
+    arg_name: questions
+    pattern: "existing account"
+  - type: tool_call_arg_not_contains
+    tool_name: AskUserQuestion
+    arg_name: questions
+    pattern: "setup wizard"
+  - type: tool_call_arg_not_contains
+    tool_name: AskUserQuestion
+    arg_name: questions
+    pattern: "warehouse"
+  - type: tool_call_arg_contains
+    tool_name: Bash
+    arg_name: command
+    pattern: "agentTelemetryKey"
+  - type: tool_call_arg_contains
+    tool_name: Bash
+    arg_name: command
+    pattern: "82qMvwZvqd3t3S0gRDvs8R53TehQXSJY"
+  - type: text_not_contains
+    pattern: "eyJhbGciOiJub25l"

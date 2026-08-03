@@ -3,11 +3,12 @@ import type { TaskOutput } from "../types.js";
 
 const judge = new Anthropic();
 
-async function llmScore(
+export async function llmScore(
   name: string,
   criteria: string,
   text: string,
   attempt = 1,
+  maxChars = 4000,
 ): Promise<{ name: string; score: number; metadata?: Record<string, unknown> }> {
   if (!text) return { name, score: 0, metadata: { reason: "no_output" } };
 
@@ -21,7 +22,7 @@ async function llmScore(
           content: `Score this response on: ${criteria}
 
 Response (truncated):
-${text.slice(0, 4000)}
+${text.slice(0, maxChars)}
 
 Your reply must END with a single line of JSON containing two keys, "score" (a number between 0.0 and 1.0) and "reason" (one short sentence in your own words describing what you observed). Nothing after that line.`,
         },
@@ -50,12 +51,12 @@ Your reply must END with a single line of JSON containing two keys, "score" (a n
     }
     if (attempt < 2) {
       console.error(`  [${name}] parse fail, retrying once`);
-      return llmScore(name, criteria, text, attempt + 1);
+      return llmScore(name, criteria, text, attempt + 1, maxChars);
     }
     console.error(`  [${name}] PARSE FAIL: ${allText.slice(0, 300)}`);
     return { name, score: 0, metadata: { reason: "failed_to_parse_judge_response", raw: allText.slice(0, 200) } };
   } catch (e) {
-    if (attempt < 2) return llmScore(name, criteria, text, attempt + 1);
+    if (attempt < 2) return llmScore(name, criteria, text, attempt + 1, maxChars);
     return { name, score: 0, metadata: { reason: `judge_error: ${e}` } };
   }
 }

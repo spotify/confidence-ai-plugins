@@ -1,0 +1,22 @@
+name: derive-name-suggestions
+description: >
+  Workspace name suggestions must be derived from the signup email
+  (jane+test@acme.com → jane, jane-acme, acme-jane — the + suffix stripped),
+  with the naming rules explained.
+tags: [derivation]
+input:
+  context: |
+    (Conversation so far: you are running the create-account flow. Step 1 is
+    complete — the user logged in and the Auth0 userinfo endpoint returned
+    {"email": "jane+test@acme.com", "name": "Jane Doe"}. You are starting
+    Step 2, workspace name.)
+  user_message: "What workspace name should I pick?"
+expected:
+  next_step_pattern: "^create-account"
+  response_includes:
+    - "jane"
+    - "acme"
+  response_includes_any:
+    - "3-21"
+    - "21 characters"
+    - "lowercase"

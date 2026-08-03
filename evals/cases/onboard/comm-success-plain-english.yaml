@@ -1,0 +1,24 @@
+name: comm-success-plain-english
+description: >
+  After a successful account creation, the user gets a plain-English
+  confirmation with the workspace URL — not the raw API response.
+tags: [communication]
+input:
+  context: |
+    (Conversation so far: you are running the create-account flow. All
+    details collected: workspace "acme", display name "Acme Inc", region EU,
+    Google auth, admin email jane+test@acme.com. The account creation
+    request just returned:
+    HTTP 200
+    {"name":"accounts/acme-a1b2c3","externalId":"ext-9f8e7d","loginId":"acme","displayName":"Acme Inc"})
+  user_message: "Did it work?"
+expected:
+  next_step_pattern: "^create-account"
+  response_includes:
+    - "Acme Inc"
+    - "confidence.spotify.com"
+  response_excludes:
+    - "externalId"
+    - "ext-9f8e7d"
+    - "accounts/acme-a1b2c3"
+    - "HTTP 200"

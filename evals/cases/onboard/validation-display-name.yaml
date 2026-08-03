@@ -1,0 +1,18 @@
+name: validation-display-name
+description: >
+  A one-character display name violates the 3-32 character rule; the agent
+  explains and re-asks.
+tags: [validation]
+input:
+  context: |
+    (Conversation so far: you are running the create-account flow. Workspace
+    name "acme" is validated and available. You are now collecting the
+    display name at Step 3.)
+  user_message: "Display name: A"
+expected:
+  next_step_pattern: "^create-account"
+  response_includes_any:
+    - "3"
+    - "character"
+  response_excludes:
+    - "regex"

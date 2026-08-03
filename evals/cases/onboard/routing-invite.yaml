@@ -1,0 +1,13 @@
+name: routing-invite
+description: >
+  An invite request must route to the invite-user flow, not the wizard or a
+  menu.
+tags: [routing]
+input:
+  user_message: "I want to invite my teammate sara@acme.com to our Confidence workspace."
+expected:
+  next_step_pattern: "^invite-user"
+  response_includes:
+    - "sara@acme.com"
+  response_includes_any:
+    - "invit"

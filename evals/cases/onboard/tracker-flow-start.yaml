@@ -1,0 +1,12 @@
+name: tracker-flow-start
+description: >
+  Starting the create-account flow must display the step tracker before
+  Step 1 begins.
+tags: [communication, interactive]
+input:
+  user_message: "Create a new Confidence account for me."
+expected:
+  next_step_pattern: "^create-account"
+  response_includes_any:
+    - "Log in"
+    - "log in"

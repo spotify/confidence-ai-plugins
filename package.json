@@ -3,16 +3,20 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "eval": "braintrust eval evals/migrate-optimizely.eval.ts evals/migrate-posthog.eval.ts evals/migrate-eppo.eval.ts evals/migrate-statsig.eval.ts",
-    "eval:hendrix": "ANTHROPIC_BASE_URL=${HENDRIX_BASE_URL:-https://hendrix-genai.spotify.net/taskforce/glm-5-2} ANTHROPIC_API_KEY=$HENDRIX_API_KEY BRAINTRUST_API_URL=${BRAINTRUST_API_URL:-https://braintrust.spotifyinternal.com} braintrust eval evals/migrate-optimizely.eval.ts evals/migrate-posthog.eval.ts evals/migrate-eppo.eval.ts evals/migrate-statsig.eval.ts",
-    "eval:hendrix:local": "ANTHROPIC_BASE_URL=${HENDRIX_BASE_URL:-https://hendrix-genai.spotify.net/taskforce/glm-5-2} ANTHROPIC_API_KEY=$HENDRIX_API_KEY braintrust eval --no-send-logs evals/migrate-optimizely.eval.ts evals/migrate-posthog.eval.ts evals/migrate-eppo.eval.ts evals/migrate-statsig.eval.ts",
+    "eval": "braintrust eval evals/migrate-optimizely.eval.ts evals/migrate-posthog.eval.ts evals/migrate-eppo.eval.ts evals/migrate-statsig.eval.ts evals/onboard-confidence.eval.ts",
+    "eval:hendrix": "ANTHROPIC_BASE_URL=${HENDRIX_BASE_URL:-https://hendrix-genai.spotify.net/taskforce/glm-5-2} ANTHROPIC_API_KEY=$HENDRIX_API_KEY BRAINTRUST_API_URL=${BRAINTRUST_API_URL:-https://braintrust.spotifyinternal.com} braintrust eval evals/migrate-optimizely.eval.ts evals/migrate-posthog.eval.ts evals/migrate-eppo.eval.ts evals/migrate-statsig.eval.ts evals/onboard-confidence.eval.ts",
+    "eval:hendrix:local": "ANTHROPIC_BASE_URL=${HENDRIX_BASE_URL:-https://hendrix-genai.spotify.net/taskforce/glm-5-2} ANTHROPIC_API_KEY=$HENDRIX_API_KEY braintrust eval --no-send-logs evals/migrate-optimizely.eval.ts evals/migrate-posthog.eval.ts evals/migrate-eppo.eval.ts evals/migrate-statsig.eval.ts evals/onboard-confidence.eval.ts",
     "eval:optimizely": "braintrust eval evals/migrate-optimizely.eval.ts",
     "eval:posthog": "braintrust eval evals/migrate-posthog.eval.ts",
     "eval:eppo": "braintrust eval evals/migrate-eppo.eval.ts",
     "eval:statsig": "braintrust eval evals/migrate-statsig.eval.ts",
-    "eval:multi-turn": "braintrust eval evals/multi-turn/migrate-optimizely.eval.ts evals/multi-turn/migrate-posthog.eval.ts evals/multi-turn/migrate-eppo.eval.ts evals/multi-turn/migrate-statsig.eval.ts",
-    "eval:multi-turn:hendrix": "ANTHROPIC_BASE_URL=${HENDRIX_BASE_URL:-https://hendrix-genai.spotify.net/taskforce/glm-5-2} ANTHROPIC_API_KEY=$HENDRIX_API_KEY BRAINTRUST_API_URL=${BRAINTRUST_API_URL:-https://braintrust.spotifyinternal.com} braintrust eval evals/multi-turn/migrate-optimizely.eval.ts evals/multi-turn/migrate-posthog.eval.ts evals/multi-turn/migrate-eppo.eval.ts evals/multi-turn/migrate-statsig.eval.ts",
-    "eval:multi-turn:local": "ANTHROPIC_BASE_URL=${HENDRIX_BASE_URL:-https://hendrix-genai.spotify.net/taskforce/glm-5-2} ANTHROPIC_API_KEY=$HENDRIX_API_KEY braintrust eval --no-send-logs evals/multi-turn/migrate-optimizely.eval.ts evals/multi-turn/migrate-posthog.eval.ts evals/multi-turn/migrate-eppo.eval.ts evals/multi-turn/migrate-statsig.eval.ts"
+    "eval:onboard": "braintrust eval evals/onboard-confidence.eval.ts",
+    "eval:onboard:local": "ANTHROPIC_BASE_URL=${HENDRIX_BASE_URL:-https://hendrix-genai.spotify.net/taskforce/glm-5-2} ANTHROPIC_API_KEY=$HENDRIX_API_KEY braintrust eval --no-send-logs evals/onboard-confidence.eval.ts",
+    "eval:multi-turn": "braintrust eval evals/multi-turn/migrate-optimizely.eval.ts evals/multi-turn/migrate-posthog.eval.ts evals/multi-turn/migrate-eppo.eval.ts evals/multi-turn/migrate-statsig.eval.ts evals/multi-turn/onboard-confidence.eval.ts",
+    "eval:multi-turn:hendrix": "ANTHROPIC_BASE_URL=${HENDRIX_BASE_URL:-https://hendrix-genai.spotify.net/taskforce/glm-5-2} ANTHROPIC_API_KEY=$HENDRIX_API_KEY BRAINTRUST_API_URL=${BRAINTRUST_API_URL:-https://braintrust.spotifyinternal.com} braintrust eval evals/multi-turn/migrate-optimizely.eval.ts evals/multi-turn/migrate-posthog.eval.ts evals/multi-turn/migrate-eppo.eval.ts evals/multi-turn/migrate-statsig.eval.ts evals/multi-turn/onboard-confidence.eval.ts",
+    "eval:multi-turn:local": "ANTHROPIC_BASE_URL=${HENDRIX_BASE_URL:-https://hendrix-genai.spotify.net/taskforce/glm-5-2} ANTHROPIC_API_KEY=$HENDRIX_API_KEY braintrust eval --no-send-logs evals/multi-turn/migrate-optimizely.eval.ts evals/multi-turn/migrate-posthog.eval.ts evals/multi-turn/migrate-eppo.eval.ts evals/multi-turn/migrate-statsig.eval.ts evals/multi-turn/onboard-confidence.eval.ts",
+    "eval:multi-turn:onboard": "braintrust eval evals/multi-turn/onboard-confidence.eval.ts",
+    "eval:multi-turn:onboard:local": "ANTHROPIC_BASE_URL=${HENDRIX_BASE_URL:-https://hendrix-genai.spotify.net/taskforce/glm-5-2} ANTHROPIC_API_KEY=$HENDRIX_API_KEY braintrust eval --no-send-logs evals/multi-turn/onboard-confidence.eval.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",

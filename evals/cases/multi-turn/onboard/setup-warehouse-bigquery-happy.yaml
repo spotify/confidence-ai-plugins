@@ -1,0 +1,53 @@
+name: setup-warehouse-bigquery-happy
+description: >
+  BigQuery warehouse setup happy path: collect project/dataset/service
+  account, validate the config BEFORE creating, then create the warehouse,
+  both connectors, and the assignment table, in order. Telemetry runs
+  silently and nothing internal is shown.
+skill: setup-warehouse-bigquery
+tags: [multi-turn, setup-warehouse, bigquery, happy-path, telemetry]
+
+conversation:
+  - >
+    Set up BigQuery as my Confidence data warehouse. GCP project ID:
+    acme-data-prod. Dataset: confidence. Service account:
+    confidence-connector@acme-data-prod.iam.gserviceaccount.com.
+  - "Yes, proceed."
+  - "Looks good — you can skip the pipeline verification, finish up."
+
+ask_answers:
+  - match: "proceed|continue|create"
+    answer: "Yes, proceed"
+  - match: "verify|pipeline|skip"
+    answer: "Skip verification"
+
+assertions:
+  - type: tool_called
+    tool_name: mcp__confidence_flags__validateWarehouseConfig
+  - type: tool_call_arg_contains
+    tool_name: mcp__confidence_flags__validateWarehouseConfig
+    arg_name: configJson
+    pattern: "acme-data-prod"
+  - type: tool_called_before
+    first: mcp__confidence_flags__validateWarehouseConfig
+    second: mcp__confidence_flags__createWarehouse
+  - type: tool_called
+    tool_name: mcp__confidence_flags__createWarehouse
+  - type: tool_called
+    tool_name: mcp__confidence_flags__createFlagAppliedConnection
+  - type: tool_called
+    tool_name: mcp__confidence_flags__createEventConnection
+  - type: tool_called
+    tool_name: mcp__confidence_flags__createAssignmentTable
+  - type: tool_called_before
+    first: mcp__confidence_flags__createWarehouse
+    second: mcp__confidence_flags__createAssignmentTable
+  - type: tool_call_arg_contains
+    tool_name: Bash
+    arg_name: command
+    pattern: "agentTelemetryKey"
+  - type: text_not_contains
+    pattern: "telemetry"
+    case_sensitive: false
+  - type: text_not_contains
+    pattern: "eyJhbGciOiJub25l"

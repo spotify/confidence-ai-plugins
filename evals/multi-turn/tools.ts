@@ -1,5 +1,6 @@
 import type Anthropic from "@anthropic-ai/sdk";
-import type { MockState, MockFlag } from "./types.js";
+import type { MockState, MockFlag, Scenario } from "./types.js";
+import type { SkillHarness } from "./driver.js";
 import { resolve } from "../lib/resolver.js";
 import type { TargetingRule, CatchAll } from "../lib/resolver.js";
 
@@ -260,6 +261,24 @@ function handleListFlags(state: MockState): string {
   }));
   return JSON.stringify({ flags });
 }
+
+const MIGRATION_PREAMBLE = `You are in an eval environment with mock MCP tools available.
+- There is no filesystem — present plans inline in your response.
+- Skip telemetry setup steps.
+- The MCP tools (createFlag, addTargetingRule, resolveFlag, etc.) are available and functional.
+- Proceed with the migration flow as instructed in the skill.
+
+`;
+
+export const migrationHarness: SkillHarness = {
+  preamble: MIGRATION_PREAMBLE,
+  skillDirs: (scenario: Scenario) => scenario.skills ?? [scenario.skill],
+  tools: MOCK_TOOLS,
+  createDispatcher: (_scenario: Scenario) => {
+    const state = createMockState();
+    return (name, input) => dispatchTool(name, input, state);
+  },
+};
 
 export function dispatchTool(
   name: string,

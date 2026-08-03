@@ -1,0 +1,25 @@
+name: error-name-taken
+description: >
+  HTTP 409 on account creation — the workspace name was just taken. The
+  agent says so in plain English and re-collects the name.
+tags: [error-interpretation]
+input:
+  context: |
+    (Conversation so far: you are running the create-account flow. The user
+    chose workspace name "acme", display name "Acme Inc", region EU, Google
+    auth, admin email jane+test@acme.com. The availability check passed
+    earlier, but the account creation request just returned:
+    HTTP 409
+    {"code":6,"message":"login_id 'acme' already exists"})
+  user_message: "Did it work?"
+expected:
+  next_step_pattern: "^create-account"
+  response_includes_any:
+    - "taken"
+    - "in use"
+    - "not available"
+    - "unavailable"
+    - "another name"
+  response_excludes:
+    - "409"
+    - "login_id"

@@ -1,0 +1,34 @@
+name: invite-user-batch
+description: >
+  Batch invitation with one invalid address. Valid emails get invited via
+  MCP; the invalid one is flagged in a summary. MCP is verified first.
+skill: onboard-confidence
+tags: [multi-turn, invite-user]
+
+conversation:
+  - "Invite alice@acme.com, bob@acme.com and charlie@invalid to my Confidence workspace."
+  - "Yes, send invitation emails."
+
+ask_answers:
+  - match: "invitation email|send"
+    answer: "Yes, send invitation emails"
+
+assertions:
+  - type: tool_called
+    tool_name: mcp__confidence_flags__getIdentityInfo
+  - type: tool_call_arg_contains
+    tool_name: mcp__confidence_flags__inviteUser
+    arg_name: email
+    pattern: "alice@acme.com"
+  - type: tool_call_arg_contains
+    tool_name: mcp__confidence_flags__inviteUser
+    arg_name: email
+    pattern: "bob@acme.com"
+  - type: text_contains
+    pattern: "alice@acme.com"
+  - type: text_contains
+    pattern: "bob@acme.com"
+  # The invalid address is surfaced (either caught locally or via the tool error).
+  - type: text_contains
+    pattern: "invalid"
+    case_sensitive: false
