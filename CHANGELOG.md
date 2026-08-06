@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.7.0](https://github.com/spotify/confidence-ai-plugins/compare/v0.6.1...v0.7.0) (2026-08-03)
+
+
+### Features
+
+* add analyze project skill ([#56](https://github.com/spotify/confidence-ai-plugins/issues/56)) ([a6e3760](https://github.com/spotify/confidence-ai-plugins/commit/a6e3760e5c274dd273e6e4677235422f98f01f4a))
+* add evals for migrations ([#58](https://github.com/spotify/confidence-ai-plugins/issues/58)) ([bcd2021](https://github.com/spotify/confidence-ai-plugins/commit/bcd2021c54ca0c8f5fca100c97d23b2833b4fd0a))
+* add per-project batch flow, quota docs, and variant safety ([#55](https://github.com/spotify/confidence-ai-plugins/issues/55)) ([56c0ea7](https://github.com/spotify/confidence-ai-plugins/commit/56c0ea762accb4fa3d941df8c1205ae96c36e19d))
+* adopt batch MCP tools and enrich migration telemetry ([#53](https://github.com/spotify/confidence-ai-plugins/issues/53)) ([c96d060](https://github.com/spotify/confidence-ai-plugins/commit/c96d060b79e8b8068dab3ba4489be2343b7f2caf))
+* enrich telemetry with progress fields, honest sentiment, and error tracking ([#57](https://github.com/spotify/confidence-ai-plugins/issues/57)) ([597db15](https://github.com/spotify/confidence-ai-plugins/commit/597db158b8c2fc7c5421618d968d495b12190534))
+* multi-turn eval harness with mocked MCP (all 4 skills) ([#61](https://github.com/spotify/confidence-ai-plugins/issues/61)) ([b4f0a33](https://github.com/spotify/confidence-ai-plugins/commit/b4f0a33623d3335aa826ab8c16ef41538419caaa))
+* onboarding skill evals — single-turn + multi-turn with mocked tools ([#62](https://github.com/spotify/confidence-ai-plugins/issues/62)) ([b8bdd15](https://github.com/spotify/confidence-ai-plugins/commit/b8bdd156bcb386a02f8566e2775541ac3c52e3c0))
+* phase 1 corrections + targeting-resolution scorer ([#60](https://github.com/spotify/confidence-ai-plugins/issues/60)) ([5203ea1](https://github.com/spotify/confidence-ai-plugins/commit/5203ea13167789cd01ffc9c33c5f637a4c3f385d))
+
+
+### Bug Fixes
+
+* remove automatic eval run on push to main ([#59](https://github.com/spotify/confidence-ai-plugins/issues/59)) ([5acdacd](https://github.com/spotify/confidence-ai-plugins/commit/5acdacd0a79e43a84d27d4633ce373e3437f4539))
+
 ## [0.6.1](https://github.com/spotify/confidence-ai-plugins/compare/v0.6.0...v0.6.1) (2026-07-14)
 
 
