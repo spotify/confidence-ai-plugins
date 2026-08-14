@@ -4,6 +4,11 @@ A local HTTP server that mimics Optimizely Feature Experimentation's
 REST API for testing the `migrate-optimizely` skill end-to-end without
 needing an Optimizely account.
 
+**What Phase 0 access does for operators** (plan / adjust
+users·groups·roles·policies·clients / execute) is documented in the
+repo [README — Optimizely → Confidence](../../../README.md#optimizely--confidence),
+not only in `SKILL.md`.
+
 The server is read-only and serves the read endpoints the skill calls,
 across both Optimizely base paths on one port: the **Flags API**
 (`/flags/v1`, for flags / variations / rulesets) and the **Platform API
@@ -213,7 +218,7 @@ After running `plan flags`, the generated plan file at
   audiences, with `Internal` wrapped in `not`
 - Mark `substring_gate`, `browser_gate`, and `plan_badge` as **BLOCKED**
   (`plan_badge` uses an `exists` match, which has no working Confidence
-  presence operator). `execute` should refuse to proceed on them unless
+  presence operator). `execute flags` should refuse to proceed on them unless
   they're `[x] Skip`'d
 
 ## Verifying the translation logic (`verify_migration.py`)
@@ -222,7 +227,7 @@ After running `plan flags`, the generated plan file at
 (audience matching + the ruleset waterfall) over the fixtures and prints
 a flag × context matrix of expected results — including which flags are
 BLOCKED, which need the REST backend, and which rules are adaptive. Run
-it before/after `execute` to spot-check that Confidence resolves match
+it before/after `execute flags` to spot-check that Confidence resolves match
 Optimizely for the same context:
 
 ```bash
@@ -261,6 +266,30 @@ script's docstring for the full list of caveats.
 Then run `/confidence:migrate-optimizely plan flags` against the standard
 base URLs with your project id and the `development` environment, and
 compare the plan with `python3 verify_migration.py`.
+
+## IAM / access export sample
+
+`iam-export-sample.json` is a **tiny** Optimizely-shaped IAM file
+(users, one team, one project with collaborator roles, env/flag/audience
+permissions). It has **no** `sdk_key` and **no** flag variations/rules —
+drive `/migrate-optimizely plan access` (or
+`/migrate-optimizely-plan-access`) from it, not Phase 1 flag
+definitions. The skill must offer this file as **option 4** of Opening
+questions (source method) when the file exists, plus **option 5**
+(JSON on Desktop with users related to groups/teams). After the access
+file is confirmed, ask **Extract context** (look around that file for
+internal access-migration strategy / exceptions, paste, or skip).
+People still come only from the IAM file. That command follows **Plan Access: Steps** in `SKILL.md`
+(overview, tracker, Generation Status) and must **only write**
+`.claude/plans/optimizely-access-migration-<date>.md` — no invites, no
+groups. Tick `[x] Invite` / `[x] Create` in the plan, or ask the skill
+to change users, groups, roles, policies, or clients
+(`/migrate-optimizely adjust access`), then run
+`/migrate-optimizely execute access` (needs Confidence IAM auth). As
+soon as a user accepts, that command must add them to the team group,
+the group Reader policy, the planned Flag client, and **share that
+group’s flags** (Viewer or Editor by role) so they can see them. Env
+human permissions must stay unmapped as IAM (see `access.md`).
 
 ## Phase 2 (code transformation) fixtures
 

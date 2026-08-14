@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Features
+
+* **migrate-optimizely:** Phase 0 access — `plan access`, `adjust access` (users, groups, roles, policies, Flag clients), and `execute access`. Plan file only until you tick consent. See [README — Optimizely → Confidence](./README.md#optimizely--confidence), [`SKILL.md`](./skills/migrate-optimizely/SKILL.md), and [`access.md`](./skills/migrate-optimizely/access.md).
+
 ## [0.7.0](https://github.com/spotify/confidence-ai-plugins/compare/v0.6.1...v0.7.0) (2026-08-03)
 
 

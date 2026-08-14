@@ -3,6 +3,7 @@ Confidence Auth0 PKCE login flow.
 
 Usage:
     python3 auth.py <CLIENT_ID> [ORGANIZATION]
+    python3 auth.py <CLIENT_ID> login    # existing account (no signup hint)
 
 Outputs on stdout:
     WAITING_FOR_LOGIN       — browser opened, waiting for callback
@@ -51,7 +52,9 @@ params = {
     'code_challenge': code_challenge,
     'code_challenge_method': 'S256',
 }
-if ORGANIZATION:
+if ORGANIZATION in ('login', '--login'):
+    params['prompt'] = 'login'
+elif ORGANIZATION:
     params['organization'] = ORGANIZATION
 else:
     params['screen_hint'] = 'signup'

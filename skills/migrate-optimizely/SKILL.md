@@ -1,15 +1,27 @@
 ---
 name: migrate-optimizely
-description: Migrate feature flags from Optimizely to Confidence SDK. Use when the user says /migrate-optimizely, asks to migrate Optimizely flags/rollouts/experiments, or transform Optimizely SDK code to Confidence.
+description: Migrate Optimizely to Confidence — users/groups/roles/policies, Flag clients from env SDK keys, flag definitions, and OpenFeature code. Use when the user says /migrate-optimizely, /migrate-optimizely-plan-access, /migrate-optimizely-adjust-access, /migrate-optimizely-execute-access, /migrate-optimizely-plan-flags, /migrate-optimizely-execute-flags, /migrate-optimizely-plan-code, /migrate-optimizely-execute-code, asks to migrate or adjust Optimizely users, teams, groups, roles, policies, clients, flags/rollouts/experiments, or transform Optimizely SDK code to Confidence.
 ---
 
 # Optimizely to Confidence Migration
 
+**User-facing docs (this repo):** [README — Optimizely → Confidence](../../README.md#optimizely--confidence)
+and [CHANGELOG Unreleased](../../CHANGELOG.md). That is how operators
+discover Phase 0 access (plan / adjust users·groups·roles·policies·clients /
+execute). This file is the agent contract.
+
 REST-driven, self-sufficient migration from Optimizely Feature
-Experimentation to Confidence. This skill is fully self-contained: it
-defines both the Optimizely-specific migration logic AND all the
-Confidence-side conventions it relies on (payload formats, naming rules,
-the flag setup sequence, the execute flow, etc.).
+Experimentation to Confidence. This skill is fully self-contained for
+**flag definitions** and **OpenFeature code** (payload formats, naming
+rules, the flag setup sequence, the execute flow). **Phase 0 Access**
+uses the same plan machinery as `plan flags` below (overview, step
+tracker, progressive plan file, Generation Status, consent rows). After
+the plan exists, **adjust access** (documented in **Adjust Access:
+Steps**) may change **users, groups, roles, policies, and clients** in
+that file — natural language, no IAM writes. IAM mapping, lockout,
+opening-question copy, and the plan-file template live in
+[access.md](access.md) — **Read that file** before any `plan access`,
+`adjust access`, `execute access`, or `plan clients` work.
 
 ## SDK Preference
 
@@ -27,7 +39,7 @@ the flag setup sequence, the execute flow, etc.).
 
 | Principle | Meaning |
 |-----------|---------|
-| **Source-boxed** | Every external data fetch uses one explicit channel (the Optimizely REST API with curl, the Confidence MCP) — no ad-hoc browsing |
+| **Source-boxed** | Every external data fetch uses one explicit channel (the Optimizely REST API with curl, export files the user provides, the Confidence MCP / IAM REST) — no ad-hoc browsing |
 | **Self-sufficient** | Plan contains ALL information needed — no "query the source for X" at execute time |
 | **Agent-agnostic** | Any agent with the prerequisites can execute the plan without prior context |
 | **Language-agnostic** | Detect framework, fetch SDK guide from `confidence-docs` MCP dynamically |
@@ -36,9 +48,22 @@ the flag setup sequence, the execute flow, etc.).
 
 | Command | Description |
 |---------|-------------|
-| `/migrate-optimizely plan flags` | Phase 1: plan flag definitions migration |
-| `/migrate-optimizely plan code` | Phase 2: plan code transformation |
-| `/migrate-optimizely execute <plan-file>` | Execute a plan interactively |
+| `/migrate-optimizely plan access` | Phase 0: plan access (users/teams/roles). **No invites, no IAM writes**. Same plan-file pattern as `plan flags` ([access.md](access.md)) |
+| `/migrate-optimizely-plan-access` | Same as `plan access` — own `/` menu item |
+| `/migrate-optimizely adjust access` | Phase 0: fine-edit the access plan (**users, groups, roles, policies, clients**). Natural language. **No IAM writes**. Next `execute access` applies ([access.md](access.md)) |
+| `/migrate-optimizely-adjust-access` | Same as `adjust access` — own `/` menu item |
+| `/migrate-optimizely execute access` | Phase 0 execute: groups + policies, invites, **ticked Flag clients**, then **as soon as each user accepts**: group + policy + Flag client + **flag shares** (idempotent; [access.md](access.md)) |
+| `/migrate-optimizely-execute-access` | Same as `execute access` — own `/` menu item |
+| `/migrate-optimizely plan clients` | Alias: Flag-clients step of `plan access` (propose + ASK). Prefer `plan access`. Create happens on `execute access` ([access.md](access.md)) |
+| `/migrate-optimizely plan flags` | Phase 1: plan flag definitions. Writes the flag plan only — no `createFlag` |
+| `/migrate-optimizely-plan-flags` | Same as `plan flags` — own `/` menu item |
+| `/migrate-optimizely execute flags` | Phase 1 execute: create flags from `.claude/plans/optimizely-flag-migration-*.md` (no path needed) |
+| `/migrate-optimizely-execute-flags` | Same as `execute flags` — own `/` menu item |
+| `/migrate-optimizely plan code` | Phase 2: plan code transformation. Writes the code plan only — no file edits |
+| `/migrate-optimizely-plan-code` | Same as `plan code` — own `/` menu item |
+| `/migrate-optimizely execute code` | Phase 2 execute: transform code from `.claude/plans/optimizely-code-migration-*.md` (no path needed) |
+| `/migrate-optimizely-execute-code` | Same as `execute code` — own `/` menu item |
+| `/migrate-optimizely execute <plan-file>` | Alias: execute the given plan file (access / flags / code by filename) |
 
 ---
 
@@ -100,8 +125,8 @@ curl -s -X POST "https://events.eu.confidence.dev/v1/events:publish" \
 
 | Field | How to set it |
 |-------|--------------|
-| `step` | `<phase>.<step-title>`, e.g. `plan-flags.scan-source`, `plan-flags.review-scope`, `plan-flags.generate-plan`, `plan-code.scan-codebase`, `plan-code.fetch-sdk-guide`, `execute.create-flag`, `execute.add-targeting`, `execute.verify` |
-| `action` | Verb describing the operation: `scan_flags`, `generate_plan`, `scan_codebase`, `fetch_sdk_guide`, `batch_create_flags`, `batch_add_targeting`, `resolve_flag`, `transform_code`, `create_pr` |
+| `step` | `<phase>.<step-title>`, e.g. `plan-access.adjust`, `plan-flags.scan-source`, `plan-flags.review-scope`, `plan-flags.generate-plan`, `plan-code.scan-codebase`, `plan-code.fetch-sdk-guide`, `execute.create-flag`, `execute.add-targeting`, `execute.verify` |
+| `action` | Verb describing the operation: `scan_flags`, `generate_plan`, `adjust_access`, `scan_codebase`, `fetch_sdk_guide`, `batch_create_flags`, `batch_add_targeting`, `resolve_flag`, `transform_code`, `create_pr` |
 | `sentiment` | **Genuinely assess the conversation tone** — not a static value. `positive` (smooth, user engaged, no issues), `neutral` (normal flow), `confused` (retries, questions, mapping errors, unexpected responses), `frustrated` (user expressed frustration, repeated failures, user corrections like "i am baffled"). Read the user's actual words and your own error rate to set this honestly. |
 | `completion` | Progress state: `starting` (first steps), `in_progress` (middle), `completing` (final steps), `done` (finished) |
 | `step_duration_s` | Automatically calculated: seconds elapsed since the step timer was last reset. Do not set manually — the shell expression in the curl template computes it |
@@ -127,19 +152,45 @@ curl -s -X POST "https://events.eu.confidence.dev/v1/events:publish" \
 
 ---
 
-## Migration Overview (MUST display at start of `plan flags` or `plan code`)
+## Migration Overview (MUST display at start of `plan access`, `/migrate-optimizely-plan-access`, `plan clients`, `plan flags`, or `plan code`)
 
-**Every time** the user runs `plan flags` or `plan code`, display this
-overview FIRST — before doing any work.
+**Every time** the user starts a migrate-optimizely plan command, display
+this overview FIRST — before doing any work. Same rule as `plan flags`
+in this file. For `plan access`, `adjust access`, `execute access`, or
+`plan clients`, also **Read** [access.md](access.md) and follow it.
+Never search the machine for tokens.
 
 ```
 ═══════════════════════════════════════════════════════════════
   Optimizely → Confidence Migration
 ═══════════════════════════════════════════════════════════════
 
-  The migration happens in two phases: flags first, then code.
+  The migration happens in phases: access first when possible, then
+  flags, then code.
 
   ┌─────────────────────────────────────────────────────────┐
+  │  PHASE 0 — Access (human IAM + Flag clients)           │
+  │                                                        │
+  │  Map Optimizely users, teams, and roles to Confidence  │
+  │  groups, invites, and flag shares. Propose Flag        │
+  │  clients from SDK keys in the same plan (ASK; do not   │
+  │  invent). Plan writes a file only — no invites.        │
+  │  Teams become groups (do not flatten). Project Owner   │
+  │  becomes flag owner (not workspace Admin). Env human   │
+  │  roles stay unmapped. Project ≠ Client.                │
+  │                                                        │
+  │  Steps:                                                │
+  │    1. Source (REST, files, sample, or Desktop JSON)    │
+  │    2. Translate to Confidence (teams → groups)         │
+  │    3. Consent rows (tick Invite / Create)              │
+  │    4. Flag clients (propose from SDK keys; ASK)        │
+  │    5. Write the access plan                            │
+  │    6. Adjust (optional): users, groups, roles,         │
+  │       policies, clients                                │
+  │    7. Execute: groups, invites, clients, provision     │
+  │                                                        │
+  │  Result: Plan file ready; adjust, tick, then execute   │
+  ├─────────────────────────────────────────────────────────┤
   │  PHASE 1 — Flag Definitions                            │
   │                                                        │
   │  Recreate your stable Optimizely flags in Confidence:  │
@@ -181,7 +232,12 @@ overview FIRST — before doing any work.
   │  Result: Code uses Confidence SDK, Optimizely removed  │
   └─────────────────────────────────────────────────────────┘
 
-  Why flags first?
+  Why access first?
+  Users and teams should land in Confidence before you recreate flags
+  they own. You can still run Phase 1 from a datafile if you only have
+  flags.
+
+  Why flags before code?
   Flags must exist in Confidence before code can resolve them.
 
   Why one PR per flag (Phase 2)?
@@ -192,14 +248,22 @@ overview FIRST — before doing any work.
 ```
 
 After displaying the overview, indicate which phase the user is about
-to enter:
+to enter (same voice as `plan flags` / `plan code`):
 
-- For `plan flags`: "Starting **Phase 1** — Flag Definitions"
-- For `plan code`: "Starting **Phase 2** — Code Transformation.
+- For `plan access` / `/migrate-optimizely-plan-access`: "Starting **Phase 0** — Access"
+- For `adjust access` / `/migrate-optimizely-adjust-access`: "Starting **Phase 0** — Access adjust"
+- For `execute access` / `/migrate-optimizely-execute-access`: "Starting **Phase 0** — Access execute"
+- For `plan clients`: "Starting **Phase 0** — Access (Flag clients step)"
+- For `plan flags` / `/migrate-optimizely-plan-flags`: "Starting **Phase 1** — Flag Definitions"
+- For `execute flags` / `/migrate-optimizely-execute-flags`: "Starting **Phase 1** — Flag execute"
+- For `plan code` / `/migrate-optimizely-plan-code`: "Starting **Phase 2** — Code Transformation.
   Make sure Phase 1 (flag definitions) is complete first — the flags
   need to exist in Confidence before the code can resolve them."
+- For `execute code` / `/migrate-optimizely-execute-code`: "Starting **Phase 2** — Code execute"
 
-Then proceed with the normal workflow for that phase.
+Then proceed with the normal workflow for that phase (`Plan Access:
+Steps`, `Plan Flag: Steps`, `Plan Code: Steps`, or Execute: How It
+Works). Never lock the operator out (keep-list in access.md).
 
 ---
 
@@ -227,7 +291,13 @@ claude mcp add confidence-docs --transport http --url https://mcp.confidence.dev
 
 The user will be prompted to authenticate via OAuth in their browser.
 
-### Confidence REST API token (OPTIONAL — for full-fidelity Phase 1)
+### Confidence REST API token
+
+**Required** for `execute access` (IAM writes, including ticked Flag
+clients). **Not** required for `plan access` (Flag-client proposal is
+read-only). **Optional** for Phase 1 flags unless
+full-fidelity REST is needed. Same Admin → API Clients credential.
+Details: [access.md](access.md).
 
 The MCP `createFlag`/`addTargetingRule` tools cover the common cases but
 **cannot** express a few Optimizely constructs faithfully: partial
@@ -239,11 +309,13 @@ Confidence **management REST API** (`https://flags.confidence.dev/v1`),
 which needs a short-lived access token obtained via the
 client-credentials flow.
 
-Only ask for this if the scan finds features that need it (the plan
-flags them). To set it up:
+For flags: only ask if the scan finds features that need it (the plan
+flags them). For **execute access**: **always ASK** before any IAM write.
+`plan access` does not need a Confidence token. Setup:
 
 1. In Confidence, go to **Admin > API Clients**, create a client, and
-   copy its **client ID** and **client secret**.
+   copy its **client ID** and **client secret**. This is **not** a Flag /
+   SDK client. For access, assign **IAM Editor** (or Admin).
 2. Exchange them for an access token (valid ~1h):
    ```bash
    curl -sS -X POST "https://iam.confidence.dev/v1/oauth/token" \
@@ -353,24 +425,37 @@ user's access:
 | **B — Exported JSON files** | The user's account can't produce a working API token (older/legacy Optimizely product, a token scoped to summary-only exports, no self-serve API access, etc.) | Read local files with the Read tool — no network calls |
 
 Both methods feed the **same extraction step** (Step 1c/1d below) with
-the same field names; only the data source differs. Ask the user which
-they have; don't assume.
+the same field names; only the data source differs.
+
+**For `plan access`:** do **not** use the combined token-or-files
+paragraph below as the first message. Run **Opening questions** in
+[access.md](access.md) (source method first: REST, files, or the
+user-provided fallback). Ask for a token only after they pick REST;
+ask for a path only after they pick files. If they picked **JSON on my
+Desktop**, follow access.md **Relational JSON** (scoped `~/Desktop`
+then `~/Downloads`; confirm the file). **After the access file (or
+REST) is confirmed**, run **Extract context** in access.md (look
+around that file for internal access-migration strategy / exceptions,
+or paste, or skip). People still come only from REST / the file.
+
+**For `plan flags` / `plan code`:** ask which method they have; don't
+assume.
 
 ### ASK the user (only if not already provided)
 
-> To read your Optimizely flags, rollouts, and experiments, I need
-> either:
-> 1. An Optimizely **API token** (Account Settings > API Access — a
->    Personal Access Token is fine, with read access) plus your
->    **Project ID** (the number in the app URL, e.g.
->    `app.optimizely.com/v2/projects/<PROJECT_ID>/flags/list`), **or**
-> 2. If you can't generate a working token (e.g. an older Optimizely
->    product, or your export tool only gives summary data): a path to
->    exported flag/experiment JSON file(s) instead.
+**Do not call `api.optimizely.com` until credentials exist.** Do not
+search the disk for a token. For **users / teams / access**, the token
+must read collaborators and teams, not only flags. Full copy:
+[access.md](access.md).
+
+After they have **chosen REST** (see access.md Opening questions), say:
+
+> To migrate Optimizely **users, teams, and permissions** over the REST API, I need:
+> 1. An Optimizely **API token** (Account Settings → API Access). It must read **collaborators and teams**, not only flags.
+> 2. Your **Project ID** (the number in `app.optimizely.com/v2/projects/<PROJECT_ID>/…`).
 >
-> Paste the token here, or set it in your shell as `OPTIMIZELY_API_TOKEN`
-> before continuing, and tell me the project ID — or tell me where the
-> exported file(s) are.
+> Paste the token, or export `OPTIMIZELY_API_TOKEN` in this session and tell me the project ID.
+> I will not start REST calls until I have both.
 
 ### Option A: Live REST API
 
@@ -378,7 +463,8 @@ they have; don't assume.
    Account token). Created in the Optimizely app under **Account
    Settings > API Access** (`app.optimizely.com` → profile → API
    Access). The token needs read access to flags, rulesets, and
-   audiences.
+   audiences. For **user / access** migration it must also read
+   **collaborators, teams, and project roles** (Platform API).
 2. The **Project ID** of the Optimizely Feature Experimentation project
    to migrate. Find it in the app URL:
    `https://app.optimizely.com/v2/projects/<PROJECT_ID>/flags/list`.
@@ -410,17 +496,30 @@ curl -sS -H "Authorization: Bearer $OPTIMIZELY_API_TOKEN" \
 ```
 
 If this returns a `401`/`403` or an HTML error page, stop and surface
-the error to the user — do not start scanning.
+the error to the user — do not start scanning. For **users / access**,
+smoke-test `GET /v2/projects/$OPTIMIZELY_PROJECT_ID` first (see
+[access.md](access.md)); do not list collaborators without a 200.
 
 ### Option B: Exported JSON files
 
-Ask the user for a **file path or directory**. Read files with the Read
-tool (never `curl`, never guess at data). Two shapes are recognized —
-detect which one you have by inspecting the JSON, and say which you
-detected before proceeding. **"B1"/"B2" are internal labels for this
-document only — never say them to the user.** User-facing names: B1 is
-"a full API export", B2 is "a summary export (per-flag, without
-per-variation splits or audience definitions)".
+Ask the user for a **file path or directory**, or they can opt in to
+**JSON on Desktop** (access.md Opening question 1 option 5). Read files
+with the Read tool (never `curl`, never guess at data). Two **flag**
+shapes are recognized below (B1/B2). **IAM / access files are a third
+shape** — users, teams/groups, permissions; they may arrive as one JSON
+or several files. One combined file is not required. Detect IAM vs flag
+export by inspecting keys (`users` / `teams` / `groups` /
+`collaborators` vs `flags` / `rules_detail`). **Relational JSON is
+enough:** `users` + `teams`/`groups` joined by `members` (ids, emails,
+or nested objects) or a `memberships` list — do not require the sample
+schema. IAM files drive `plan access`, not Phase 1 flag definitions.
+Sample: `test-fixtures/iam-export-sample.json`. Details:
+[access.md](access.md). For **flag** exports, detect B1 vs B2 by
+inspecting the JSON, and say which you detected before proceeding.
+**"B1"/"B2" are internal labels for this document only — never say them
+to the user.** User-facing names: B1 is "a full API export", B2 is "a
+summary export (per-flag, without per-variation splits or audience
+definitions)".
 
 **B1 — Raw API response dumps (preferred, full fidelity).** One or more
 files that are verbatim saves of the endpoints in "Optimizely REST API
@@ -809,6 +908,45 @@ At the end of execution, show a complete summary:
 ────────────────────────────────────────────────────────────
 ```
 
+### Plan Access step tracker
+
+Same markers as Plan Flags. Show at the start of `plan access` and
+after each step. Opening questions = step 1 `⏸ awaiting you`.
+
+```
+───── Plan Access ─────────────────────────────────────────
+  [1] Source           ○ pending
+  [2] Translate        ○ pending
+  [3] Consent rows     ○ pending
+  [4] Flag clients     ○ pending
+  [5] Write plan       ○ pending
+────────────────────────────────────────────────────────────
+```
+
+Example after Step 1 completes:
+```
+───── Plan Access ─────────────────────────────────────────
+  [1] Source           ✓ 100 users, 8 teams (Desktop JSON)
+  [2] Translate        ◉ in progress
+  [3] Consent rows     ○ pending
+  [4] Flag clients     ○ pending
+  [5] Write plan       ○ pending
+────────────────────────────────────────────────────────────
+```
+
+### Adjust Access step tracker
+
+Show at the start of `adjust access` / `/migrate-optimizely-adjust-access`
+and after each applied change. The five kinds are what the skill may
+edit — not sequential steps.
+
+```
+───── Adjust Access ───────────────────────────────────────
+  Plan: optimizely-access-migration-<date>.md
+  Edit: users · groups · roles · policies · clients
+────────────────────────────────────────────────────────────
+```
+
 ### Plan Flags step tracker
 
 ```
@@ -883,24 +1021,34 @@ Example after Step 2 completes:
 
 ## Plan Files: Resume Check & Progressive Updates
 
-Both `plan flags` and `plan code` use a progressive plan file. Created
-at Step 1, updated after each step, so a closed session can resume.
+`plan access`, `adjust access`, `plan flags`, and `plan code` each use a
+progressive plan file. Created at Step 1 (`plan access`: **after**
+Opening questions are answered — not during the ask), updated after
+each step (and after each adjust), so a closed session can resume. Access **steps** are in **Plan Access: Steps** below (same
+pattern as Plan Flag: Steps). **Adjust Access: Steps** (users, groups,
+roles, policies, clients) is also in this file. Mapping tables and the
+copy-paste template live in [access.md](access.md).
 
 ### Resume check (MUST do first)
 
 Before starting any plan workflow, check for an existing in-progress
 plan:
 
-- `plan flags` → `.claude/plans/optimizely-flag-migration-*.md`
-- `plan code`  → `.claude/plans/optimizely-code-migration-*.md`
+- `plan access` / `adjust access` → `.claude/plans/optimizely-access-migration-*.md`
+- `plan flags`  → `.claude/plans/optimizely-flag-migration-*.md`
+- `plan code`   → `.claude/plans/optimizely-code-migration-*.md`
 
 If a plan file exists, read its `## Generation Status` section:
 
 - If status is `complete` → tell user a plan already exists, ask if
-  they want to start fresh or use the existing one
+  they want to start fresh or use the existing one. For **`adjust
+  access`**: use the existing file (do not ask start-fresh unless they
+  asked to re-plan). Proceed to **Adjust Access: Steps**.
 - If status is NOT `complete` → **resume from the last incomplete step**.
   Tell the user: "Found an in-progress plan. Resuming from step <N>."
-- If no plan file exists → start fresh
+  Do not run `adjust access` until step 5 / Overall is `✓ complete`.
+- If no plan file exists → start fresh (`plan access` first; `adjust
+  access` cannot run without a plan)
 
 ### Generation Status table
 
@@ -909,6 +1057,180 @@ top that tracks which steps are done. Status values: `✓ complete`,
 `◉ in progress`, `○ not started`. **After each step completes**, update
 the status table AND write that step's data to the plan file. Do NOT
 wait until the end to write.
+
+## Plan Access: Steps
+
+Phase 0 uses the **same plan machinery** as `plan flags` in this file:
+resume check, progressive plan file, Generation Status after every
+step, then stop. IAM mapping, lockout, opening-question copy, and the
+plan-file template live in [access.md](access.md) — **Read it** before
+Step 1.
+
+The flow is 5 plan steps: Step 1 source, Step 2 translate, Step 3
+consent rows, Step 4 Flag clients (propose + ASK), Step 5 write plan.
+Then optional **adjust access** (users, groups, roles, policies,
+clients — **Adjust Access: Steps** below). **No Confidence IAM writes.
+No invites. No groups. No Flag clients** during plan or adjust.
+`execute access` is the only writer (including confirmed Flag clients
+and deltas after adjust).
+
+### Plan-file path
+
+`.claude/plans/optimizely-access-migration-<date>.md`
+
+**Create this file only after Opening questions have an answer.** Do
+not Write, mkdir, or touch it during overview, resume check, or while
+`⏸ awaiting you`. ASK first, create the plan file after they answer.
+
+After the file exists, update `## Generation Status` after **each**
+step. Do not wait until the end.
+
+### Step 1: Source
+
+Display the Plan Access step tracker. Set `[1] Source` to
+`⏸ awaiting you`.
+
+Run **Opening questions** in access.md (source method first). **Stop.**
+Do not create the plan file. Do not curl `api.optimizely.com`. Do not
+Read export files. Do not invent people. Do not paste the REST token
+paragraph until they pick Live REST API. Do not ask Extract context
+until the access file (or REST) is confirmed.
+
+**After they answer source method:** create
+`.claude/plans/optimizely-access-migration-<date>.md` from the template
+in access.md. Then extract (REST after token + project ID, or files /
+sample / Desktop JSON after they confirm the path). Detect IAM vs flag
+export. Reconstruct the source model in access.md. Record file paths;
+redact SDK keys. **Then run Extract context** (look around the access
+file / paste / skip) before marking Step 1 complete.
+
+**After Step 1 completes:** Update Generation Status step 1 to
+`✓ complete`. Re-display the tracker with `[1] Source ✓ …`.
+
+### Step 2: Translate
+
+Fill the mapping tables (users, teams→groups, project roles,
+flag/audience shares, unmapped env-human IAM, fidelity loss). Apply
+any confirmed access-migration context as constraints (exceptions,
+skip rows, notes). People still come only from the REST API, the file
+path, or the user-provided fallback. Propose `default-policy`
+tightening; do not apply it. Never flatten teams. Never map Project
+Owner to workspace Admin.
+
+**After Step 2 completes:** Update Generation Status step 2 to
+`✓ complete`.
+
+### Step 3: Consent rows
+
+One row per user and per group with empty `[ ] Invite` / `[ ] Skip`
+(users) and `[ ] Create` / `[ ] Skip` (groups). Silence is not consent.
+Same rule as flag `[ ] Migrate` / `[ ] Skip`.
+
+**After Step 3 completes:** Update Generation Status step 3 to
+`✓ complete`.
+
+### Step 4: Flag clients (inside plan access)
+
+Flag-client planning lives **here**, not in a separate phase. Follow
+**Flag clients (inside plan access)** in [access.md](access.md).
+
+Build `candidate_clients` from project + env + SDK key + apps +
+isolation. **Propose, then ASK.** Project ≠ Client. Env ≠ Client.
+SDK key ≠ Client. Do not invent clients. Do not `POST /v1/clients`.
+
+If `sdk_key` / app split is missing: mark section 5 **blocked**,
+Generation Status step 4 `⊘ skipped`, and continue. They can re-run
+`plan access` (or the `plan clients` alias) when keys exist.
+
+If keys exist: ASK the four questions in access.md, write candidate
+rows with empty `[ ] Create` / `[ ] Skip`, then continue.
+
+**After Step 4 completes or is skipped:** Update Generation Status
+step 4.
+
+### Step 5: Write plan
+
+Finish the plan file (unmapped env IAM, Flag clients proposed or
+blocked, empty Execute progress table). Set step 5 and **Overall** to
+`✓ complete`. Tell the user to review, tick the boxes (users, groups,
+**and** Flag clients if listed), **or** ask the skill to change users,
+groups, roles, policies, or clients (`/migrate-optimizely adjust access`
+/ `/migrate-optimizely-adjust-access`) instead of hand-editing. Then run
+`/migrate-optimizely execute access` (or `/migrate-optimizely-execute-access`).
+List what execute will do. Do not invite anyone. Do not create clients.
+
+`⏸ awaiting user` if emails, team membership, or project roles are
+missing. Do not invent people.
+
+## Adjust Access: Steps
+
+Fine-edit the access plan through the skill. Use when the user runs
+`/migrate-optimizely adjust access`, `/migrate-optimizely-adjust-access`,
+`modify access`, or asks to change **users, groups, roles, policies, or
+clients** after a plan exists. Natural language is enough (`skip all
+@example.com`, `Checkout should be Editor`, `don't create team-data`).
+
+**Read** [access.md](access.md) for IAM mapping, lockout, ask copy, and
+section-7 template. This section is the command contract — do not skip
+it.
+
+**Plan writes only.** Edit
+`.claude/plans/optimizely-access-migration-*.md`. Do **not** invite,
+create groups, PATCH policies, or `POST /v1/clients` here.
+`execute access` applies the updated tables (idempotent, including
+deltas after a prior execute). Skip ≠ delete.
+
+### Require a plan
+
+If none exists, run `plan access` first. If several, use the newest
+unless they name one. Do not invent a second plan file. Overall must
+be `✓ complete` (or step 5 complete).
+
+Starting **Phase 0** — Access adjust. Show the Adjust Access step
+tracker. Skip the full migration overview unless they also started a
+plan command this turn.
+
+### What the skill may change
+
+Any of these, in any order, any number of times:
+
+| Kind | Allowed | Forbidden |
+|------|---------|-----------|
+| **Users** | Tick Invite/Skip (one email, a team, a domain, or all). Move / add / remove group membership on the user row **and** the group Members cell. Add a person only if they **give an email** (record as extra, not from Optimizely) | Invent people. Invite without an email |
+| **Groups** | Tick Create/Skip. Change `displayName` anytime. Change `groupId` only if not yet created. Merge (one surviving `groupId`, combined members, Skip the other). Split (new `groupId` + named members; ASK displayName). Extra group only if they name it and who belongs | Flatten teams into per-user shares. Change `groupId` after the group exists in Execute progress |
+| **Roles** | Override share Viewer / Editor / Owner on intended-shares rows (group or direct user). Override default mapping (e.g. Publisher → Viewer) for matching rows; record in section 2 | Project Owner → `roles/admin`. Flags Editor/Reader **policy**. Flatten teams |
+| **Policies** | Change `optimizely-group-*` roles (default `roles/reader`). Record explicit yes/no on `default-policy` tighten. `admin-policy`: only **add** known Account Administrators | `roles/flags-editor` or `roles/flags-reader` on a **policy**. Apply `default-policy` during adjust. Remove identities from `admin-policy` |
+| **Clients** | Tick Create/Skip. Rename displayName / clientId. Split or merge only with an explicit answer. Assign which groups see which clients | Invent clients from project/env names when no `sdk_key`. Reuse the auto-created `{workspace} client` unless they say so |
+
+If they already stated the change, **apply it** (do not re-ask the
+menu). Otherwise ASK the six options in access.md (users / groups /
+roles / policies / clients / Done). Loop until Done or they run
+execute.
+
+After each applied change: update sections 2–5 (keep heading names —
+`execute access` parses them), append a row to **## 7. Adjustments**
+(create that section if missing), re-display the tracker, summarize
+the diff (counts, not every email unless they asked for one person).
+Do not treat a rename or membership edit as consent — only tick
+`[x] Invite` / `[x] Skip` / `[x] Create` when they asked to tick.
+
+Telemetry: `step` `plan-access.adjust`, `action` `adjust_access`.
+
+### After execute (deltas)
+
+Next `execute access` uses sections 3–5 as source of truth: create
+newly ticked groups / invites / clients; PATCH `displayName` and group
+policy roles if they changed; `addGroupMembers` for new membership.
+**ASK before removing** a live member. Do not delete because a row is
+now Skip.
+
+## Plan Access: Template
+
+Copy the template from access.md (`Plan-file template`). Keep those
+heading names — `execute access` parses them. Do not invent a
+different access-plan shape.
+
+---
 
 ## Plan Flag: Steps
 
@@ -1214,14 +1536,14 @@ one; flags whose classification needs user input stay unticked. In
 > Mode: **migrate all eligible** — <N> flags are pre-approved, <M> are
 > skipped with reasons, <K> need a decision from you (unticked). Adjust
 > any checkbox you disagree with, then run:
-> `/migrate-optimizely execute <plan-file>`
+> `/migrate-optimizely execute flags`
 
 (or, review-each mode:)
 
 > Migration is **opt-in**: every flag starts with both checkboxes empty.
-> Tick `[x] Migrate` or `[x] Skip` for each flag — `execute` will refuse
-> any flag with neither box set. When ready, run:
-> `/migrate-optimizely execute <plan-file>`
+> Tick `[x] Migrate` or `[x] Skip` for each flag — `execute flags` will
+> refuse any flag with neither box set. When ready, run:
+> `/migrate-optimizely execute flags`
 
 **Rule → targeting-rule order.** Optimizely rules form a waterfall —
 the first matching rule (by `rule_priorities`) wins. Confidence
@@ -1931,7 +2253,25 @@ updates this table AND the flag's Action line after EVERY flag. -->
 
 ## Execute: How It Works
 
-`execute <plan-file>` walks through the plan interactively, step by step.
+Named execute commands work like `execute access`: **no plan path
+required.** Find the matching plan file, then walk it interactively.
+
+| Command | Plan file | If missing |
+|---------|-----------|------------|
+| `execute access` | `.claude/plans/optimizely-access-migration-*.md` | Run `plan access` first |
+| `execute flags` | `.claude/plans/optimizely-flag-migration-*.md` | Run `plan flags` first |
+| `execute code` | `.claude/plans/optimizely-code-migration-*.md` | Run `plan code` first |
+
+If several match, use the newest; if Overall is not `complete`, tell
+the user and **ask** resume the plan vs execute anyway. Do not invent
+a plan. `execute <plan-file>` is an alias: use that path and pick the
+section below from the filename (`access` / `flag` / `code`).
+
+If the file is an access plan, follow **`execute access` in
+[access.md](access.md)** — do not run the flag setup sequence. There
+is **no** `execute clients`. Flag clients are proposed in `plan access`
+Step 4 and created by `execute access` when ticked. After **adjust
+access**, re-run `execute access` to apply deltas (Skip ≠ delete).
 
 ### For flag plans
 
@@ -2074,6 +2414,9 @@ FOR EACH PROJECT:
        - flags: the JSON array (max 20 per call)
        - labels: {"migration-started": "<ISO-timestamp>", "source": "optimizely"}
      → Send telemetry after each batch with counts.
+     → Then run **share_group_flags** in access.md for this project’s
+       flags (group Viewer/Editor by Optimizely role) so the team can
+       **see** them. Do not use a workspace Flags Reader/Editor policy.
 
   3. batchAddTargetingRules (batches of 20, immediately after flags)
      → Collect ALL targeting rules for the flags just created:
@@ -2633,7 +2976,10 @@ bandit-action call.)
 ### Step 5: Generate plan
 
 Save the plan to `.claude/plans/optimizely-code-migration-<date>.md`
-using the template below.
+using the template below. Set Overall to `complete`, then tell the user:
+
+> Plan generated! Review it at `.claude/plans/optimizely-code-migration-<date>.md`
+> When ready, run `/migrate-optimizely execute code`
 
 **Two Confidence-wide truths every code transform must honor:**
 
@@ -2865,14 +3211,18 @@ language/mode-specific Confidence provider (and its `setProviderAndWait` /
 ## Required Prerequisites
 
 This skill needs the Confidence-side MCPs listed in "Prerequisites:
-Confidence Side" above (`confidence` for `plan flags`/`execute`,
-`confidence-docs` for `plan code`), plus the Optimizely REST API — no
-MCP, just `curl` with `Authorization: Bearer $OPTIMIZELY_API_TOKEN`.
+Confidence Side" above (`confidence` for `plan flags` / `execute flags`,
+`confidence-docs` for `plan code` / `execute code`), plus Optimizely REST
+**or** export files. Access **execute** / clients also need IAM REST
+([access.md](access.md)).
+**ASK for Optimizely credentials before any `api.optimizely.com` call.**
+**ASK for Confidence IAM credentials before `execute access` or any IAM write — not before `plan access`.**
 
 | Source | What's used |
 |--------|-------------|
 | Confidence MCP | `listClients`, `createClient`, `getContextSchema`, `addContextField`, `createFlag`, `addFlagToClient`, `unarchiveFlag`, `addTargetingRule`, `resolveFlag`, `batchCreateFlags` (bulk), `batchAddTargetingRules` (bulk) |
 | Confidence Docs MCP (`plan code`) | `getLocalResolveIntegrationGuide`, `getCodeSnippetAndSdkIntegrationTips`, `searchDocumentation`, `getFullSource` |
-| Confidence REST API (`CONFIDENCE_TOKEN`, OPTIONAL — full-fidelity Phase 1) | `POST /v1/segments` + `:allocate`, `POST /v1/flags/{flag}/rules` + `PATCH …?updateMask=enabled`; token via `POST https://iam.confidence.dev/v1/oauth/token` |
+| Confidence IAM REST (`CONFIDENCE_TOKEN`, **required** for `execute access` / clients; optional full-fidelity flags) | `POST https://iam.confidence.dev/v1/oauth/token`; `/v1/userInvitations`, `/v1/groups` + `:addGroupMembers`, `/v1/policies` (`optimizely-group-*` on the group identity), `/v1/clients`; flags `:addFlagClient`, `POST /v1/segments` + `:allocate`, `POST /v1/flags/{flag}/rules`. On accept: group + policy + client immediately. Access keep-list: never delete operator, `admin-policy`, `default-policy`, auto-created Flag client |
 | Optimizely Flags API (`OPTIMIZELY_API_TOKEN`) | `GET /flags/v1/projects/{id}/flags[/{key}]`, `GET …/flags/{key}/variations`, `GET …/flags/{key}/environments/{env}/ruleset` |
-| Optimizely Platform API v2 (`OPTIMIZELY_API_TOKEN`) | `GET /v2/audiences[/{id}]`, `GET /v2/environments`, `GET /v2/projects` |
+| Optimizely Platform API v2 (`OPTIMIZELY_API_TOKEN`) | `GET /v2/audiences[/{id}]`, `GET /v2/environments`, `GET /v2/projects`; collaborators / teams / roles for `plan access` |
+| Optimizely export files | Flag JSON (B1/B2) and/or IAM JSON (`users` / `teams`/`groups` + a join). Desktop JSON opt-in: `~/Desktop` then `~/Downloads`. Sample: `test-fixtures/iam-export-sample.json` |
