@@ -116,6 +116,7 @@ Once installed, just ask your assistant:
 > /confidence:migrate-optimizely adjust flags
 > /confidence:migrate-optimizely execute flags
 > /confidence:migrate-optimizely plan code
+> /confidence:migrate-optimizely adjust code
 > /confidence:migrate-optimizely execute code
 > /confidence:analyze-project
 ```
@@ -136,7 +137,7 @@ This plugin provides access to Confidence tools across these categories:
 - `/confidence:migrate-posthog <plan flag | plan code | execute <plan-file>>`: [Migrate feature flags from PostHog to Confidence](https://confidence.spotify.com/docs/migrations/migrate-from-posthog)
 - `/confidence:migrate-eppo <plan flag | plan code | execute <plan-file>>`: [Migrate feature flags from Eppo to Confidence](https://confidence.spotify.com/docs/migrations/migrate-from-eppo)
 - `/confidence:migrate-statsig <plan flag | plan code | execute <plan-file>>`: [Migrate feature flags from Statsig to Confidence](https://confidence.spotify.com/docs/migrations/migrate-from-statsig)
-- `/confidence:migrate-optimizely <plan access | adjust access | execute access | plan flags | adjust flags | execute flags | plan code | execute code | execute <plan-file>>`: [Migrate Optimizely Feature Experimentation to Confidence](https://confidence.spotify.com/docs/migrations/migrate-from-optimizely) — see [Optimizely access](#optimizely--confidence) (Flag clients are handled in `plan access` Step 4; Cursor also exposes dedicated `/` menu shortcuts)
+- `/confidence:migrate-optimizely <plan access | adjust access | execute access | plan flags | adjust flags | execute flags | plan code | adjust code | execute code | execute <plan-file>>`: [Migrate Optimizely Feature Experimentation to Confidence](https://confidence.spotify.com/docs/migrations/migrate-from-optimizely) — see [Optimizely access](#optimizely--confidence) (Flag clients are handled in `plan access` Step 4; Cursor also exposes dedicated `/` menu shortcuts)
 - `/confidence:analyze-project [project-dir]`: Analyze a project and propose meaningful feature flag changes using Confidence
 
 ## Optimizely → Confidence
