@@ -80,10 +80,9 @@ claude --plugin-dir ./confidence-ai-plugins
 folder). Skills load from `./skills/` via `.cursor-plugin/plugin.json`
 and from `.cursor/skills/` (symlinks) for project-level discovery.
 Commands load from `./commands/` (including
-`/migrate-optimizely-plan-access`, `-adjust-access`, `-execute-access`,
-`-plan-flags`, `-adjust-flags`, `-execute-flags`, `-plan-code`,
-`-adjust-code`, `-execute-code`)
-and from `.cursor/commands/` (symlink to `../commands`). A parent
+`/migrate-optimizely plan access`, `plan flags`, `execute code`, etc.)
+and from `.cursor/commands/` (symlink to `../commands`). Dedicated
+`/migrate-optimizely-*` menu shortcuts also exist in Cursor. A parent
 folder as the workspace will not auto-load them.
 
 ### Skills only, any agent
@@ -110,25 +109,14 @@ Once installed, just ask your assistant:
 > /confidence:migrate-eppo plan code
 > /confidence:migrate-statsig plan flag
 > /confidence:migrate-statsig plan code
-> /confidence:migrate-optimizely
 > /confidence:migrate-optimizely plan access
-> /confidence:migrate-optimizely-plan-access
 > /confidence:migrate-optimizely adjust access
-> /confidence:migrate-optimizely-adjust-access
 > /confidence:migrate-optimizely execute access
-> /confidence:migrate-optimizely-execute-access
+> /confidence:migrate-optimizely plan clients
 > /confidence:migrate-optimizely plan flags
-> /confidence:migrate-optimizely-plan-flags
-> /confidence:migrate-optimizely adjust flags
-> /confidence:migrate-optimizely-adjust-flags
 > /confidence:migrate-optimizely execute flags
-> /confidence:migrate-optimizely-execute-flags
 > /confidence:migrate-optimizely plan code
-> /confidence:migrate-optimizely-plan-code
-> /confidence:migrate-optimizely adjust code
-> /confidence:migrate-optimizely-adjust-code
 > /confidence:migrate-optimizely execute code
-> /confidence:migrate-optimizely-execute-code
 > /confidence:analyze-project
 ```
 
@@ -148,10 +136,7 @@ This plugin provides access to Confidence tools across these categories:
 - `/confidence:migrate-posthog <plan flag | plan code | execute <plan-file>>`: [Migrate feature flags from PostHog to Confidence](https://confidence.spotify.com/docs/migrations/migrate-from-posthog)
 - `/confidence:migrate-eppo <plan flag | plan code | execute <plan-file>>`: [Migrate feature flags from Eppo to Confidence](https://confidence.spotify.com/docs/migrations/migrate-from-eppo)
 - `/confidence:migrate-statsig <plan flag | plan code | execute <plan-file>>`: [Migrate feature flags from Statsig to Confidence](https://confidence.spotify.com/docs/migrations/migrate-from-statsig)
-- `/confidence:migrate-optimizely` *(no args → `plan access`)* or `/confidence:migrate-optimizely <plan access | adjust access | execute access | plan flags | adjust flags | execute flags | plan code | adjust code | execute code | execute <plan-file>>`: [Migrate Optimizely Feature Experimentation to Confidence](https://confidence.spotify.com/docs/migrations/migrate-from-optimizely) — see [Optimizely access](#optimizely--confidence) (Flag clients are Step 4 of `plan access`; no `execute clients`)
-- `/confidence:migrate-optimizely-plan-access` / `-adjust-access` / `-execute-access`: own `/` menu items for Phase 0
-- `/confidence:migrate-optimizely-plan-flags` / `-adjust-flags` / `-execute-flags`: own `/` menu items for Phase 1
-- `/confidence:migrate-optimizely-plan-code` / `-adjust-code` / `-execute-code`: own `/` menu items for Phase 2
+- `/confidence:migrate-optimizely <plan access | adjust access | execute access | plan clients | plan flags | execute flags | plan code | execute code | execute <plan-file>>`: [Migrate Optimizely Feature Experimentation to Confidence](https://confidence.spotify.com/docs/migrations/migrate-from-optimizely) — see [Optimizely access](#optimizely--confidence) (`plan clients` = Flag-client step inside `plan access`; Cursor also exposes dedicated `/` menu shortcuts)
 - `/confidence:analyze-project [project-dir]`: Analyze a project and propose meaningful feature flag changes using Confidence
 
 ## Optimizely → Confidence
