@@ -15,6 +15,8 @@ Code Transformation. Flags must exist in Confidence first. Resume check
 (`.claude/plans/optimizely-code-migration-*.md`). **No code edits. No
 PRs.**
 
-When the plan is complete, tell them to run
-`/migrate-optimizely execute code` or
-`/migrate-optimizely-execute-code`.
+After Overall is `✓ complete`, **ASK** the Step 5 exit question in
+`SKILL.md` (required — there is no automatic path into adjust):
+(1) **Adjust code**, (2) **Execute code**, (3) **Done for now**. If
+they pick (1), enter adjust in the same turn; do not require
+`/migrate-optimizely adjust code`.

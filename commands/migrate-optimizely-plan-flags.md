@@ -15,6 +15,23 @@ Flag Definitions, resume check
 Generation Status after each step. **No Confidence writes. No
 createFlag.**
 
-When the plan is complete, tell them to tick `[x] Migrate` / `[x] Skip`,
-then run `/migrate-optimizely execute flags` or
-`/migrate-optimizely-execute-flags`.
+Flags with **no Optimizely rules** must appear in the plan under
+**"Flags with no Optimizely rules → auto everyone catch-all"** so the
+operator knows `execute` will add an everyone catch-all (Confidence empty
+rules do not resolve for everyone). See **Automatic everyone catch-all**
+in `SKILL.md`.
+
+**Rules operator audit (mandatory in Step 2):** walk every audience
+`match_type`. Flag **`exists` / `substring` / `regex`** (and
+non-`custom_attribute`) as **BLOCKED** with flag ids in a **Rules audit
+(production)** table — Confidence does not support those operators.
+Ask workarounds before clearing BLOCKED. Do **not** complete Step 2
+or pre-tick Migrate as if those rules were fine. See **Rules operator
+audit** in `SKILL.md`.
+
+After Overall is `✓ complete`, **ASK** the Step 5 exit question in
+`SKILL.md` (required — there is no automatic path into adjust):
+(1) **Adjust flags**, (2) **Tick consent**, (3) **Execute flags**
+(only if Migrate/Skip already set), (4) **Done for now**. If they pick
+(1), enter adjust in the same turn; do not require
+`/migrate-optimizely adjust flags`.

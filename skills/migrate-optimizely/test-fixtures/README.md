@@ -99,6 +99,7 @@ Pick a throwaway Confidence client and map the Optimizely user ID to a
 | `mobile_checkout` | audience `app_version semver_ge 1.2.0 AND os exact ios` → version `rangeRule` + string `eqRule` | Migrate |
 | `winback_banner` | audience `days_since_last_order le 14` → numeric `rangeRule.endInclusive` | Migrate |
 | `substring_gate` | audience `email substring` → no Confidence substring rule | BLOCKED |
+| *(anticipated pattern)* | OR of several `substring` leaves on a version-like attr (`app-version-name` contains `2.182`…`2.187`) | **Not auto-migrated as contains.** Skill must ASK intent, then rewrite to version `rangeRule` [`2.182`, `2.188`) if “release families”; see SKILL.md **Rewrite: OR-of-substring version families** |
 | `product_sort` | flag WITH variables (`sort_algorithm` string, `show_amounts` bool), a/b 50/50 → struct flag, variant split | Migrate |
 | `pricing_test` | a/b at 50% allocation THEN an everyone fallback rule → REST backend (un-allocated traffic must fall through) | Migrate (REST) |
 | `headline_mab` | `multi_armed_bandit` / `stats_accelerator` → adaptive split snapshotted, with a note | Migrate (note) |
@@ -116,7 +117,7 @@ Pick a throwaway Confidence client and map the Optimizely user ID to a
 | 2 `North America` | `country exact US OR country exact CA` | set membership → `setRule` |
 | 3 `Modern mobile` | `app_version semver_ge 1.2.0 AND os exact ios` | version range + string eq |
 | 4 `Recent purchasers` | `days_since_last_order le 14` | numeric → `rangeRule.endInclusive` |
-| 5 `Test email substring` | `email substring @test` | BLOCKED |
+| 5 `Test email substring` | `email substring @test` | BLOCKED (hard — not a version rewrite) |
 | 6 `Regex email` | `email regex .*@test\.com` | BLOCKED |
 | 7 `Authenticated users` | `is_logged_in exact true` | used alone + in a combo |
 | 9 `Internal staff` | `is_internal exact true` | used NEGATED in a combo |

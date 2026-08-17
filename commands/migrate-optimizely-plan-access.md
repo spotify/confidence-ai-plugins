@@ -33,9 +33,9 @@ Generation Status after each step, consent rows, then stop).
    translate, Flag-client proposal (ASK; skip if no SDK keys), consent
    rows, finish the plan. **No invites. No groups. No Flag clients.**
 
-Tell them to tick `[x] Invite` / `[x] Create`, or to ask the skill to
-change users, groups, roles, policies, or clients
-(`/migrate-optimizely adjust access` /
-`/migrate-optimizely-adjust-access`) instead of hand-editing. Then run
-`/migrate-optimizely execute access` or
-`/migrate-optimizely-execute-access`.
+After Overall is `✓ complete`, **ASK** the Step 5 exit question in
+`SKILL.md` (required — there is no automatic path into adjust):
+(1) **Adjust access**, (2) **Tick consent**, (3) **Execute access**
+(only if consent already ticked), (4) **Done for now**. If they pick
+(1), enter adjust in the same turn; do not require
+`/migrate-optimizely adjust access`.

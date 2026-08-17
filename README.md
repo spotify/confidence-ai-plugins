@@ -81,7 +81,8 @@ folder). Skills load from `./skills/` via `.cursor-plugin/plugin.json`
 and from `.cursor/skills/` (symlinks) for project-level discovery.
 Commands load from `./commands/` (including
 `/migrate-optimizely-plan-access`, `-adjust-access`, `-execute-access`,
-`-plan-flags`, `-execute-flags`, `-plan-code`, `-execute-code`)
+`-plan-flags`, `-adjust-flags`, `-execute-flags`, `-plan-code`,
+`-adjust-code`, `-execute-code`)
 and from `.cursor/commands/` (symlink to `../commands`). A parent
 folder as the workspace will not auto-load them.
 
@@ -109,19 +110,23 @@ Once installed, just ask your assistant:
 > /confidence:migrate-eppo plan code
 > /confidence:migrate-statsig plan flag
 > /confidence:migrate-statsig plan code
+> /confidence:migrate-optimizely
 > /confidence:migrate-optimizely plan access
 > /confidence:migrate-optimizely-plan-access
 > /confidence:migrate-optimizely adjust access
 > /confidence:migrate-optimizely-adjust-access
 > /confidence:migrate-optimizely execute access
 > /confidence:migrate-optimizely-execute-access
-> /confidence:migrate-optimizely plan clients
 > /confidence:migrate-optimizely plan flags
 > /confidence:migrate-optimizely-plan-flags
+> /confidence:migrate-optimizely adjust flags
+> /confidence:migrate-optimizely-adjust-flags
 > /confidence:migrate-optimizely execute flags
 > /confidence:migrate-optimizely-execute-flags
 > /confidence:migrate-optimizely plan code
 > /confidence:migrate-optimizely-plan-code
+> /confidence:migrate-optimizely adjust code
+> /confidence:migrate-optimizely-adjust-code
 > /confidence:migrate-optimizely execute code
 > /confidence:migrate-optimizely-execute-code
 > /confidence:analyze-project
@@ -143,10 +148,10 @@ This plugin provides access to Confidence tools across these categories:
 - `/confidence:migrate-posthog <plan flag | plan code | execute <plan-file>>`: [Migrate feature flags from PostHog to Confidence](https://confidence.spotify.com/docs/migrations/migrate-from-posthog)
 - `/confidence:migrate-eppo <plan flag | plan code | execute <plan-file>>`: [Migrate feature flags from Eppo to Confidence](https://confidence.spotify.com/docs/migrations/migrate-from-eppo)
 - `/confidence:migrate-statsig <plan flag | plan code | execute <plan-file>>`: [Migrate feature flags from Statsig to Confidence](https://confidence.spotify.com/docs/migrations/migrate-from-statsig)
-- `/confidence:migrate-optimizely <plan access | adjust access | execute access | plan clients | plan flags | execute flags | plan code | execute code | execute <plan-file>>`: [Migrate Optimizely Feature Experimentation to Confidence](https://confidence.spotify.com/docs/migrations/migrate-from-optimizely) — see [Optimizely access](#optimizely--confidence) (`plan clients` is an alias of the Flag-clients step; no `execute clients`)
+- `/confidence:migrate-optimizely` *(no args → `plan access`)* or `/confidence:migrate-optimizely <plan access | adjust access | execute access | plan flags | adjust flags | execute flags | plan code | adjust code | execute code | execute <plan-file>>`: [Migrate Optimizely Feature Experimentation to Confidence](https://confidence.spotify.com/docs/migrations/migrate-from-optimizely) — see [Optimizely access](#optimizely--confidence) (Flag clients are Step 4 of `plan access`; no `execute clients`)
 - `/confidence:migrate-optimizely-plan-access` / `-adjust-access` / `-execute-access`: own `/` menu items for Phase 0
-- `/confidence:migrate-optimizely-plan-flags` / `-execute-flags`: own `/` menu items for Phase 1
-- `/confidence:migrate-optimizely-plan-code` / `-execute-code`: own `/` menu items for Phase 2
+- `/confidence:migrate-optimizely-plan-flags` / `-adjust-flags` / `-execute-flags`: own `/` menu items for Phase 1
+- `/confidence:migrate-optimizely-plan-code` / `-adjust-code` / `-execute-code`: own `/` menu items for Phase 2
 - `/confidence:analyze-project [project-dir]`: Analyze a project and propose meaningful feature flag changes using Confidence
 
 ## Optimizely → Confidence
@@ -154,7 +159,7 @@ This plugin provides access to Confidence tools across these categories:
 PostHog, Eppo, and Statsig migrate **flags** then **code**. Optimizely also
 migrates **access** (Phase 0) before those. Agent contract:
 [`skills/migrate-optimizely/SKILL.md`](./skills/migrate-optimizely/SKILL.md)
-(including **Adjust Access: Steps**) and IAM mapping in
+(including **Adjust Access / Flags / Code: Steps**) and IAM mapping in
 [`skills/migrate-optimizely/access.md`](./skills/migrate-optimizely/access.md).
 
 ### Phase 0 — Access (users, groups, roles, policies, clients)
@@ -164,10 +169,9 @@ you tick consent and run execute.
 
 | Command | What it does | Writes to Confidence? |
 |---------|--------------|------------------------|
-| `plan access` / `-plan-access` | Map Optimizely collaborators and teams to Confidence invites, groups, intended shares, and Flag-client **candidates**. File: `.claude/plans/optimizely-access-migration-<date>.md` | No |
-| `adjust access` / `-adjust-access` | Fine-edit that plan in chat: **users**, **groups**, **roles**, **policies**, **clients** (e.g. “skip all `@example.com`”, “Checkout should be Editor”). You do not have to hand-edit the markdown | No |
+| `plan access` / `-plan-access` *(also bare `/migrate-optimizely`)* | Map Optimizely collaborators and teams to Confidence invites, groups, intended shares, and Flag-client **candidates** (Step 4). File: `.claude/plans/optimizely-access-migration-<date>.md`. When the plan is complete, the agent **must ask** what next (adjust / tick consent / execute / done) — there is no automatic path into adjust. If SDK keys arrive later, re-run `plan access` | No |
+| `adjust access` / `-adjust-access` | Fine-edit that plan in chat: **users**, **groups**, **roles**, **policies**, **clients** (e.g. “skip all `@example.com`”, “Checkout should be Editor”). You do not have to hand-edit the markdown. Also offered from the plan-access exit ask | No |
 | `execute access` / `-execute-access` | After you tick `[x] Invite` / `[x] Create`: create groups + Reader policies, send invites, create ticked Flag clients, then provision each person as they accept (group, policy, client, flag shares) | **Yes** (IAM) |
-| `plan clients` | Alias of the Flag-clients step inside `plan access`. Still ASK; create happens on execute | No |
 
 **What `adjust access` can change**
 
@@ -183,12 +187,24 @@ you tick consent and run execute.
 
 Silence is not consent. Tick every user and group (and listed Flag clients) before execute. Invites last 7 days. Flag clients need environment SDK keys — if the export has none, that step is skipped until keys exist.
 
-### Phase 1 — Flags / Phase 2 — Code
+### Phase 1 — Flags
 
-Same split as the other skills: `plan flags` then `execute flags`, then
-`plan code` then `execute code`. Running experiments and partial-%
-rollouts stay out by default (different bucketing).
+Same plan → exit ask → optional adjust → execute pattern as access.
+Running experiments and partial-% rollouts stay out by default (different bucketing).
 
+| Command | What it does | Writes to Confidence? |
+|---------|--------------|------------------------|
+| `plan flags` / `-plan-flags` | Scan Optimizely flags and write `.claude/plans/optimizely-flag-migration-<date>.md`. Lists flags with **no Optimizely rules** as **auto everyone catch-all**. **Must** run a **Rules operator audit** and mark `exists` / `substring` / `regex` as **BLOCKED** (Confidence unsupported). When complete, the agent **must ask** what next (adjust / tick / execute / done) | No |
+| `adjust flags` / `-adjust-flags` | Fine-edit that plan: **scope**, **Migrate/Skip ticks**, **client**, **bucketing**, **schema**, **rules**. Also offered from the plan-flags exit ask | No |
+| `execute flags` / `-execute-flags` | **(1) create flag shells** → **(2) suggest rules import** → **(3) suggest resolve-verify ALL flags (segment match) — this validates Phase 1** → then `plan code`. Auto everyone catch-all if a flag still has zero enabled rules. Never call Phase 1 done after rules alone | **Yes** (flags) |
+
+### Phase 2 — Code
+
+| Command | What it does | Writes to Confidence / repo? |
+|---------|--------------|------------------------------|
+| `plan code` / `-plan-code` | Scan Optimizely SDK usage and write `.claude/plans/optimizely-code-migration-<date>.md`. When complete, the agent **must ask** what next (adjust / execute / done) | No |
+| `adjust code` / `-adjust-code` | Fine-edit that plan: **style**, **resolve mode**, **transforms**, **files/flags**. Also offered from the plan-code exit ask | No |
+| `execute code` / `-execute-code` | Transform code / open PRs from the plan (typically one PR per flag) | **Yes** (repo) |
 ## MCP Servers
 
 | Server | Endpoint | Description |
@@ -210,7 +226,7 @@ rollouts stay out by default (different bucketing).
 - [Confidence documentation](https://confidence.spotify.com/docs/introduction)
 - [Migration guides: migrate to Confidence from PostHog, Eppo, Statsig, or Optimizely](https://confidence.spotify.com/docs/migrations/overview)
 - [OpenFeature SDK integration](https://confidence.spotify.com/docs/sdks)
-- This repo — Optimizely access (Phase 0): [SKILL.md](./skills/migrate-optimizely/SKILL.md) (plan / **adjust** users·groups·roles·policies·clients / execute), [access.md](./skills/migrate-optimizely/access.md) (IAM mapping), [test fixtures](./skills/migrate-optimizely/test-fixtures/README.md)
+- This repo — Optimizely migration: [SKILL.md](./skills/migrate-optimizely/SKILL.md) (Phase 0–2 plan / **adjust** / execute), [access.md](./skills/migrate-optimizely/access.md) (IAM mapping), [test fixtures](./skills/migrate-optimizely/test-fixtures/README.md)
 
 ## 💭 Community & Support
 

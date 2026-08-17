@@ -3,11 +3,11 @@
 **User-facing docs (this repo):** [README — Optimizely → Confidence](../../README.md#optimizely--confidence).
 Operators should learn Phase 0 from there, not only from this agent file.
 
-Read this file when the user runs `/migrate-optimizely plan access`,
+Read this file when the user runs `/migrate-optimizely` with **no args**
+(defaults to `plan access`), `/migrate-optimizely plan access`,
 `/migrate-optimizely-plan-access`, `/migrate-optimizely adjust access`,
 `/migrate-optimizely-adjust-access`, `/migrate-optimizely execute access`,
-`/migrate-optimizely-execute-access`, `/migrate-optimizely plan clients`
-(alias of the Flag-clients step), or asks to migrate or **change**
+`/migrate-optimizely-execute-access`, or asks to migrate or **change**
 Optimizely **users, teams, roles, groups, policies, or Flag clients**.
 Keep flag-definition and code work in `SKILL.md`.
 
@@ -20,6 +20,13 @@ Human IAM and runtime clients are **separate**. Do not derive one from
 the other. Do not flatten Optimizely teams into per-user shares. Never
 lock the operator out.
 
+**Interview when evidence is thin.** Exports, Desktop/Downloads JSON, and
+governance docs are preferred — but if they are missing, incomplete, or
+the user skipped context lookup, you **must ASK structured questions**
+to reconstruct Optimizely governance before translating. Do not guess
+project boundaries, who may see/edit flags, app/client isolation, or
+multi-app flags. See **Governance discovery interview**.
+
 ---
 
 ## Commands
@@ -28,12 +35,32 @@ Same split as flags: **plan writes the file, execute performs writes.**
 
 | Command | What it does |
 |---------|----------------|
-| `plan access` / `/migrate-optimizely-plan-access` | Extract users/teams/roles **and** propose Flag clients. Write `.claude/plans/optimizely-access-migration-<date>.md`. **No IAM writes. No invites. No groups. No `POST /v1/clients`.** |
+| `/migrate-optimizely` *(no args)* | Same as `plan access` — default entry for new migrations |
+| `plan access` / `/migrate-optimizely-plan-access` | Extract users/teams/roles **and** propose Flag clients (Step 4). Write `.claude/plans/optimizely-access-migration-<date>.md`. **No IAM writes. No invites. No groups. No `POST /v1/clients`.** If SDK keys arrive later, re-run `plan access` and resume Step 4 |
 | `adjust access` / `/migrate-optimizely-adjust-access` | Fine-edit the plan: **users, groups, roles, policies, clients**. Natural language is enough. **No IAM writes.** Next `execute access` applies the tables |
 | `execute access` / `/migrate-optimizely-execute-access` | **All writes**, idempotent: groups + policies, invites, **ticked Flag clients**, flag shares, then provision accepted users (including deltas after adjust) |
-| `plan clients` | **Alias** of `plan access` Step 4 (Flag clients). Use when SDK keys arrive after the access plan. Still ASK; still no create until `execute access` |
 
-**Order:** `plan access` → **adjust access** (optional, any time) → tick consent → `execute access` → `plan flags` → `execute flags` → `plan code` → `execute code`.
+**Order:** `plan access` → **Step 5 exit ask** → **adjust access** (optional) → tick consent → `execute access` → `plan flags` → **exit ask** → **adjust flags** (optional) → `execute flags` (**create flags → suggested next: targeting-rules import → suggested next: resolve-verify all for segment match**) → `plan code` → **exit ask** → **adjust code** (optional) → `execute code`.
+
+### Transport: MCP first, REST fallback
+
+For Confidence **writes**, prefer tools in this order. Do **not** skip
+MCP when it can do the job; do **not** invent IAM MCP tools that do not
+exist.
+
+| Work | Try first | Fallback if MCP missing / `needsAuth` / tool error |
+|------|-----------|-----------------------------------------------------|
+| Flag clients (`listClients`, `createClient`) | **Flags MCP** | IAM REST `GET/POST https://iam.confidence.dev/v1/clients` (+ credential create) |
+| Flag attach (`addFlagToClient`) | **Flags MCP** | Flags REST `:addFlagClient` |
+| Flag create / simple targeting / resolve | **Flags MCP** | Flags REST (or REST-only for segments / waterfall — see SKILL.md) |
+| Users, invites, groups, policies, IAM bindings / flag shares | **IAM REST only** | — (Flags MCP has **no** invite/group/policy tools) |
+
+**Agent rule:** On `execute access` / `execute flags`, probe Flags MCP
+once (e.g. `listClients`). If it works, use MCP for every Flag-client
+and flag write it supports. If auth fails or a call errors, **fall back
+to IAM/Flags REST** with `$TMPDIR/confidence_token` (or OAuth client
+credentials) and continue — tell the user which transport you are on.
+Do not block the migration waiting for MCP when REST already works.
 
 Partial migrate is allowed. IAM files only → access. Datafile only → flags. Do not block flags because users are missing.
 
@@ -314,12 +341,47 @@ Confidence has **no** Optimizely projects, human environment roles,
 Publisher, or flag×env least-privilege intersection. State fidelity loss
 in the plan.
 
+### MUST say to the customer (Optimizely vs Confidence — who can see flags)
+
+**When:** once, before Translate mapping tables / consent rows — and
+again if they later confuse Clients with “seeing flags.” Do **not**
+bury this only in the plan file; **say it in chat** (plain language).
+
+**Required wording (adapt slightly, keep every bullet’s meaning):**
+
+> **Who can see flags — Optimizely vs Confidence (important)**
+>
+> In **Optimizely**, people often open flags because they have a
+> **project** (or environment) role. Access feels “through the project.”
+> Apps / SDK keys sit next to that same mental model.
+>
+> In **Confidence**, console visibility is **not** project-based and
+> **not** granted by attaching a Client:
+>
+> - **Users/groups seeing a flag or not** = **Group or user + role →
+>   that flag** (per-flag **Viewer** / **Editor** share, or **Owner**).
+>   Teams become Groups; we share the group’s flags so members can open
+>   them.
+> - **Which apps can resolve a flag** = **Flag Client** +
+>   `:addFlagClient`. Same flag may attach to several Clients (e.g. iOS
+>   + Android). That is **runtime only**.
+> - **Client association does not** make people able to see the flag in
+>   the UI. **IAM share does not** make an app able to resolve it.
+>
+> So when we migrate users: we invite people, put them in Groups, and
+> grant **group/role → flag** shares for console access — separately
+> from Clients for apps.
+
+Record under plan `## Customer education (visibility)` that this was
+said (date / paraphrase OK). If they ask “will Client X let team Y see
+flags?” — answer **no**; only shares/Owner/policies do.
+
 | Mechanism | Scope | Use for |
 |-----------|--------|---------|
 | **Policy** + role | **All** resources of that type | Account Administrator; optional Reader/Creator baseline. **Not** project/flag/env roles |
 | **Owner** on a resource | One flag / segment | Project Owner of flags from that project |
-| **Share** on a resource | One flag (Viewer or Editor) | **How the group sees those flags.** Project defaults + granular flag/audience assignments. Bind the **group**, not each member |
-| **Flag client + credential + environments** | Runtime resolve | SDK keys / apps — **not** human IAM |
+| **Share** on a resource | One flag (Viewer or Editor) | **How the group sees those flags** (group/role → flag). Project defaults + granular flag/audience assignments. Bind the **group**, not each member |
+| **Flag client + credential + environments** | Runtime resolve | SDK keys / apps — **not** human IAM; does **not** control who sees flags in the UI |
 
 [IAM intro](https://confidence.spotify.com/docs/iam/introduction): do
 **not** give Flags Editor via policy if you want per-flag control.
@@ -404,7 +466,11 @@ users may auto-provision — confirm before bulk-inviting.
 ## Group flag visibility (shares)
 
 Members of a group must **see that group’s flags**. That is a
-**per-flag share**, not a workspace Flags Reader/Editor policy.
+**per-flag share** (**group/role → flag**), not a workspace Flags
+Reader/Editor policy, and **not** Flag↔Client attach.
+
+If the customer has not yet heard the **MUST say** block under
+**Translate to Confidence**, say it before creating share rows.
 
 ### Role → share (use this table)
 
@@ -489,15 +555,17 @@ Before starting, look for `.claude/plans/optimizely-access-migration-*.md`
 **Do not** Write or mkdir a new access plan during overview or while
 awaiting Opening questions. Reading an existing plan for resume is OK.
 
-### Opening questions (MUST run before any fetch **and** before creating the plan file)
+### Opening questions (MUST be the first user-visible ask for plan access)
 
-After the migration overview and resume check, **stop and ask**. Do not
-create `.claude/plans/optimizely-access-migration-*.md`. Do not curl
-Optimizely. Do not Read export files. Do not invent people. Do not
+When the user starts **plan access** or **access + flags** (code
+deferred or not): this source-method question is the **first** thing
+you ask. Do **not** put the full migration overview before it.
+
+Do not create `.claude/plans/optimizely-access-migration-*.md`. Do not
+curl Optimizely. Do not Read export files. Do not invent people. Do not
 paste the REST token paragraph until they pick option 1.
 
-Show this tracker (same shape as SKILL.md Plan Flags / Plan Access
-step tracker):
+Show this tracker, then the question (same shape as SKILL.md):
 
 ```
 ───── Plan Access ─────────────────────────────────────────
@@ -509,38 +577,57 @@ step tracker):
 ────────────────────────────────────────────────────────────
 ```
 
-**How to ask:** use a structured multiple-choice tool if the agent has
-one (`AskQuestion`, `AskUserQuestion`). If the tool is skipped or
-unavailable, print the numbered options in chat and wait. Never skip
-this question. Never collapse it into "paste a token or a path".
+**How to ask (one question; type `1` / `2` / …):** follow **Question UX**
+in SKILL.md for every fixed choice in Phase 0. **One question per
+assistant turn.** Always number options and tell the user to reply with
+the number. Optional `AskQuestion` / `AskUserQuestion` for that same
+question only — never replace the numbered list.
 
-**Source method (required) — ask this first, alone:**
+Never skip. Never collapse into "paste a token or a path" without a
+numbered choice (or a single free-text ask for secrets). Silence is not
+consent. Never ask multiple source / governance / consent questions in
+one message.
 
-> How should I read your Optimizely users, teams, and permissions?
-> I will not call api.optimizely.com or invent people. This command
-> only writes a plan — no invites.
->
-> 1. **Live REST API** — I have (or can create) an Optimizely API token + Project ID
-> 2. **Export files** — I will give a path, paste, or attach JSON (users/teams/permissions)
-> 3. **I cannot create a token** — walk me through the file fallback
+**Source method — one numbered question per turn (stop after each):**
 
-If `skills/migrate-optimizely/test-fixtures/iam-export-sample.json`
-exists in the workspace, add:
+**Turn A** (always first) — optional one-line tracker, then:
 
-> 4. **Sample IAM file in this repo** — `test-fixtures/iam-export-sample.json` (skill test only)
+```text
+Can we read your Optimizely users, teams, and permissions over the Live REST API (API token + Project ID)?
+Reply with the number:
+1. Yes — I have (or can create) a token + Project ID
+2. No — use files or another option
+```
 
-Always add:
+`⏸ awaiting user`. If **1** → Hard gate §1 next (token / project ID;
+typed secrets are free-text, still one ask). Do not ask Desktop/sample yet.
 
-> 5. **JSON on my Desktop** — look on Desktop (then Downloads) for a
->    file that relates **users to groups/teams**. I will confirm before
->    you use it.
+**Turn B** (only if Turn A was **2**):
+
+```text
+Do you have export files (path, paste, or attach) for users / teams / permissions?
+Reply with the number:
+1. Yes — I will give a path, paste, or attach
+2. No
+```
+
+**Turn C** (only if Turn B was **2**):
+
+```text
+How should we proceed without a token or export yet?
+Reply with the number:
+1. Walk me through the file fallback
+2. JSON on my Desktop — look, then confirm before Read
+3. Sample IAM file in this repo
+4. Something else (I will type it)
+```
+
+Optional one-line scope on Turn A only (“access + flags; no code”) if
+they already said that — then the numbered question.
 
 People (emails, teams, permissions) come only from this source. Extra
 strategy/exceptions are a **later** question, after the access file (or
 REST) exists — see **Extract context** below.
-
-`⏸ awaiting user` until they pick a source (1–5). Do not fetch Optimizely
-yet. Do not create the plan file yet. Do not run Extract context yet.
 
 **After they answer source method:** create
 `.claude/plans/optimizely-access-migration-<date>.md` from the template
@@ -597,9 +684,10 @@ This is **not** a second user list. It is extra **access migration
 context**: internal strategy, exceptions, keep/skip notes, anything
 defined next to the permissions file.
 
-**How to ask:** structured multiple-choice (`AskQuestion`) if available;
-otherwise print the options and wait. Skip is valid. Never invent a
-strategy. Never treat markdown as people to invite.
+**How to ask:** one numbered question per turn (Question UX). Skip must
+be a numbered option. Never invent a strategy. Never treat markdown as
+people to invite. Never ask look/paste/skip as three separate questions
+in one message — one prompt with `1` / `2` / `3`.
 
 > I have the Optimizely **users, teams, and permissions** source.
 > Before I translate to Confidence, is there extra **access migration
@@ -608,13 +696,12 @@ strategy. Never treat markdown as people to invite.
 > I will still take people only from the Optimizely REST API or the
 > access file. This is extra context around that file.
 >
-> 1. **Look around** — search next to the access file (and this
->    workspace) for markdown/docs about access migration, IAM, or
->    exceptions. I will list what I find and confirm before using it.
+> Reply with the number:
+> 1. **Look around** — search next to the access file (and this workspace) for markdown/docs about access migration, IAM, or exceptions. I will list what I find and confirm before using it.
 > 2. **I'll paste** extra context in chat (or a path)
 > 3. **Skip** — map only the Optimizely REST / file
 
-`⏸ awaiting user` until they pick look / paste / skip.
+`⏸ awaiting user` until they reply with `1`, `2`, or `3`.
 
 **If they picked paste:** wait for the paste (or a path they type). Do
 not invent context. Record it in the plan `## Access migration context`.
@@ -641,8 +728,110 @@ keep-lists. They must **not** invent people. Keep-list and forbidden
 checks in this file always win — quote conflicts in the plan. Record
 source (none | pasted | path) under `## Access migration context`.
 
-**If they picked skip:** write `Source: none (skipped)` and continue
-Step 1 extract / Step 2 translate from REST / file only.
+**If they picked skip:** write `Source: none (skipped)` under
+`## Access migration context`, then **immediately run Governance
+discovery interview** before Step 2. Skip is not “invent governance.”
+
+**If look-around found nothing** (no Desktop/Downloads/workspace docs):
+say so, then **run Governance discovery interview**. Do not proceed to
+Translate on file/REST people lists alone when project roles, flag
+shares, env permissions, audiences, or app/client boundaries are
+missing or ambiguous.
+
+### Governance discovery interview (MUST when docs/export are thin)
+
+Run this **whenever** any of these is true:
+
+- Extract context was **skip**, or look-around found **no** governance
+  docs (Desktop, Downloads, next to the export, workspace)
+- REST/file has people/teams but **missing or partial** project roles,
+  env permissions, flag/audience assignments, SDK keys, or app usage
+- User cannot provide an Optimizely export and is reconstructing from
+  knowledge (“how we run Optimizely today”)
+- During **Translate**, **Flag clients**, or later **plan flags**, a
+  governance fact is still unknown
+
+`⏸ awaiting user` **between every question**. Follow **Question UX**
+(SKILL.md): **exactly one** numbered question per turn — never dump
+groups A–D, never ask 1–4 in one message. Split former “question groups”
+into a sequence of single asks (A1, then A2, … then B5, …). Record
+answers under `## Governance interview` in the plan. **Never invent**
+emails, teams, roles, apps, or client splits.
+
+Educate briefly before each group: Optimizely governance does **not**
+map 1:1. Confidence uses **different levers** — ask so we match intent
+with what Confidence can actually do.
+
+**Before question group B (human access):** deliver the full **MUST say
+to the customer** block (Optimizely project access vs Confidence
+**group/role → flag** shares). Do not skip it because “they already
+know IAM.”
+
+#### Confidence levers (teach this; do not conflate)
+
+| Intent | Confidence lever | Not this |
+|--------|------------------|----------|
+| Who can **see/edit** a flag in the UI | **Group/user + role → flag**: per-flag **share** (Viewer/Editor) or **Owner** | Optimizely-style “project membership alone”; Flag **Client** attach; Flag **rules**; workspace Flags Reader/Editor **policy** |
+| Who is Admin of the workspace | Policy + `roles/admin` | Project Owner |
+| Team membership inheritance | **Group** + shares/policy on the group identity | Flattening to per-user shares |
+| Former Optimizely **project** boundary | Logical set of flags + shares + which Clients those flags attach to | A Confidence “Project” (does not exist); Project ≠ Client |
+| Which **apps** resolve a flag | **Flag Client(s)** + `:addFlagClient` (one flag → many clients OK) | Human IAM share; SDK key alone |
+| Prod vs staging behavior | **Environments** on credentials + **flag rules** limited to those envs | Human “environment role” (unmapped as IAM) |
+| Who gets which **variant** at runtime | Flag **rules** (segments/criteria, allocations) | Who can open the flag in the console |
+
+Flag **rules** give runtime flexibility (env, audience, traffic). They do
+**not** replace IAM for “which flags can this group open.” Use rules
+together with Clients/Environments when Optimizely used env roles or
+multi-app keys to constrain **behavior**, and use **shares** when they
+constrained **console access**.
+
+#### Question group A — org shape (ask first if unclear; ONE question per turn)
+
+Ask each item separately. Example for the first:
+
+```text
+Account admins — Who can manage users/billing (Account Administrator), separate from project owners?
+Reply with the number (or type free-text if you pick 3):
+1. I will list emails / names next
+2. Unknown / skip for now
+3. Something else (I will type it)
+```
+
+Then, only after they answer, ask projects; then teams; then direct
+user roles. Do **not** send questions 1–4 together.
+
+Topics to cover (each its own turn):
+1. **Account admins**
+2. **Projects** — how many / names / teams spanning projects?
+3. **Teams** — list teams and members; one Group each?
+4. **Direct user roles** — access outside a team?
+
+#### Question group B — human access (one topic per turn)
+
+> **Reminder (say once before the first B question if not already said):**
+> In Confidence, **users seeing flags or not** = **group/role → flag**
+> (Viewer/Editor share), not Optimizely project membership alone, and
+> not Flag Clients.
+
+Then ask **one** of these per turn (numbered options + free-text when
+needed): default project role; flag-level exceptions; audience-level
+exceptions; environment-level human roles; Publisher vs Editor fidelity.
+
+#### Question group C — apps / clients (one topic per turn)
+
+Educate once that Clients are runtime app identities. Then ask one per
+turn: app list; shared vs separate SDK keys; one Client per app?;
+multi-app flags; client-less flags.
+
+#### Question group D — runtime rules (one topic per turn)
+
+Ask during Flag clients / plan flags when unclear — still **one** ask
+per turn: env-scoped rules; client-only resolve isolation; targeting in
+rules vs console permissions.
+
+If answers conflict with a file/REST extract, **ASK which wins**. Prefer
+export for people lists; prefer interview for intent when permissions
+arrays are empty.
 
 ### Steps
 
@@ -657,13 +846,23 @@ the end.
    users + groups/teams + a join). Reconstruct the source model.
    Record file paths (redact SDK keys). **When the access file / REST
    is confirmed, run Extract context** (look around that file, paste,
-   or skip) before marking this step complete. People only from REST /
-   file / fallback.
+   or skip). **If skip / no docs / gaps → Governance discovery
+   interview** before marking this step complete. People only from
+   REST / file / fallback / interview (interview may supply roles and
+   app boundaries; still do not invent emails).
    **After complete:** Generation Status step 1 `✓ complete`.
-2. **Translate** — Fill the mapping tables (users, teams→groups, project
-   roles, flag/audience shares, unmapped env-human IAM, fidelity loss).
-   Apply confirmed access-migration context as constraints (exceptions,
-   skip rows, notes). Propose `default-policy` tightening; do not apply it.
+2. **Translate** — **First, say the MUST-say customer block**
+   (Optimizely project access vs Confidence **group/role → flag** for
+   who can see flags; Clients ≠ console visibility). Then fill the
+   mapping tables (users, teams→groups, project roles, flag/audience
+   shares, unmapped env-human IAM, fidelity loss). Apply confirmed
+   access-migration context **and** governance interview answers. Map
+   console visibility to **shares** (group/role → flag); map app reach
+   to **Clients** + multi-client flag attach; map env publish intent to
+   Environments + **rules** (not IAM). Missing fact → ASK (re-enter
+   interview groups B–D). Propose `default-policy` tightening; do not
+   apply it. Record that education under `## Customer education
+   (visibility)`.
    **After complete:** Generation Status step 2 `✓ complete`.
 3. **Consent rows** — One row per user and per group with empty
    `[ ] Invite` / `[ ] Skip` (users) and `[ ] Create` / `[ ] Skip`
@@ -671,18 +870,22 @@ the end.
    `[ ] Skip`.
    **After complete:** Generation Status step 3 `✓ complete`.
 4. **Flag clients** — Propose candidates from project + env + SDK key
-   + apps + isolation. **ASK** (questions below). Write section 5 with
-   `[ ] Create` / `[ ] Skip`. If no `sdk_key`: skip, mark blocked.
+   + apps + isolation **and** interview group C. **ASK** (questions
+   below + multi-app flag attach). Write section 5 with
+   `[ ] Create` / `[ ] Skip`. Record which flags attach to which
+   clients (one→many OK; some flags client-less OK). If no `sdk_key`
+   and no interview app list: skip, mark blocked — then ASK group C
+   before inventing.
    Do not `POST /v1/clients`.
    **After complete or skipped:** Generation Status step 4.
 5. **Write plan** — Finish the file. Set step 5 and Overall to
-   `✓ complete`. Tell the user to review, tick the boxes, then run
-   `/migrate-optimizely execute access` or
-   `/migrate-optimizely-execute-access`. Tell them they can also
-   **adjust** users, groups, roles, policies, or clients through the
-   skill (`/migrate-optimizely adjust access`) instead of hand-editing
-   the file. List what execute will do. Do not invite anyone. Do not
-   create clients.
+   `✓ complete`. List what execute will do. Do not invite anyone. Do
+   not create clients. **Then the Step 5 exit ask in SKILL.md
+   (required):** there is **no automatic path** into adjust — ASK
+   with structured choices: (1) **Adjust access**, (2) **Tick
+   consent**, (3) **Execute access** (only if consent already
+   ticked), (4) **Done for now**. If they pick (1), enter **adjust
+   access** in the same turn (do not require the slash command).
 
 `⏸ awaiting user` if emails, team membership, or project roles are
 missing. Do not invent people.
@@ -731,6 +934,31 @@ Applied to translation: <yes / n/a>
 Exceptions: <none | bullets>
 Conflicts with skill rules (keep-list / forbidden): <none | quotes>
 
+## Customer education (visibility)
+
+Said in chat: <yes — date/paraphrase | pending>
+Core message recorded: Optimizely often grants console access via
+**project** roles; Confidence grants **users seeing flags or not** via
+**group/role → flag** (Viewer/Editor share / Owner). Flag **Clients** =
+app resolve only — they do **not** grant UI visibility.
+
+## Governance interview
+
+Ran because: <no docs on Desktop/Downloads/workspace | Extract context skip | gaps in export | user reconstructing>
+Answers applied: <yes>
+
+| Topic | Answer | Confidence lever |
+|-------|--------|------------------|
+| Account admins | | `roles/admin` policy |
+| Projects / scopes | | Flag sets + shares (no Project resource) |
+| Teams → groups | | Group + group-bound shares |
+| Project / flag / audience roles | | **group/role → flag** Viewer/Editor shares (Owner); not Clients |
+| Env human roles | | Unmapped IAM; Environments + rules + credentials |
+| Apps / Clients | | Flag Clients; ask isolation |
+| Multi-app flags | | One flag → many `:addFlagClient` |
+| Client-less flags | | No attach until an app needs resolve |
+| Publisher vs Editor | | Fidelity loss noted |
+
 ## 2. Translation
 
 | Optimizely | Principal | Confidence | Notes |
@@ -738,9 +966,10 @@ Conflicts with skill rules (keep-list / forbidden): <none | quotes>
 | Collaborator | <email> | Invite (execute) | Exists only after accept |
 | Team <name> | <members> | Group `<groupId>` + policy `optimizely-group-<groupId>` | Do not flatten |
 | Project Owner | <email> | Flag **owner** | Not `roles/admin` |
-| Project Editor / Publisher | <email> | Flag **Editor share** | Not workspace Flags Editor |
-| Env human permission | <principal> @ <env> | **Unmapped as IAM** | List in section 4 |
-| Flag / audience assignment | <principal> | Intended share | After Phase 1 resources exist |
+| Project Editor / Publisher | <email> | Flag **Editor share** | Not workspace Flags Editor; Publisher fidelity loss |
+| Env human permission | <principal> @ <env> | **Unmapped as IAM** | List in section 4; runtime via env + rules |
+| Flag / audience assignment | <principal> | Intended share | After Phase 1; audience→segment share when distinct |
+| Project (container) | — | Flag set + shares + client attaches | Not a Confidence Project; ≠ Client |
 
 ### Forbidden checks (must stay unchecked)
 
@@ -805,17 +1034,28 @@ Do not wait for accept.
 Planned **inside `plan access`**. Do not invent. Project ≠ Client.
 Env ≠ Client. SDK key ≠ Client. Redact real SDK keys (`<sdk_key>`).
 
-If this file has no `sdk_key`: **blocked** — skip step 4. Re-run
-`plan access` (or `plan clients` alias) when keys / app split exist.
+If this file has no `sdk_key` **and** no interview app list: **blocked**
+— skip step 4, run Governance interview group C, then re-run.
 
-If keys exist, list candidates after ASK:
+If keys or interview apps exist, list candidates after ASK:
 
-| clientId | displayName | From (project / env / key) | Apps / isolation | Consent |
-|----------|-------------|----------------------------|------------------|---------|
+| clientId | displayName | From (project / env / key / interview) | Apps / isolation | Consent |
+|----------|-------------|----------------------------------------|------------------|---------|
 | <prod-checkout> | <prod-checkout> | project + env + sdk_key (redacted) | <one client / split ios-android> | [ ] Create  [ ] Skip |
 
+### Flag ↔ Client attach (runtime; not human IAM)
+
+One Confidence flag may attach to **multiple** Clients (multi-app).
+Some flags may attach to **none** yet (not running in an app).
+
+| Flag (Optimizely key) | Confidence Clients | Notes |
+|----------------------|--------------------|-------|
+| <flag-key> | <clientId>, <clientId2> | multi-app |
+| <flag-key-2> | _(none yet)_ | console-only / defer |
+
 Never reuse the auto-created `{workspace} client` unless they say so.
-`execute access` creates `[x] Create` rows only.
+`execute access` creates `[x] Create` rows only. `:addFlagClient` does
+**not** grant humans permission to see the flag or the client.
 
 ## 6. Execute progress
 
@@ -846,7 +1086,9 @@ Never reuse the auto-created `{workspace} client` unless they say so.
 ## adjust access — fine modifications (plan file; no IAM writes)
 
 Use when the user runs `/migrate-optimizely adjust access`,
-`/migrate-optimizely-adjust-access`, `modify access`, or asks to
+`/migrate-optimizely-adjust-access`, `modify access`, picks
+**Adjust access** on the **plan access Step 5 exit ask** (no
+automatic path from plan — that ask is required), or asks to
 change **users, groups, roles, policies, or clients** after a plan
 exists. Natural language is enough ("skip all @example.com",
 "Checkout should be Editor", "don't create team-data", "rename
@@ -880,26 +1122,21 @@ overview unless they also started a plan command this turn.
 ### How to ask
 
 If they already stated the change, **apply it** (do not re-ask the
-menu). Otherwise structured question:
+menu). Otherwise **one** numbered question (Question UX):
 
-> The access plan is ready to edit. I will change the plan file only
-> — no invites. What should I change?
->
-> 1. **Users** — invite/skip (all, by team, by domain), move groups, add an email you give me
-> 2. **Groups** — create/skip, rename, members, merge/split
-> 3. **Roles** — Viewer / Editor / Owner shares (per group, user, or default mapping)
-> 4. **Policies** — group policy roles; yes/no on default-policy tighten
-> 5. **Clients** — create/skip, names, split/merge, which groups see them
-> 6. **Done** — stop adjusting; tick remaining consent or run execute access
+```text
+The access plan is ready to edit. I will change the plan file only — no invites.
+What should I change? Reply with the number:
+1. Users — invite/skip, move groups, add an email you give me
+2. Groups — create/skip, rename, members, merge/split
+3. Roles — Viewer / Editor / Owner shares
+4. Policies — group policy roles; default-policy tighten yes/no
+5. Clients — create/skip, names, which groups see them
+6. Done — stop adjusting; return to exit menu
+```
 
-Loop until they pick Done or run execute. After each applied change,
-summarize the diff (counts, not every email unless they asked for one
-person). Append a row to **## 7. Adjustments** (create that section
-if missing). Keep heading names in sections 2–5 — `execute access`
-parses them.
-
-Do not treat a rename or membership edit as consent. Only tick
-`[x] Invite` / `[x] Skip` / `[x] Create` when they asked to tick.
+Loop: after each applied change, re-ask this **single** menu (or Done).
+Do not ask follow-ups in the same turn as the menu pick — next turn.
 
 ### Users
 
@@ -950,6 +1187,11 @@ Adjust still edits the plan. Next `execute access` applies:
 
 ## execute access (idempotent)
 
+**Progress (MANDATORY).** Every write loop (groups, policies, clients,
+invites, provision, flag shares) must show a live progress bar to the
+user — same rules as **Execute progress bar** in SKILL.md (`█`/`░`,
+current/total, current item). Never run silent multi-minute IAM batches.
+
 **First: Confidence auth.** If `GET /v1/users` already succeeds with a
 valid session token, skip login. If not, **ASK** them to sign in
 (hard gate §2) before the consent gate and before any IAM write. Then
@@ -974,12 +1216,14 @@ unticked rows. Silence is not consent. Blocked / skipped Flag clients
 First run (groups/invites not created yet): create each `[x] Create`
 group, then create each group's policy bound to `identities/g{groupId}`
 (Reader — **not** Flags Editor), then each `[x] Create` Flag client
-(`POST /v1/clients` + credential; secret once; never print Optimizely
-SDK keys; never delete the auto-created workspace client), then send
-each `[x] Invite` invitation. If flags already exist, run
-`share_group_flags` now (group identity — do not wait for accept). Then
-**immediately** run `provision_accepted` and the watch loop below. Do
-not stop after sending invites.
+(**MCP `createClient` first**; if MCP unavailable, IAM REST
+`POST /v1/clients` + credential — see **Transport: MCP first, REST
+fallback**; secret once; never print Optimizely SDK keys; never delete
+the auto-created workspace client), then send each `[x] Invite`
+invitation. If flags already exist, run `share_group_flags` now (group
+identity — do not wait for accept). Then **immediately** run
+`provision_accepted` and the watch loop below. Do not stop after
+sending invites.
 
 Accepting an invite creates the user only. **This command** puts them
 in the right group, on the right policy, seeing the right Flag client
@@ -1067,9 +1311,9 @@ updated; shares still needing UI if no share API.
 
 ## Flag clients (inside plan access) — ASK, never auto-create
 
-This is **Step 4 of `plan access`**. `/migrate-optimizely plan clients`
-is an alias that runs only this step against the existing access plan
-(or starts `plan access` if none exists).
+This is **Step 4 of `plan access`** — not a separate command. If SDK
+keys arrive after the access plan was written, re-run `plan access`
+and resume this step against the existing plan.
 
 **Do not** treat an Optimizely project, environment, or SDK key as a
 Confidence Client. They are different objects.
@@ -1094,15 +1338,25 @@ Ask:
 2. Should each unique SDK key become one Confidence Flag client?
 3. If iOS and Android (or web) share one SDK key, one client or split?
 4. What display names? Suggested: {environment_key}-{project-slug}[-ios|-android|-web]
+5. Which flags run in which apps? (one flag → many Clients is OK)
+6. Any flags that should stay client-less until an app integrates?
 ```
 
+If SDK keys are missing but the user can describe apps, **still propose
+clients from the interview** (names + isolation), mark credentials
+pending, and fill the Flag ↔ Client attach table. Do not invent secret
+values.
+
 **Forbidden without an explicit answer:** one client per project only;
-one client per environment with no `sdk_key`; splitting/merging by
+one client per environment with no `sdk_key` and no interview; splitting/merging by
 assumed platforms; reusing the auto-created `{workspace} client` unless
 they say so.
 
-After `execute access` creates a client: `POST /v1/clients?clientId=…`
-then `POST /v1/clients/{id}/credentials` (secret shown once). Do not
+After `execute access` creates a client: prefer Flags MCP
+`createClient`; if that fails, IAM REST `POST /v1/clients` (body
+`displayName` + `clientType`, or `?clientId=…` only when the API
+accepts it) then `POST /v1/clients/{id}/credentials` (secret shown
+once). Do not
 print Optimizely SDK keys. Then **run `provision_accepted`** so
 accepted groups get `:addFlagClient` and see them in the picker.
 
