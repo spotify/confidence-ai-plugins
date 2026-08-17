@@ -16,8 +16,8 @@ export function App({ currentUser }: { currentUser: { email: string; group: stri
   useEffect(() => {
     OpenFeature.setContext({
       targetingKey: currentUser.email,
-      nike_email: currentUser.email,
-      nike_group_id: currentUser.group,
+      user_email: currentUser.email,
+      user_group_id: currentUser.group,
     });
   }, [currentUser]);
 
@@ -31,7 +31,7 @@ export function App({ currentUser }: { currentUser: { email: string; group: stri
 function Homepage() {
   // Standard OpenFeature React hooks — unchanged by the migration.
   const analytics = useFlag('analytics', 'off');
-  const classification = useFlag('nike_classification', 'on');
+  const classification = useFlag('user_classification', 'on');
   const showAnalytics = String(analytics.value ?? 'off').toLowerCase().trim() === 'on';
 
   return (

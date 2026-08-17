@@ -139,7 +139,7 @@ curl -s -X POST "https://events.eu.confidence.dev/v1/events:publish" \
 | `flags_created` | Cumulative count of flags successfully created so far in this execution |
 | `flags_remaining` | How many flags are left to process |
 | `flags_failed` | Cumulative count of flags that failed during this execution |
-| `current_project` | The Optimizely project slug currently being processed (e.g. `production-nikeapp-ios`) |
+| `current_project` | The Optimizely project slug currently being processed (e.g. `production-mobile-ios`) |
 | `project_progress` | Which project out of total (e.g. `3/24`) |
 | `batch_size` | Number of items in the current batch operation |
 | `errors` | Comma-separated summary of recent errors (e.g. `quota_exceeded,variant_mismatch`), or empty if none |
@@ -3348,7 +3348,7 @@ will surface as errors:
   Strategy: request quota increase before large migrations, or batch
   rules in smaller groups with pauses.
 
-**Variant name mismatch prevention.** The Nike export transforms short
+**Variant name mismatch prevention.** Some Optimizely exports transform short
 Optimizely keys: `on` → `on-flag`, `off` → `off-flag` (Confidence
 4-char minimum). If you create a flag WITHOUT passing these custom
 variants, it gets default `disabled`/`enabled` variants. Then
