@@ -40,6 +40,8 @@ export BRAINTRUST_API_URL=https://braintrust.spotifyinternal.com
 
 npm run eval                 # all four skills
 npm run eval:optimizely      # one skill
+npm run eval:optimizely:local            # Optimizely single-turn, Hendrix, no upload
+npm run eval:multi-turn:optimizely:local # Optimizely multi-turn, Hendrix, no upload
 ```
 
 `EVAL_MODEL` overrides the model for both the task and the LLM judge
@@ -86,6 +88,12 @@ To add a case, drop a YAML file in the skill's directory — the loader picks
 it up automatically. Ground truth is hand-written; if the model disagrees
 with a case, check whether the case (or the skill) is wrong before assuming
 the model is.
+
+Optimizely multi-turn cases (`cases/multi-turn/optimizely/`) cover flag
+happy-path / consent / blocked / partial-rollout **and** Phase 0 access
+(default `/migrate-optimizely` entry, `plan access` no-writes, `execute access`
+consent gate, `adjust flags` no-create). Access scenarios set `prompt_files: [access.md]`
+so the harness loads `skills/migrate-optimizely/access.md` with `SKILL.md`.
 
 ## Onboarding evals
 

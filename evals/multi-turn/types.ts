@@ -102,6 +102,8 @@ export interface Scenario {
    * Multiple entries are concatenated (e.g. a dispatcher skill plus the
    * skill it hands off to). */
   skills?: string[];
+  /** Extra markdown files from the first skill directory (e.g. `access.md`). */
+  promptFiles?: string[];
   tags: string[];
   sourceFlags: Record<string, unknown>[];
   conversation: string[];

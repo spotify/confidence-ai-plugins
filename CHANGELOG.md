@@ -5,6 +5,7 @@
 ### Features
 
 * **migrate-optimizely:** Bare `/migrate-optimizely` (no args) defaults to **`plan access`** — start Phase 0 from the beginning. Explicit subcommands unchanged.
+* **migrate-optimizely:** Add multi-turn evals for default `plan access` entry, access consent gate, `plan access` no-writes, and `adjust flags` no-create; existing flag conversations now answer the source-method opening question.
 * **migrate-optimizely:** Phase 0–2 each support plan / **adjust** / execute. Flag clients live inside **`plan access` Step 4** (no separate `plan clients` command). After every `plan *` completes, a **required exit ask** offers adjust (or tick/execute/done). **`execute flags` must end with a Phase 1 resolve gate** — every migrated flag resolve-verified (not a 3–5 spot-check). See [README — Optimizely → Confidence](./README.md#optimizely--confidence), [`SKILL.md`](./skills/migrate-optimizely/SKILL.md), and [`access.md`](./skills/migrate-optimizely/access.md).
 * **migrate-optimizely:** `plan flags` runs a **rules operator audit** and asks for workarounds on unsupported Optimizely operators (`exists` / `substring` / `regex`); all execute loops (access, flags, rules) must show a **live progress bar**.
 * **migrate-optimizely:** Production waterfall / `_rulesets` targeting-rules import must show a live `Execute Flags · targeting rules` progress bar (not milestone-only `... created N` logs); same for segment prep, catch-alls, and resolve verify.

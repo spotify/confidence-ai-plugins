@@ -30,6 +30,14 @@ const toolDef = (
 export const MOCK_TOOLS: Anthropic.Tool[] = [
   toolDef("listClients", "List all SDK clients for the account.", {}),
   toolDef(
+    "createClient",
+    "Create a new SDK client.",
+    {
+      displayName: { type: "string", description: "Human-readable client name" },
+    },
+    ["displayName"],
+  ),
+  toolDef(
     "createFlag",
     "Create a feature flag with schema, variants, and client attachment.",
     {
@@ -289,6 +297,12 @@ export function dispatchTool(
 
   switch (shortName) {
     case "listClients": return handleListClients(state);
+    case "createClient": {
+      const displayName = String(input.displayName ?? "new-client");
+      const name = `clients/${displayName.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-id`;
+      state.clients.push({ name, displayName });
+      return `Client '${name}' created.`;
+    }
     case "createFlag": return handleCreateFlag(input, state);
     case "addTargetingRule": return handleAddTargetingRule(input, state);
     case "addFlagToClient": return `Flag '${input.flagName}' added to client '${input.clientName}'.`;

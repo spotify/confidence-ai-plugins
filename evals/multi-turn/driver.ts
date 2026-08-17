@@ -25,8 +25,13 @@ export async function runConversation(scenario: Scenario): Promise<Trace> {
   const client = new Anthropic();
   const model = process.env.EVAL_MODEL || "claude-sonnet-4-6";
   const harness = harnessFor(scenario);
+  const skillDirs = harness.skillDirs(scenario);
+  const extras = scenario.promptFiles ?? [];
   const systemPrompt =
-    harness.preamble + harness.skillDirs(scenario).map(loadSkillPrompt).join("\n\n---\n\n");
+    harness.preamble +
+    skillDirs
+      .map((dir, i) => loadSkillPrompt(dir, i === 0 ? extras : []))
+      .join("\n\n---\n\n");
   const dispatch = harness.createDispatcher(scenario);
 
   const messages: Anthropic.MessageParam[] = [];
