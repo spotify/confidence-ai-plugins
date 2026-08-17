@@ -39,7 +39,7 @@ export interface AssertionResult {
   assertionName: string;
 }
 
-export type Assertion = (trace: Trace) => AssertionResult;
+export type Assertion = (trace: Trace) => AssertionResult | Promise<AssertionResult>;
 
 export interface AssertionDef {
   type: string;
@@ -52,6 +52,8 @@ export interface AssertionDef {
   min_count?: number;
   max_count?: number;
   arg_name?: string;
+  criteria?: string;
+  threshold?: number;
 }
 
 export interface MockFlag {

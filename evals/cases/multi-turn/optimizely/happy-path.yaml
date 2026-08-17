@@ -38,11 +38,9 @@ conversation:
     ```json
     [{"key":"new-homepage","name":"New homepage","description":"100% rollout to everyone.","archived":false,"variable_definitions":{},"variations":[{"key":"on","name":"On"},{"key":"off","name":"Off"}],"ruleset":{"enabled":true,"default_variation_key":"off","rule_priorities":["everyone"],"rules":{"everyone":{"type":"targeted_delivery","percentage_included":10000,"audience_conditions":[],"audience_ids":[],"variations":{"on":{"percentage_included":10000}}}}},"referenced_audiences":{}}]
     ```
-  - "2"
-  - "1"
   - "test-app"
   - "1"
-  - "user_id"
+  - "1"
   - "1"
   - |
     I've reviewed the plan. All flags marked [x] Migrate look correct. Execute.
