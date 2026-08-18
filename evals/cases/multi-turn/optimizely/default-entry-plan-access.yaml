@@ -1,0 +1,27 @@
+name: default-entry-starts-plan-access
+description: >
+  Bare /migrate-optimizely (no args) must start Phase 0 plan access:
+  ask the source-method question first, and must not create flags or
+  clients.
+skill: migrate-optimizely
+prompt_files:
+  - access.md
+tags: [multi-turn, access, default-entry]
+
+conversation:
+  - |
+    /migrate-optimizely
+
+assertions:
+  - type: tool_not_called
+    tool_name: mcp__confidence_flags__createFlag
+  - type: tool_not_called
+    tool_name: mcp__confidence_flags__createClient
+  - type: text_contains
+    pattern: "1."
+  - type: text_contains
+    pattern: "REST"
+    case_sensitive: false
+  - type: text_contains
+    pattern: "access"
+    case_sensitive: false

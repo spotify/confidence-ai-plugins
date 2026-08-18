@@ -1,5 +1,6 @@
 import type { Trace, Assertion, AssertionResult, AssertionDef } from "./types.js";
 import { getToolCallsByName, getAllText } from "./trace.js";
+import { llmScore } from "../lib/scorers/llm-judge.js";
 
 export function toolCalled(toolName: string): Assertion {
   return (trace: Trace): AssertionResult => {
@@ -172,6 +173,19 @@ export function textContainsQuestion(pattern: string): Assertion {
   };
 }
 
+export function llmJudge(criteria: string, threshold = 0.7): Assertion {
+  return async (trace: Trace): Promise<AssertionResult> => {
+    const text = getAllText(trace);
+    const result = await llmScore("llm_judge", criteria, text, 1, 12000);
+    const passed = result.score >= threshold;
+    return {
+      passed,
+      message: passed ? "" : `LLM judge score ${result.score} below threshold ${threshold}: ${(result.metadata as Record<string, unknown>)?.reason ?? ""}`,
+      assertionName: `llmJudge(${criteria.substring(0, 50)}...)`,
+    };
+  };
+}
+
 const ASSERTION_FACTORIES: Record<string, (def: AssertionDef) => Assertion> = {
   tool_called: (d) => toolCalled(d.tool_name!),
   tool_not_called: (d) => toolNotCalled(d.tool_name!),
@@ -183,6 +197,7 @@ const ASSERTION_FACTORIES: Record<string, (def: AssertionDef) => Assertion> = {
   tool_call_arg_not_contains: (d) => toolCallArgNotContains(d.tool_name!, d.arg_name!, d.pattern!),
   text_before_tool: (d) => textBeforeTool(d.pattern!, d.tool_name!),
   text_contains_question: (d) => textContainsQuestion(d.pattern!),
+  llm_judge: (d) => llmJudge(d.criteria!, d.threshold),
 };
 
 export function parseAssertion(def: AssertionDef): Assertion {

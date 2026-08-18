@@ -40,9 +40,9 @@ conversation:
     ```
   - "test-app"
   - "review each flag individually"
-  - "user_id"
+  - "1"
   - |
-    /migrate-optimizely execute plan
+    /migrate-optimizely execute flags
 
     Here is the plan:
 

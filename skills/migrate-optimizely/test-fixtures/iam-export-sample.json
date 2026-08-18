@@ -1,0 +1,88 @@
+{
+  "users": [
+    {
+      "id": "user-001",
+      "email": "alice.anders001@example.com"
+    },
+    {
+      "id": "user-002",
+      "email": "ben.bennett002@example.com"
+    },
+    {
+      "id": "user-011",
+      "email": "kara.khan011@example.com"
+    }
+  ],
+  "teams": [
+    {
+      "id": "team-checkout",
+      "name": "Checkout",
+      "members": ["user-002", "user-011"]
+    }
+  ],
+  "projects": [
+    {
+      "id": 123456,
+      "name": "Checkout",
+      "collaborators": [
+        { "user_id": "user-001", "role": "project_owner" },
+        { "user_id": "user-002", "role": "editor" },
+        { "user_id": "user-011", "role": "publisher" }
+      ],
+      "environments": [
+        {
+          "id": "env-checkout-dev",
+          "name": "Development",
+          "permissions": [
+            {
+              "principal_type": "team",
+              "principal_id": "team-checkout",
+              "role": "admin"
+            }
+          ]
+        },
+        {
+          "id": "env-checkout-prod",
+          "name": "Production",
+          "permissions": [
+            {
+              "principal_type": "team",
+              "principal_id": "team-checkout",
+              "role": "viewer"
+            }
+          ]
+        }
+      ],
+      "flags": [
+        {
+          "id": "flag-checkout-01",
+          "permissions": [
+            {
+              "principal_type": "team",
+              "principal_id": "team-checkout",
+              "role": "editor"
+            },
+            {
+              "principal_type": "user",
+              "principal_id": "user-001",
+              "role": "admin"
+            }
+          ]
+        }
+      ],
+      "audiences": [
+        {
+          "id": "aud-checkout-01",
+          "name": "New Users",
+          "permissions": [
+            {
+              "principal_type": "team",
+              "principal_id": "team-checkout",
+              "role": "editor"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -17,7 +17,7 @@ function summarizeToolCalls(trace: Trace): Record<string, number> {
 
 export function multiTurnScores() {
   return [
-    (args: Record<string, unknown>) => {
+    async (args: Record<string, unknown>) => {
       const { trace, error } = args.output as TaskOutput;
       const scenario = args.input as Scenario;
 
@@ -25,7 +25,7 @@ export function multiTurnScores() {
         return { name: "AssertionsPassed", score: 0, metadata: { error } };
       }
 
-      const results = scenario.assertions.map((a) => a(trace));
+      const results = await Promise.all(scenario.assertions.map((a) => a(trace)));
       const passed = results.filter((r) => r.passed).length;
       const total = results.length;
 

@@ -1,7 +1,7 @@
 # Phase 2 code-transformation examples
 
 Small, realistic apps that use the Optimizely SDKs the way real codebases
-do. They give the `migrate-optimizely plan code` / `execute` flow
+do. They give the `migrate-optimizely plan code` / `execute code` flow
 something concrete to scan and transform. They are **source fixtures**,
 not run end-to-end here — the point is the shape of the Optimizely usage,
 not a working build.
@@ -59,4 +59,5 @@ plans accordingly.
 
 Drive it with `/migrate-optimizely plan code` pointed at one of these
 directories, then review the generated
-`.claude/plans/optimizely-code-migration-<date>.md`.
+`.claude/plans/optimizely-code-migration-<date>.md`. When ready, run
+`/migrate-optimizely execute code`.

@@ -1,5 +1,22 @@
 # Changelog
 
+## [Unreleased]
+
+### Features
+
+* **migrate-optimizely:** Bare `/migrate-optimizely` (no args) defaults to **`plan access`** — start Phase 0 from the beginning. Explicit subcommands unchanged.
+* **migrate-optimizely:** Add multi-turn evals for default `plan access` entry, access consent gate, `plan access` no-writes, and `adjust flags` no-create; existing flag conversations now answer the source-method opening question.
+* **migrate-optimizely:** Phase 0–2 each support plan / **adjust** / execute. Flag clients live inside **`plan access` Step 4** (no separate `plan clients` command). After every `plan *` completes, a **required exit ask** offers adjust (or tick/execute/done). **`execute flags` must end with a Phase 1 resolve gate** — every migrated flag resolve-verified (not a 3–5 spot-check). See [README — Optimizely → Confidence](./README.md#optimizely--confidence), [`SKILL.md`](./skills/migrate-optimizely/SKILL.md), and [`access.md`](./skills/migrate-optimizely/access.md).
+* **migrate-optimizely:** `plan flags` runs a **rules operator audit** and asks for workarounds on unsupported Optimizely operators (`exists` / `substring` / `regex`); all execute loops (access, flags, rules) must show a **live progress bar**.
+* **migrate-optimizely:** Production waterfall / `_rulesets` targeting-rules import must show a live `Execute Flags · targeting rules` progress bar (not milestone-only `... created N` logs); same for segment prep, catch-alls, and resolve verify.
+* **migrate-optimizely:** Execute progress bars must appear in the **chat transcript** (collapsed shell / giant heredoc / silent background waits alone are not enough); agents poll a progress file and paste the latest `█`/`░` line every ~15–30s.
+* **migrate-optimizely:** Targeting-rules import is a **separate** execute phase with its own chat-visible `Execute Flags · targeting rules` bar (canonical progress-file emitter); skipping planned rules, catch-all-only runs, or folding rules into the create bar is a bug.
+* **migrate-optimizely:** After flag create completes, agents **must** surface a next-step handoff recommending **Start targeting-rules import** before resolve gate or `plan code`.
+* **migrate-optimizely:** After rules import completes, agents **must** surface a next-step handoff recommending **Start resolve-verify all flags** (segment match on every migrated flag) — that gate **definitively validates Phase 1** before `plan code`.
+* **migrate-optimizely:** Plan/execute **must** flag Optimizely `exists` / `substring` / `regex` audience ops as **BLOCKED** (Rules operator audit + UNSUPPORTED-OPERATOR GATE); never silently migrate those rules — Confidence has no contains/presence/regex targeting.
+* **migrate-optimizely:** Prefer **Flags MCP first** for Flag clients / flag writes; fall back to IAM/Flags REST when MCP is `needsAuth` or errors. Users/groups/policies/invites remain **IAM REST only** (no IAM MCP).
+* **migrate-optimizely:** Confidence **empty rules ≠ everyone**. `plan flags` must list flags with no Optimizely rules under **auto everyone catch-all**; `execute flags` must **automatically** add/enable that catch-all whenever a migrated flag still has zero enabled rules.
+
 ## [0.7.0](https://github.com/spotify/confidence-ai-plugins/compare/v0.6.1...v0.7.0) (2026-08-03)
 
 

@@ -39,7 +39,7 @@ export interface AssertionResult {
   assertionName: string;
 }
 
-export type Assertion = (trace: Trace) => AssertionResult;
+export type Assertion = (trace: Trace) => AssertionResult | Promise<AssertionResult>;
 
 export interface AssertionDef {
   type: string;
@@ -52,6 +52,8 @@ export interface AssertionDef {
   min_count?: number;
   max_count?: number;
   arg_name?: string;
+  criteria?: string;
+  threshold?: number;
 }
 
 export interface MockFlag {
@@ -102,6 +104,8 @@ export interface Scenario {
    * Multiple entries are concatenated (e.g. a dispatcher skill plus the
    * skill it hands off to). */
   skills?: string[];
+  /** Extra markdown files from the first skill directory (e.g. `access.md`). */
+  promptFiles?: string[];
   tags: string[];
   sourceFlags: Record<string, unknown>[];
   conversation: string[];

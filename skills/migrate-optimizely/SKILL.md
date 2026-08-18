@@ -1,15 +1,29 @@
 ---
 name: migrate-optimizely
-description: Migrate feature flags from Optimizely to Confidence SDK. Use when the user says /migrate-optimizely, asks to migrate Optimizely flags/rollouts/experiments, or transform Optimizely SDK code to Confidence.
+description: Migrate Optimizely to Confidence — users/groups/roles/policies, Flag clients from env SDK keys, flag definitions, and OpenFeature code. Bare /migrate-optimizely (no args) starts plan access. Use when the user says /migrate-optimizely, /migrate-optimizely-plan-access, /migrate-optimizely-adjust-access, /migrate-optimizely-execute-access, /migrate-optimizely-plan-flags, /migrate-optimizely-adjust-flags, /migrate-optimizely-execute-flags, /migrate-optimizely-plan-code, /migrate-optimizely-adjust-code, /migrate-optimizely-execute-code, asks to migrate or adjust Optimizely users, teams, groups, roles, policies, clients, flags/rollouts/experiments, or transform Optimizely SDK code to Confidence.
 ---
 
 # Optimizely to Confidence Migration
 
+**User-facing docs (this repo):** [README — Optimizely → Confidence](../../README.md#optimizely--confidence)
+and [CHANGELOG Unreleased](../../CHANGELOG.md). That is how operators
+discover Phase 0 access (plan / adjust users·groups·roles·policies·clients /
+execute), Phase 1 flags (plan / adjust / execute), and Phase 2 code
+(plan / adjust / execute). This file is the agent contract.
+
 REST-driven, self-sufficient migration from Optimizely Feature
-Experimentation to Confidence. This skill is fully self-contained: it
-defines both the Optimizely-specific migration logic AND all the
-Confidence-side conventions it relies on (payload formats, naming rules,
-the flag setup sequence, the execute flow, etc.).
+Experimentation to Confidence. This skill is fully self-contained for
+**flag definitions** and **OpenFeature code** (payload formats, naming
+rules, the flag setup sequence, the execute flow). **Phase 0 Access**
+uses the same plan machinery as `plan flags` below (overview, step
+tracker, progressive plan file, Generation Status, consent rows). After
+the plan exists, **adjust access** (documented in **Adjust Access:
+Steps**) may change **users, groups, roles, policies, and clients** in
+that file — natural language, no IAM writes. IAM mapping, lockout,
+opening-question copy, and the plan-file template live in
+[access.md](access.md) — **Read that file** before any `plan access`,
+`adjust access`, `execute access`, or Flag-client work inside
+`plan access`.
 
 ## SDK Preference
 
@@ -27,7 +41,7 @@ the flag setup sequence, the execute flow, etc.).
 
 | Principle | Meaning |
 |-----------|---------|
-| **Source-boxed** | Every external data fetch uses one explicit channel (the Optimizely REST API with curl, the Confidence MCP) — no ad-hoc browsing |
+| **Source-boxed** | Every external data fetch uses one explicit channel (the Optimizely REST API with curl, export files the user provides, the Confidence MCP / IAM REST) — no ad-hoc browsing |
 | **Self-sufficient** | Plan contains ALL information needed — no "query the source for X" at execute time |
 | **Agent-agnostic** | Any agent with the prerequisites can execute the plan without prior context |
 | **Language-agnostic** | Detect framework, fetch SDK guide from `confidence-docs` MCP dynamically |
@@ -36,9 +50,26 @@ the flag setup sequence, the execute flow, etc.).
 
 | Command | Description |
 |---------|-------------|
-| `/migrate-optimizely plan flags` | Phase 1: plan flag definitions migration |
-| `/migrate-optimizely plan code` | Phase 2: plan code transformation |
-| `/migrate-optimizely execute <plan-file>` | Execute a plan interactively |
+| `/migrate-optimizely` *(no args)* | **Default entry:** same as `plan access` — start Phase 0 from the beginning |
+| `/migrate-optimizely plan access` | Phase 0: plan access (users/teams/roles **and** Flag-client candidates in Step 4). **No invites, no IAM writes**. Same plan-file pattern as `plan flags` ([access.md](access.md)) |
+| `/migrate-optimizely-plan-access` | Same as `plan access` — own `/` menu item |
+| `/migrate-optimizely adjust access` | Phase 0: fine-edit the access plan (**users, groups, roles, policies, clients**). Natural language. **No IAM writes**. Next `execute access` applies ([access.md](access.md)) |
+| `/migrate-optimizely-adjust-access` | Same as `adjust access` — own `/` menu item |
+| `/migrate-optimizely execute access` | Phase 0 execute: groups + policies, invites, **ticked Flag clients**, then **as soon as each user accepts**: group + policy + Flag client + **flag shares** (idempotent; [access.md](access.md)) |
+| `/migrate-optimizely-execute-access` | Same as `execute access` — own `/` menu item |
+| `/migrate-optimizely plan flags` | Phase 1: plan flag definitions. Writes the flag plan only — no `createFlag` |
+| `/migrate-optimizely-plan-flags` | Same as `plan flags` — own `/` menu item |
+| `/migrate-optimizely adjust flags` | Phase 1: fine-edit the flag plan (scope, Migrate/Skip, client, bucketing, schema, rules). Natural language. **No `createFlag`**. Next `execute flags` applies |
+| `/migrate-optimizely-adjust-flags` | Same as `adjust flags` — own `/` menu item |
+| `/migrate-optimizely execute flags` | Phase 1 execute: create flag shells → **suggest rules import** → **suggest resolve-verify all (segment match)** → resolve gate |
+| `/migrate-optimizely-execute-flags` | Same as `execute flags` — own `/` menu item |
+| `/migrate-optimizely plan code` | Phase 2: plan code transformation. Writes the code plan only — no file edits |
+| `/migrate-optimizely-plan-code` | Same as `plan code` — own `/` menu item |
+| `/migrate-optimizely adjust code` | Phase 2: fine-edit the code plan (style, resolve mode, transforms, files/flags). Natural language. **No file edits / PRs**. Next `execute code` applies |
+| `/migrate-optimizely-adjust-code` | Same as `adjust code` — own `/` menu item |
+| `/migrate-optimizely execute code` | Phase 2 execute: transform code from `.claude/plans/optimizely-code-migration-*.md` (no path needed) |
+| `/migrate-optimizely-execute-code` | Same as `execute code` — own `/` menu item |
+| `/migrate-optimizely execute <plan-file>` | Alias: execute the given plan file (access / flags / code by filename) |
 
 ---
 
@@ -100,15 +131,15 @@ curl -s -X POST "https://events.eu.confidence.dev/v1/events:publish" \
 
 | Field | How to set it |
 |-------|--------------|
-| `step` | `<phase>.<step-title>`, e.g. `plan-flags.scan-source`, `plan-flags.review-scope`, `plan-flags.generate-plan`, `plan-code.scan-codebase`, `plan-code.fetch-sdk-guide`, `execute.create-flag`, `execute.add-targeting`, `execute.verify` |
-| `action` | Verb describing the operation: `scan_flags`, `generate_plan`, `scan_codebase`, `fetch_sdk_guide`, `batch_create_flags`, `batch_add_targeting`, `resolve_flag`, `transform_code`, `create_pr` |
+| `step` | `<phase>.<step-title>`, e.g. `plan-access.adjust`, `plan-flags.adjust`, `plan-flags.scan-source`, `plan-flags.review-scope`, `plan-flags.generate-plan`, `plan-code.adjust`, `plan-code.scan-codebase`, `plan-code.fetch-sdk-guide`, `execute.create-flag`, `execute.add-targeting`, `execute.verify` |
+| `action` | Verb describing the operation: `scan_flags`, `generate_plan`, `adjust_access`, `adjust_flags`, `adjust_code`, `scan_codebase`, `fetch_sdk_guide`, `batch_create_flags`, `batch_add_targeting`, `resolve_flag`, `transform_code`, `create_pr` |
 | `sentiment` | **Genuinely assess the conversation tone** — not a static value. `positive` (smooth, user engaged, no issues), `neutral` (normal flow), `confused` (retries, questions, mapping errors, unexpected responses), `frustrated` (user expressed frustration, repeated failures, user corrections like "i am baffled"). Read the user's actual words and your own error rate to set this honestly. |
 | `completion` | Progress state: `starting` (first steps), `in_progress` (middle), `completing` (final steps), `done` (finished) |
 | `step_duration_s` | Automatically calculated: seconds elapsed since the step timer was last reset. Do not set manually — the shell expression in the curl template computes it |
 | `flags_created` | Cumulative count of flags successfully created so far in this execution |
 | `flags_remaining` | How many flags are left to process |
 | `flags_failed` | Cumulative count of flags that failed during this execution |
-| `current_project` | The Optimizely project slug currently being processed (e.g. `production-nikeapp-ios`) |
+| `current_project` | The Optimizely project slug currently being processed (e.g. `production-mobile-ios`) |
 | `project_progress` | Which project out of total (e.g. `3/24`) |
 | `batch_size` | Number of items in the current batch operation |
 | `errors` | Comma-separated summary of recent errors (e.g. `quota_exceeded,variant_mismatch`), or empty if none |
@@ -127,25 +158,151 @@ curl -s -X POST "https://events.eu.confidence.dev/v1/events:publish" \
 
 ---
 
-## Migration Overview (MUST display at start of `plan flags` or `plan code`)
+## Question UX (ALL plan phases — Access 0, Flags 1, Code 2)
 
-**Every time** the user runs `plan flags` or `plan code`, display this
-overview FIRST — before doing any work.
+**Hard rules for every fixed-choice ask during `plan access`,
+`plan flags`, `plan code`, governance interviews, exit menus, and
+adjust menus:**
+
+1. **One question per assistant turn.** Never ask two questions in the
+   same message. Never dump “groups A–D”, multi-part forms, or several
+   numbered prompts at once. Ask → `⏸ awaiting user` → read the answer
+   → then the next question.
+2. **Numbered options the user can type.** Always present choices as
+   `1.`, `2.`, `3.`, … and tell them: *Reply with the number (e.g. `1`
+   or `2`).* Accept `1`, `2`, `option 1`, or the exact option label.
+3. **Optional picker.** If `AskQuestion` / `AskUserQuestion` is
+   available, you MAY also open it **for that same single question**
+   (options must match the numbered list). Do **not** rely on the
+   picker alone — always print the numbered list in chat so typing
+   `1` / `2` works in every agent.
+4. **Free-text only when needed** — tokens, emails, paths, names,
+   paste. Still one ask per turn.
+5. **Silence is not consent.** Do not invent a selection.
+
+**Bad:** “Answer 1–4 below” with four questions.  
+**Good:** One prompt + `1` / `2` / … then stop.
+
+Same rule for Phase 0 access, Phase 1 flags, and Phase 2 code planning
+and for their adjust flows’ menus.
+
+---
+
+## First user message (access and/or flags planning)
+
+When the user starts **planning access**, **planning flags**, or both
+(**access + flags**, with or without code deferred), the **first**
+user-visible reply MUST be the **source-method Opening questions** —
+not the long ASCII migration overview.
+
+Order:
+
+1. Resume check only if a plan file already exists (one short line).
+2. **Immediately** ask how to read Optimizely data (access questions
+   from [access.md](access.md); for flags-only, the flags source ask
+   below). Show the Plan Access / Plan Flags tracker with step 1
+   `⏸ awaiting you`.
+3. `⏸ awaiting user` — stop. Do not curl, Read exports, invent people,
+   create plan files, or paste token instructions until they pick.
+4. After they answer, optionally show a **short** phase line
+   (“Starting Phase 0 — Access”) and continue the workflow. The full
+   Migration Overview box is **optional** — offer it if they ask how
+   phases work, or print a 3-line summary after source is chosen.
+   Never put the full overview *before* the source ask.
+
+**Access (+ flags, no code yet)** — follow access.md Opening questions
+**one question per turn** with **numbered options** (`1` / `2` / …).
+Optional native picker for that same question only. Never batch source
+method choices into one mega-menu.
+
+**Flags-only** — first message: one numbered question:
+
+```text
+Can we read your Optimizely flags over the Live REST API (token + Project ID)?
+Reply with the number:
+1. Yes
+2. No — exports / datafile / Desktop / same as access plan
+```
+
+Then the next question only if they picked `2`. One question per turn.
+
+If **access and flags** together: finish access source questions first,
+then one numbered question: same source for flags?
+
+**All later fixed-choice asks** (consent, clients, scope, governance,
+exit asks, plan code style/mode) follow **Question UX** above.
+
+Adjust / execute commands: do **not** re-ask source method; follow
+adjust/execute steps. Still Read access.md for execute keep-lists.
+
+---
+
+## Migration Overview (optional detail — NOT the first message for plan access/flags)
+
+Do **not** display this full overview as the opening message when the
+user starts `plan access`, access+flags, or `plan flags`. Ask source
+method first (see **First user message** above).
+
+Use this box when the user asks for a phase map, or as a short follow-up
+**after** they have answered the source question.
+
+**Every time** you show it, also **Read** [access.md](access.md) for any
+access work. Never search the machine for tokens.
 
 ```
 ═══════════════════════════════════════════════════════════════
   Optimizely → Confidence Migration
 ═══════════════════════════════════════════════════════════════
 
-  The migration happens in two phases: flags first, then code.
+  The migration happens in phases: access first when possible, then
+  flags, then code.
 
   ┌─────────────────────────────────────────────────────────┐
+  │  PHASE 0 — Access (human IAM + Flag clients)           │
+  │                                                        │
+  │  Map Optimizely users, teams, and roles to Confidence  │
+  │  groups, invites, and flag shares. Propose Flag        │
+  │  clients from SDK keys in the same plan (ASK; do not   │
+  │  invent). Plan writes a file only — no invites.        │
+  │  **MUST tell the customer:** who can see flags =       │
+  │  group/role → flag (shares) — not Optimizely project   │
+  │  membership alone, and not Client attach.              │
+  │  Teams become groups (do not flatten). Project Owner   │
+  │  becomes flag owner (not workspace Admin). Env human   │
+  │  roles stay unmapped. Project ≠ Client.                │
+  │  If Desktop/Downloads/docs are missing: interview for  │
+  │  governance (who sees flags, teams, apps, multi-app    │
+  │  flags) — do not guess. Console access = shares; app   │
+  │  reach = Clients (:addFlagClient, multi OK); env/      │
+  │  targeting = Environments + flag rules.                │
+  │                                                        │
+  │  Steps:                                                │
+  │    1. Source (REST, files, sample, or Desktop JSON)    │
+  │       + Extract context / Governance interview         │
+  │    2. Translate to Confidence (teams → groups)         │
+  │    3. Consent rows (tick Invite / Create)              │
+  │    4. Flag clients (propose from SDK keys; ASK)        │
+  │    5. Write the access plan                            │
+  │    6. Exit ask (required): adjust / tick / execute /   │
+  │       done — no automatic path into adjust             │
+  │    7. Adjust (if they pick it): users, groups, roles,  │
+  │       policies, clients                                │
+  │    8. Execute: groups, invites, clients, provision     │
+  │                                                        │
+  │  Result: Plan file ready; exit ask → adjust/tick/      │
+  │  execute                                               │
+  ├─────────────────────────────────────────────────────────┤
   │  PHASE 1 — Flag Definitions                            │
   │                                                        │
   │  Recreate your stable Optimizely flags in Confidence:  │
   │  on/off flags, full (100%) or off (0%) rollouts, and   │
   │  concluded experiments — with their audiences,         │
   │  variations, and variable values.                      │
+  │  Reuse access-plan Flag↔Client attach (one flag may    │
+  │  attach to many Clients). ASK governance if unclear:   │
+  │  project scope, who may see/edit, env-scoped rules.    │
+  │  Flag rules = runtime targeting/env flexibility; IAM   │
+  │  shares = who opens the flag in the console.           │
   │                                                        │
   │  NOT migrated by default: live A/B tests, partial-%    │
   │  rollouts, and bandits. Confidence buckets users       │
@@ -159,10 +316,20 @@ overview FIRST — before doing any work.
   │    3. Choose a Confidence client (your app)            │
   │    4. Map the bucketing ID to an entity field          │
   │    5. Generate migration plan with targeting rules     │
-  │    6. Execute: create each flag in Confidence          │
+  │    6. Exit ask (required): adjust / tick / execute /   │
+  │       done — no automatic path into adjust             │
+  │    7. Adjust (if they pick it): scope, ticks, client,  │
+  │       bucketing, schema, rules                         │
+  │    8. Execute — create flag shells in Confidence       │
+  │    9. Execute — import targeting rules (waterfall)     │
+  │       ← **required next step after flag create**       │
+  │   10. Resolve gate: verify EVERY migrated flag         │
+  │       gets a **segment match** (not a sample)          │
+  │       ← **natural next after rules — validates Phase 1**│
   │                                                        │
-  │  Result: In-scope flags live in Confidence, ready to   │
-  │  resolve (nothing consumes them until Phase 2)         │
+  │  Result: Plan ready; exit ask → adjust/tick/execute;   │
+  │  flags + rules live + resolve-verified (nothing        │
+  │  consumes them until Phase 2)                          │
   ├─────────────────────────────────────────────────────────┤
   │  PHASE 2 — Code Transformation                         │
   │                                                        │
@@ -176,12 +343,22 @@ overview FIRST — before doing any work.
   │    3. Scan codebase for Optimizely usage               │
   │    4. Generate transform rules (Optimizely→Confidence) │
   │    5. Generate plan grouped by flag                    │
-  │    6. Execute: transform code flag by flag, one PR each│
+  │    6. Exit ask (required): adjust / execute / done —   │
+  │       no automatic path into adjust                    │
+  │    7. Adjust (if they pick it): style, mode,           │
+  │       transforms, files/flags                          │
+  │    8. Execute: transform code flag by flag, one PR each│
   │                                                        │
-  │  Result: Code uses Confidence SDK, Optimizely removed  │
+  │  Result: Plan ready; exit ask → adjust/execute; then   │
+  │  code uses Confidence SDK, Optimizely removed          │
   └─────────────────────────────────────────────────────────┘
 
-  Why flags first?
+  Why access first?
+  Users and teams should land in Confidence before you recreate flags
+  they own. You can still run Phase 1 from a datafile if you only have
+  flags.
+
+  Why flags before code?
   Flags must exist in Confidence before code can resolve them.
 
   Why one PR per flag (Phase 2)?
@@ -191,15 +368,27 @@ overview FIRST — before doing any work.
 ═══════════════════════════════════════════════════════════════
 ```
 
-After displaying the overview, indicate which phase the user is about
-to enter:
+After displaying the overview (only when allowed by **First user
+message**), indicate which phase the user is about to enter:
 
-- For `plan flags`: "Starting **Phase 1** — Flag Definitions"
-- For `plan code`: "Starting **Phase 2** — Code Transformation.
+- For bare `/migrate-optimizely`, `plan access` / `/migrate-optimizely-plan-access`: "Starting **Phase 0** — Access"
+- For `adjust access` / `/migrate-optimizely-adjust-access`: "Starting **Phase 0** — Access adjust"
+- For `execute access` / `/migrate-optimizely-execute-access`: "Starting **Phase 0** — Access execute"
+- For `plan flags` / `/migrate-optimizely-plan-flags`: "Starting **Phase 1** — Flag Definitions"
+- For `adjust flags` / `/migrate-optimizely-adjust-flags`: "Starting **Phase 1** — Flag adjust"
+- For `execute flags` / `/migrate-optimizely-execute-flags`: "Starting **Phase 1** — Flag execute"
+- For `plan code` / `/migrate-optimizely-plan-code`: "Starting **Phase 2** — Code Transformation.
   Make sure Phase 1 (flag definitions) is complete first — the flags
   need to exist in Confidence before the code can resolve them."
+  For `plan code` only: the full overview MAY be first (no Optimizely
+  source ask). For access/flags planning, source ask is always first.
+- For `adjust code` / `/migrate-optimizely-adjust-code`: "Starting **Phase 2** — Code adjust"
+- For `execute code` / `/migrate-optimizely-execute-code`: "Starting **Phase 2** — Code execute"
 
-Then proceed with the normal workflow for that phase.
+Then proceed with the normal workflow for that phase (`Plan Access:
+Steps`, `Adjust Access: Steps`, `Plan Flag: Steps`, `Adjust Flags:
+Steps`, `Plan Code: Steps`, `Adjust Code: Steps`, or Execute: How It
+Works). Never lock the operator out (keep-list in access.md).
 
 ---
 
@@ -227,7 +416,13 @@ claude mcp add confidence-docs --transport http --url https://mcp.confidence.dev
 
 The user will be prompted to authenticate via OAuth in their browser.
 
-### Confidence REST API token (OPTIONAL — for full-fidelity Phase 1)
+### Confidence REST API token
+
+**Required** for `execute access` (IAM writes, including ticked Flag
+clients). **Not** required for `plan access` (Flag-client proposal is
+read-only). **Optional** for Phase 1 flags unless
+full-fidelity REST is needed. Same Admin → API Clients credential.
+Details: [access.md](access.md).
 
 The MCP `createFlag`/`addTargetingRule` tools cover the common cases but
 **cannot** express a few Optimizely constructs faithfully: partial
@@ -239,11 +434,13 @@ Confidence **management REST API** (`https://flags.confidence.dev/v1`),
 which needs a short-lived access token obtained via the
 client-credentials flow.
 
-Only ask for this if the scan finds features that need it (the plan
-flags them). To set it up:
+For flags: only ask if the scan finds features that need it (the plan
+flags them). For **execute access**: **always ASK** before any IAM write.
+`plan access` does not need a Confidence token. Setup:
 
 1. In Confidence, go to **Admin > API Clients**, create a client, and
-   copy its **client ID** and **client secret**.
+   copy its **client ID** and **client secret**. This is **not** a Flag /
+   SDK client. For access, assign **IAM Editor** (or Admin).
 2. Exchange them for an access token (valid ~1h):
    ```bash
    curl -sS -X POST "https://iam.confidence.dev/v1/oauth/token" \
@@ -353,24 +550,37 @@ user's access:
 | **B — Exported JSON files** | The user's account can't produce a working API token (older/legacy Optimizely product, a token scoped to summary-only exports, no self-serve API access, etc.) | Read local files with the Read tool — no network calls |
 
 Both methods feed the **same extraction step** (Step 1c/1d below) with
-the same field names; only the data source differs. Ask the user which
-they have; don't assume.
+the same field names; only the data source differs.
+
+**For `plan access`:** do **not** use the combined token-or-files
+paragraph below as the first message. Run **Opening questions** in
+[access.md](access.md) (source method first: REST, files, or the
+user-provided fallback). Ask for a token only after they pick REST;
+ask for a path only after they pick files. If they picked **JSON on my
+Desktop**, follow access.md **Relational JSON** (scoped `~/Desktop`
+then `~/Downloads`; confirm the file). **After the access file (or
+REST) is confirmed**, run **Extract context** in access.md (look
+around that file for internal access-migration strategy / exceptions,
+or paste, or skip). People still come only from REST / the file.
+
+**For `plan flags` / `plan code`:** ask which method they have; don't
+assume.
 
 ### ASK the user (only if not already provided)
 
-> To read your Optimizely flags, rollouts, and experiments, I need
-> either:
-> 1. An Optimizely **API token** (Account Settings > API Access — a
->    Personal Access Token is fine, with read access) plus your
->    **Project ID** (the number in the app URL, e.g.
->    `app.optimizely.com/v2/projects/<PROJECT_ID>/flags/list`), **or**
-> 2. If you can't generate a working token (e.g. an older Optimizely
->    product, or your export tool only gives summary data): a path to
->    exported flag/experiment JSON file(s) instead.
+**Do not call `api.optimizely.com` until credentials exist.** Do not
+search the disk for a token. For **users / teams / access**, the token
+must read collaborators and teams, not only flags. Full copy:
+[access.md](access.md).
+
+After they have **chosen REST** (see access.md Opening questions), say:
+
+> To migrate Optimizely **users, teams, and permissions** over the REST API, I need:
+> 1. An Optimizely **API token** (Account Settings → API Access). It must read **collaborators and teams**, not only flags.
+> 2. Your **Project ID** (the number in `app.optimizely.com/v2/projects/<PROJECT_ID>/…`).
 >
-> Paste the token here, or set it in your shell as `OPTIMIZELY_API_TOKEN`
-> before continuing, and tell me the project ID — or tell me where the
-> exported file(s) are.
+> Paste the token, or export `OPTIMIZELY_API_TOKEN` in this session and tell me the project ID.
+> I will not start REST calls until I have both.
 
 ### Option A: Live REST API
 
@@ -378,7 +588,8 @@ they have; don't assume.
    Account token). Created in the Optimizely app under **Account
    Settings > API Access** (`app.optimizely.com` → profile → API
    Access). The token needs read access to flags, rulesets, and
-   audiences.
+   audiences. For **user / access** migration it must also read
+   **collaborators, teams, and project roles** (Platform API).
 2. The **Project ID** of the Optimizely Feature Experimentation project
    to migrate. Find it in the app URL:
    `https://app.optimizely.com/v2/projects/<PROJECT_ID>/flags/list`.
@@ -410,17 +621,30 @@ curl -sS -H "Authorization: Bearer $OPTIMIZELY_API_TOKEN" \
 ```
 
 If this returns a `401`/`403` or an HTML error page, stop and surface
-the error to the user — do not start scanning.
+the error to the user — do not start scanning. For **users / access**,
+smoke-test `GET /v2/projects/$OPTIMIZELY_PROJECT_ID` first (see
+[access.md](access.md)); do not list collaborators without a 200.
 
 ### Option B: Exported JSON files
 
-Ask the user for a **file path or directory**. Read files with the Read
-tool (never `curl`, never guess at data). Two shapes are recognized —
-detect which one you have by inspecting the JSON, and say which you
-detected before proceeding. **"B1"/"B2" are internal labels for this
-document only — never say them to the user.** User-facing names: B1 is
-"a full API export", B2 is "a summary export (per-flag, without
-per-variation splits or audience definitions)".
+Ask the user for a **file path or directory**, or they can opt in to
+**JSON on Desktop** (access.md Opening question 1 option 5). Read files
+with the Read tool (never `curl`, never guess at data). Two **flag**
+shapes are recognized below (B1/B2). **IAM / access files are a third
+shape** — users, teams/groups, permissions; they may arrive as one JSON
+or several files. One combined file is not required. Detect IAM vs flag
+export by inspecting keys (`users` / `teams` / `groups` /
+`collaborators` vs `flags` / `rules_detail`). **Relational JSON is
+enough:** `users` + `teams`/`groups` joined by `members` (ids, emails,
+or nested objects) or a `memberships` list — do not require the sample
+schema. IAM files drive `plan access`, not Phase 1 flag definitions.
+Sample: `test-fixtures/iam-export-sample.json`. Details:
+[access.md](access.md). For **flag** exports, detect B1 vs B2 by
+inspecting the JSON, and say which you detected before proceeding.
+**"B1"/"B2" are internal labels for this document only — never say them
+to the user.** User-facing names: B1 is "a full API export", B2 is "a
+summary export (per-flag, without per-variation splits or audience
+definitions)".
 
 **B1 — Raw API response dumps (preferred, full fidelity).** One or more
 files that are verbatim saves of the endpoints in "Optimizely REST API
@@ -776,17 +1000,151 @@ pagination info, no API page counts, no internal field names. Show only
 what matters to the user. **Update and re-display the tracker** at the
 start and after each step completes.
 
-### Execute progress bar
+### Execute progress bar (MANDATORY — every execute phase)
 
-The execute step tracker includes a progress bar. Use `█` for completed
-and `░` for remaining, 20 characters wide.
+**Any** long-running write loop must show a live progress bar to the
+user. This applies to **all** phases, not only flag create — including
+**production waterfall / `_rulesets` rule import**, which is often the
+longest loop and **must not** run with only occasional
+`... created N rules` log lines.
+
+| Execute command | Examples of loops that need a bar |
+|-----------------|-----------------------------------|
+| `execute access` | Creating groups, policies, Flag clients, sending invites, provisioning accepted users, sharing flags |
+| `execute flags` | Creating/unarchiving flags, `:addFlagClient`, **importing targeting rules / segments / waterfall**, catch-alls, resolve gate |
+| `execute code` | Per-flag file transforms / PRs |
+
+**What counts as "visible" (Cursor / Claude Code UI):**
+
+The bar must appear in the **chat transcript the operator reads without
+expanding a collapsed tool panel**. Printing only into a background
+shell whose UI shows `… N input + M output lines hidden` is **not**
+enough — that is invisible progress and is a skill failure.
+
+| Allowed (operator sees it) | Not allowed (looks like no progress) |
+|----------------------------|--------------------------------------|
+| Assistant message containing the bar line / block | Giant inline `python3 <<'PY'` heredoc with progress only inside collapsed shell output |
+| Short shell that prints **only** the latest bar line (few lines of stdout) | Background job + silent waits / "Wait skipped" with no chat bar |
+| Periodic chat updates while a long script runs | Final summary only after minutes of silence |
+
+**Rules:**
+
+1. Show the bar **before** the first write in a loop, then **update it
+   in a user-visible assistant reply** as work advances — at least every
+   item for small N (≲ 25), or every **10–25 items** / every ~15–30s for
+   large N. Never run a silent multi-minute batch with no chat updates.
+2. Use `█` for completed and `░` for remaining, **20 characters** wide.
+3. Always include: phase label, `current/total`, optional skipped/failed
+   counts, and the **current item** name (flag id, group id, rule, etc.).
+4. When a subprocess/script runs the loop:
+   - Write the script to a **file** (e.g.
+     `.claude/plans/optimizely-execute-flags-run.py`) — do **not** paste
+     hundreds of lines into an inline heredoc (that collapses the shell
+     and hides the bar).
+   - Overwrite a progress file with the **latest single bar line** on
+     every item (or every 1–5 for huge N), and `print(..., flush=True)` /
+     `PYTHONUNBUFFERED=1`.
+   - While the job runs (foreground or background), **poll that file
+     every ~15–30s and paste the current line into a chat reply**, e.g.
+     `Execute Flags · create ████████████░░░░░░░░ 12/30 pricing-experiment`.
+     Waiting on a regex alone without chat paste is insufficient.
+   - Silent `nohup`, a final summary only, or sparse `... created
+     50/100/150` counters **without** a `█`/`░` bar **are not allowed**.
+5. At the end of each loop, show a full bar + counts **in chat**.
+
+**Preferred single-line form** (easy to stream from a script **and** paste
+into chat):
 
 ```
+Execute Flags · create ████████████░░░░░░░░ 12/30 pricing-experiment
+Execute Flags · targeting rules ██████████░░░░░░░░░░ 401/867 ugp-flag · UGP Audience
+Execute Flags · resolve verify ████████████████████ 519/519
+```
+
+Block form is also fine **in chat**:
+
+```
+───── Execute Flags ───────────────────────────────────────
   Progress: [██████░░░░░░░░░░░░░░] 5/15 (1 skipped)
   Current:  pricing-experiment
+────────────────────────────────────────────────────────────
 ```
 
-After each flag completes, show one of:
+Examples for other loops:
+
+```
+───── Execute Access · invites ────────────────────────────
+  Progress: [████████████░░░░░░░░] 60/100
+  Current:  user@example.com
+────────────────────────────────────────────────────────────
+
+───── Execute Flags · targeting rules ─────────────────────
+  Progress: [██████████████░░░░░░] 401/867
+  Current:  ugp-flag · UGP Audience
+────────────────────────────────────────────────────────────
+```
+
+#### Production waterfall / targeting-rules import (mandatory bar)
+
+When importing Optimizely waterfall rules from `_rulesets` / `_rules`
+(or plan/`confidenceRules` payloads — segments + `POST …/flags/{id}/rules`
+/ `addTargetingRule` + enable + catch-alls):
+
+**This loop is the longest and most important progress surface.** Skipping
+it, folding it into the create bar, or running it only inside a collapsed
+shell is a **bug**. Operators must see each rule land in Confidence.
+
+1. **Separate phase — never fold into create.** After flag shells exist,
+   announce in chat: `Starting targeting-rules import: N rules across M
+   flags` (and optional segment prep count). Show a bar **before** the
+   first rule write. Do **not** only add everyone catch-alls and skip
+   planned specific rules.
+2. Phase labels (separate bars if staged):
+   - `Execute Flags · segments` — create/revive/allocate audience
+     segments (if that prep is non-trivial)
+   - `Execute Flags · targeting rules` — **each** importable rule
+     (`current/total`, flag id + rule name). This is the primary bar.
+   - `Execute Flags · catch-alls` — trailing everyone defaults when that
+     is its own pass (after specific rules)
+3. **Chat cadence (hard requirement):** on every rule write (or every
+   1–5 rules when N ≫ 100), overwrite the progress file **and** paste
+   the latest line into a **chat reply**, e.g.
+   `Execute Flags · targeting rules ██████████░░░░░░░░░░ 401/867 ugp-flag · UGP Audience`.
+   Cadence for chat paste: at least every ~15–30s. Waiting on a regex
+   / `tail` of a terminal file without chat paste is **not** enough.
+4. Scripts: write to a **file** (not a giant heredoc),
+   `print(..., flush=True)` / `PYTHONUNBUFFERED=1`, overwrite
+   `$TMPDIR/optimizely_execute_rules_progress.txt` (or the shared
+   progress file) with the **single latest** bar line. Milestone-only
+   logs (`... created 50 rules`) or collapsed `… N lines hidden` shell
+   output alone are **bugs**.
+5. After the rules loop (and catch-alls), **immediately** run the
+   **2c handoff**: suggest **Start resolve-verify all flags** as the
+   natural next step that **validates Phase 1**. Then the resolve gate
+   needs its own bar (`Execute Flags · resolve verify`) with the same
+   chat-visibility rules. Do not treat rules-import complete as Phase 1
+   done.
+
+**Canonical emitter (copy into execute scripts):**
+
+```python
+PROGRESS = Path(os.environ.get("TMPDIR", "/tmp")) / "optimizely_execute_rules_progress.txt"
+
+def bar(i, n, width=20):
+    filled = int(width * i / max(n, 1))
+    return "█" * filled + "░" * (width - filled)
+
+def progress_rules(i, n, flag_id, rule_name):
+    # i = completed count (0..n); call before each write with i=done so far
+    msg = f"Execute Flags · targeting rules {bar(i, n)} {i}/{n} {flag_id} · {rule_name}"
+    print(msg, flush=True)
+    PROGRESS.write_text(msg + "\n")  # overwrite — latest line only
+```
+
+While that script runs, the agent **must** poll `PROGRESS` every ~15–30s
+and paste `PROGRESS.read_text().strip()` into a chat message.
+
+After each flag completes (flag create loop), show one of:
 
 ```
   ✓ flag-key — MATCH (variant-name)
@@ -806,6 +1164,45 @@ At the end of execution, show a complete summary:
   ✓ flag-key-2                50/50  user_id
   ⊘ flag-key-3                —      skipped
   ...
+────────────────────────────────────────────────────────────
+```
+
+### Plan Access step tracker
+
+Same markers as Plan Flags. Show at the start of `plan access` and
+after each step. Opening questions = step 1 `⏸ awaiting you`.
+
+```
+───── Plan Access ─────────────────────────────────────────
+  [1] Source           ○ pending
+  [2] Translate        ○ pending
+  [3] Consent rows     ○ pending
+  [4] Flag clients     ○ pending
+  [5] Write plan       ○ pending
+────────────────────────────────────────────────────────────
+```
+
+Example after Step 1 completes:
+```
+───── Plan Access ─────────────────────────────────────────
+  [1] Source           ✓ 100 users, 8 teams (Desktop JSON)
+  [2] Translate        ◉ in progress
+  [3] Consent rows     ○ pending
+  [4] Flag clients     ○ pending
+  [5] Write plan       ○ pending
+────────────────────────────────────────────────────────────
+```
+
+### Adjust Access step tracker
+
+Show at the start of `adjust access` / `/migrate-optimizely-adjust-access`
+and after each applied change. The five kinds are what the skill may
+edit — not sequential steps.
+
+```
+───── Adjust Access ───────────────────────────────────────
+  Plan: optimizely-access-migration-<date>.md
+  Edit: users · groups · roles · policies · clients
 ────────────────────────────────────────────────────────────
 ```
 
@@ -883,24 +1280,37 @@ Example after Step 2 completes:
 
 ## Plan Files: Resume Check & Progressive Updates
 
-Both `plan flags` and `plan code` use a progressive plan file. Created
-at Step 1, updated after each step, so a closed session can resume.
+`plan access`, `adjust access`, `plan flags`, `adjust flags`, `plan
+code`, and `adjust code` each use a
+progressive plan file. Created at Step 1 (`plan access`: **after**
+Opening questions are answered — not during the ask), updated after
+each step (and after each adjust), so a closed session can resume. Access **steps** are in **Plan Access: Steps** below (same
+pattern as Plan Flag: Steps). **Adjust Access / Flags / Code: Steps**
+are also in this file. Mapping tables and the access copy-paste
+template live in [access.md](access.md).
 
 ### Resume check (MUST do first)
 
 Before starting any plan workflow, check for an existing in-progress
 plan:
 
-- `plan flags` → `.claude/plans/optimizely-flag-migration-*.md`
-- `plan code`  → `.claude/plans/optimizely-code-migration-*.md`
+- `plan access` / `adjust access` → `.claude/plans/optimizely-access-migration-*.md`
+- `plan flags` / `adjust flags` → `.claude/plans/optimizely-flag-migration-*.md`
+- `plan code` / `adjust code` → `.claude/plans/optimizely-code-migration-*.md`
 
 If a plan file exists, read its `## Generation Status` section:
 
 - If status is `complete` → tell user a plan already exists, ask if
-  they want to start fresh or use the existing one
+  they want to start fresh or use the existing one. For **`adjust
+  access` / `adjust flags` / `adjust code`**: use the existing file
+  (do not ask start-fresh unless they asked to re-plan). Proceed to
+  the matching **Adjust *: Steps**.
 - If status is NOT `complete` → **resume from the last incomplete step**.
   Tell the user: "Found an in-progress plan. Resuming from step <N>."
-- If no plan file exists → start fresh
+  Do not run `adjust access` / `adjust flags` / `adjust code` until
+  step 5 / Overall is `✓ complete`.
+- If no plan file exists → start fresh (`plan access` / `plan flags` /
+  `plan code` first; adjust cannot run without a plan)
 
 ### Generation Status table
 
@@ -910,18 +1320,242 @@ top that tracks which steps are done. Status values: `✓ complete`,
 the status table AND write that step's data to the plan file. Do NOT
 wait until the end to write.
 
+## Plan Access: Steps
+
+Phase 0 uses the **same plan machinery** as `plan flags` in this file:
+resume check, progressive plan file, Generation Status after every
+step, then stop. IAM mapping, lockout, opening-question copy, and the
+plan-file template live in [access.md](access.md) — **Read it** before
+Step 1.
+
+The flow is 5 plan steps: Step 1 source, Step 2 translate, Step 3
+consent rows, Step 4 Flag clients (propose + ASK), Step 5 write plan.
+There is **no automatic path** from plan into **adjust access** — after
+Step 5 you **must ASK** (structured question) whether to adjust, tick
+consent, execute, or stop. If they pick adjust, enter **Adjust Access:
+Steps** below in the same turn (do not require them to type a slash
+command). **No Confidence IAM writes. No invites. No groups. No Flag
+clients** during plan or adjust. `execute access` is the only writer
+(including confirmed Flag clients and deltas after adjust).
+
+### Plan-file path
+
+`.claude/plans/optimizely-access-migration-<date>.md`
+
+**Create this file only after Opening questions have an answer.** Do
+not Write, mkdir, or touch it during overview, resume check, or while
+`⏸ awaiting you`. ASK first, create the plan file after they answer.
+
+After the file exists, update `## Generation Status` after **each**
+step. Do not wait until the end.
+
+### Step 1: Source
+
+Display the Plan Access step tracker. Set `[1] Source` to
+`⏸ awaiting you`.
+
+**First reply:** Run **Opening questions** in access.md **one question
+per turn** (Turn A: REST? only). **Stop.** Do not list all source
+options at once. Do not show the full migration overview first. Do not
+create the plan file. Do not curl `api.optimizely.com`. Do not Read
+export files. Do not invent people. Do not paste the REST token
+paragraph until they pick Yes on Live REST API. Do not ask Extract
+context until the access file (or REST) is confirmed.
+
+**After they answer source method:** create
+`.claude/plans/optimizely-access-migration-<date>.md` from the template
+in access.md. Then extract (REST after token + project ID, or files /
+sample / Desktop JSON after they confirm the path). Detect IAM vs flag
+export. Reconstruct the source model in access.md. Record file paths;
+redact SDK keys. **Then run Extract context** (look around the access
+file / paste / skip) before marking Step 1 complete. **If Extract
+context is skip, look-around finds nothing (no Desktop/Downloads/
+workspace governance docs), or roles/apps/permissions are incomplete:
+run Governance discovery interview in access.md** before Step 2. Do
+not invent governance.
+
+**After Step 1 completes:** Update Generation Status step 1 to
+`✓ complete`. Re-display the tracker with `[1] Source ✓ …`.
+
+### Step 2: Translate
+
+Fill the mapping tables (users, teams→groups, project roles,
+flag/audience shares, unmapped env-human IAM, fidelity loss). Apply
+any confirmed access-migration context **and governance interview**
+as constraints. Map: console who-sees/edits → per-flag shares;
+project container → flag sets (no Confidence Project); apps →
+Clients; multi-app flags → multiple `:addFlagClient`; env publish
+intent → Environments + flag **rules** (not human IAM). People still
+come only from the REST API, the file path, the user-provided
+fallback, or interview-confirmed emails. Missing fact → ASK (re-enter
+interview). Propose `default-policy` tightening; do not apply it.
+Never flatten teams. Never map Project Owner to workspace Admin.
+
+**After Step 2 completes:** Update Generation Status step 2 to
+`✓ complete`.
+
+### Step 3: Consent rows
+
+One row per user and per group with empty `[ ] Invite` / `[ ] Skip`
+(users) and `[ ] Create` / `[ ] Skip` (groups). Silence is not consent.
+Same rule as flag `[ ] Migrate` / `[ ] Skip`.
+
+**After Step 3 completes:** Update Generation Status step 3 to
+`✓ complete`.
+
+### Step 4: Flag clients (inside plan access)
+
+Flag-client planning lives **here**, not in a separate phase. Follow
+**Flag clients (inside plan access)** in [access.md](access.md).
+
+Build `candidate_clients` from project + env + SDK key + apps +
+isolation **and** Governance interview group C. **Propose, then ASK.**
+Project ≠ Client. Env ≠ Client. SDK key ≠ Client. Do not invent
+clients. Do not `POST /v1/clients`. Fill the Flag ↔ Client attach
+table (one flag → many clients OK; some flags client-less OK).
+
+If `sdk_key` / app split is missing: mark section 5 **blocked**,
+Generation Status step 4 `⊘ skipped`, **ASK interview group C**, and
+continue. They can re-run `plan access` when keys exist (resume the
+Flag-clients step).
+
+If keys or interview apps exist: ASK the questions in access.md
+(including multi-app attach), write candidate rows with empty
+`[ ] Create` / `[ ] Skip`, then continue.
+
+**After Step 4 completes or is skipped:** Update Generation Status
+step 4.
+
+### Step 5: Write plan
+
+Finish the plan file (unmapped env IAM, Flag clients proposed or
+blocked, empty Execute progress table). Set step 5 and **Overall** to
+`✓ complete`. List what `execute access` will do once consent is
+ticked. Do not invite anyone. Do not create clients.
+
+**Exit ask (required).** `plan access` does **not** continue into
+adjust on its own. After Overall is `✓ complete`, **stop and ASK one
+numbered question** (Question UX). Do not collapse this into a tip in
+prose. Do not start adjust, tick rows, or execute until they answer.
+
+```text
+Access plan is ready (optimizely-access-migration-<date>.md).
+There is no automatic path into adjust — pick what to do next.
+Reply with the number:
+1. Adjust access — change users, groups, roles, policies, or clients in the plan (no IAM writes)
+2. Tick consent — mark Invite / Skip / Create on users, groups, and Flag clients (still no IAM writes)
+3. Execute access — write IAM now (only if consent already ticked; otherwise pick 2 first)
+4. Done for now — stop; run adjust or execute later
+```
+
+**On their answer:**
+- **1** → enter **Adjust Access: Steps** immediately in this turn
+  (same as `/migrate-optimizely adjust access`; do not require the
+  slash command). After adjust Done, re-ask this exit menu (or the
+  Done option inside adjust).
+- **2** → help them tick consent rows in the plan file; then re-ask
+  this exit menu (adjust / execute / done).
+- **3** → if required consent is still empty, refuse and send them to
+  option 2. Otherwise hand off to `execute access`.
+- **4** → stop. Remind them of the plan path and the adjust / execute
+  commands.
+
+`⏸ awaiting user` if emails, team membership, or project roles are
+missing. Do not invent people.
+
+## Adjust Access: Steps
+
+Fine-edit the access plan through the skill. Enter when the user runs
+`/migrate-optimizely adjust access`, `/migrate-optimizely-adjust-access`,
+`modify access`, picks **Adjust access** on the **plan access Step 5
+exit ask**, or asks to change **users, groups, roles, policies, or
+clients** after a plan exists. Natural language is enough (`skip all
+@example.com`, `Checkout should be Editor`, `don't create team-data`).
+
+**Read** [access.md](access.md) for IAM mapping, lockout, ask copy, and
+section-7 template. This section is the command contract — do not skip
+it.
+
+**Plan writes only.** Edit
+`.claude/plans/optimizely-access-migration-*.md`. Do **not** invite,
+create groups, PATCH policies, or `POST /v1/clients` here.
+`execute access` applies the updated tables (idempotent, including
+deltas after a prior execute). Skip ≠ delete.
+
+### Require a plan
+
+If none exists, run `plan access` first. If several, use the newest
+unless they name one. Do not invent a second plan file. Overall must
+be `✓ complete` (or step 5 complete).
+
+Starting **Phase 0** — Access adjust. Show the Adjust Access step
+tracker. Skip the full migration overview unless they also started a
+plan command this turn.
+
+### What the skill may change
+
+Any of these, in any order, any number of times:
+
+| Kind | Allowed | Forbidden |
+|------|---------|-----------|
+| **Users** | Tick Invite/Skip (one email, a team, a domain, or all). Move / add / remove group membership on the user row **and** the group Members cell. Add a person only if they **give an email** (record as extra, not from Optimizely) | Invent people. Invite without an email |
+| **Groups** | Tick Create/Skip. Change `displayName` anytime. Change `groupId` only if not yet created. Merge (one surviving `groupId`, combined members, Skip the other). Split (new `groupId` + named members; ASK displayName). Extra group only if they name it and who belongs | Flatten teams into per-user shares. Change `groupId` after the group exists in Execute progress |
+| **Roles** | Override share Viewer / Editor / Owner on intended-shares rows (group or direct user). Override default mapping (e.g. Publisher → Viewer) for matching rows; record in section 2 | Project Owner → `roles/admin`. Flags Editor/Reader **policy**. Flatten teams |
+| **Policies** | Change `optimizely-group-*` roles (default `roles/reader`). Record explicit yes/no on `default-policy` tighten. `admin-policy`: only **add** known Account Administrators | `roles/flags-editor` or `roles/flags-reader` on a **policy**. Apply `default-policy` during adjust. Remove identities from `admin-policy` |
+| **Clients** | Tick Create/Skip. Rename displayName / clientId. Split or merge only with an explicit answer. Assign which groups see which clients | Invent clients from project/env names when no `sdk_key`. Reuse the auto-created `{workspace} client` unless they say so |
+
+If they already stated the change, **apply it** (do not re-ask the
+menu). Otherwise ASK the six options in access.md (users / groups /
+roles / policies / clients / Done). Loop until Done or they run
+execute. On **Done**, re-ask the plan-access Step 5 exit menu
+(adjust / tick consent / execute / done) unless they already asked
+to execute.
+
+After each applied change: update sections 2–5 (keep heading names —
+`execute access` parses them), append a row to **## 7. Adjustments**
+(create that section if missing), re-display the tracker, summarize
+the diff (counts, not every email unless they asked for one person).
+Do not treat a rename or membership edit as consent — only tick
+`[x] Invite` / `[x] Skip` / `[x] Create` when they asked to tick.
+
+Telemetry: `step` `plan-access.adjust`, `action` `adjust_access`.
+
+### After execute (deltas)
+
+Next `execute access` uses sections 3–5 as source of truth: create
+newly ticked groups / invites / clients; PATCH `displayName` and group
+policy roles if they changed; `addGroupMembers` for new membership.
+**ASK before removing** a live member. Do not delete because a row is
+now Skip.
+
+## Plan Access: Template
+
+Copy the template from access.md (`Plan-file template`). Keep those
+heading names — `execute access` parses them. Do not invent a
+different access-plan shape.
+
+---
+
 ## Plan Flag: Steps
 
 The migration follows a 5-step plan flow: Step 1 scan Optimizely (and
 pick the environment), Step 2 review the migration scope, Step 3 choose
 a Confidence client, Step 4 map the bucketing ID, Step 5 generate the
-MCP commands.
+MCP commands. There is **no automatic path** from plan into **adjust
+flags** — after Step 5 you **must ASK** (structured question) whether
+to adjust, tick consent, execute, or stop. If they pick adjust, enter
+**Adjust Flags: Steps**. **No `createFlag` during plan or adjust.**
 
 ### Plan-file path
 
 `.claude/plans/optimizely-flag-migration-<date>.md`
 
 ### Step 1: Scan Optimizely
+
+**Before any scan:** if flags source is not yet chosen, ask **first**
+(see **First user message**). Do not show the full overview first.
+If access+flags: access source (1–5) was already asked — then ask
+whether flags use the **same** source. `⏸ awaiting user`.
 
 **If using Option B (exported files):** every `curl` call below is
 replaced by reading the matching local file with the Read tool — same
@@ -1000,6 +1634,9 @@ Extract from each flag:
   must fall through, reusable audiences, or an exclusion group) — record
   the backend on the flag's plan entry so `execute` knows which path to
   take
+- Whether the ruleset has **no enabled Optimizely rules** — if so, mark
+  the flag for **auto everyone catch-all** (see that section) and include
+  it in the plan's awareness table before Step 5 completes
 
 **Step 1d — fetch referenced audiences (once per unique id).** While
 scanning rules, collect every `audience_id` referenced by any rule's
@@ -1045,6 +1682,7 @@ internals):
 > | Multi-armed bandits | N | exclude |
 > | Paused flags | N | exclude |
 > | Blocked (missing data / unsupported targeting) | N | excluded until resolved |
+> | Rewrite candidates (OR-of-substring → version range) | N | ask intent, then migrate or keep blocked |
 >
 > The A/B tests need your input: the export marks them "running", but
 > <staleness evidence, e.g. "all of them have been running for over a
@@ -1065,10 +1703,110 @@ split from the Optimizely UI" instead. End the report with what would
 unblock the gaps (a full API export, an API token, or UI screenshots of
 specific flags).
 
+#### Rules operator audit (MANDATORY in Step 2)
+
+After classifying flags, **audit production targeting rules / audiences**
+against the Operator Mapping table (supported vs blocked). Do this in
+the same Step 2 turn as the scope summary (or immediately after scope
+is confirmed, before Step 3) — do **not** defer until execute.
+
+**Hard rule — never skip this audit.** Completing Step 2 / Overall
+without a **Rules audit (production)** section that lists every
+`exists` / `substring` / `regex` (and non-`custom_attribute`) hit is a
+**skill bug**. Silent migrate of those operators is forbidden — Confidence
+cannot express them, and execute must not invent a contains/presence/
+regex rule.
+
+**Scan requirement:** while scanning flags/audiences/`_rulesets`, walk
+every audience leaf `match_type`. Any `exists`, `substring`, or `regex`
+(including under `not`) must be recorded on that flag as
+`unsupported_ops: [...]` in the scan artifact **and** surfaced in the
+audit table below. Flags with only supported ops stay normal migrate
+candidates.
+
+**Supported** rules (e.g. `exact`, numeric compares, `semver_*`,
+`and`/`or`/`not`, everyone / no-audience 100% TD) → include in the plan
+as normal migrate/import candidates.
+
+**Unsupported** audience operators must be listed with counts and
+**flag ids**, then **ASK for a workaround** (structured picker / ticks).
+Do not silently skip them, do not tick `[x] Migrate` as if they were
+fine, and do not invent a rewrite without consent.
+
+Present a short audit table:
+
+> ### Rules audit (production)
+>
+> | Bucket | Flags (rules) | Plan default |
+> |--------|--------------:|--------------|
+> | Supported — import as Confidence rules | N | include |
+> | Blocked — `exists` (attribute present) | N | **BLOCKED** — ask workaround |
+> | Blocked — `substring` (contains) | N | **BLOCKED** — ask workaround |
+> | Blocked — `regex` | N | **BLOCKED** — ask workaround |
+> | Blocked — non-`custom_attribute` leaf | N | **BLOCKED** — ask workaround |
+> | Rewrite candidate — OR-of-substring version family | N | ask intent |
+>
+> List every blocked flag id under each bucket (or a linked appendix).
+> Supported rules will be planned and executed normally.
+> Blocked rules stay **BLOCKED** until a workaround is confirmed.
+
+Then ask **one workaround group at a time** (⏸ awaiting user between
+groups). Use `AskQuestion` when available.
+
+**A — `exists` (attribute is present / absent)**  
+Confidence has no presence operator. Propose:
+
+1. **Explicit value set** — if the attribute has a known small set of
+   values, target those with `exact` / `setRule` (list the values)
+2. **Send a boolean from the app** — e.g. context `has_<attr>: true`
+   when the attribute is set; target `exact` true/false
+3. **Drop this audience rule** — keep flag; omit this rule (document gap)
+4. **Keep blocked / manual later** — leave out of execute until redesigned
+
+**B — `substring` (contains)**  
+Confidence has no contains rule. Propose:
+
+1. **Version family rewrite** — if values look like versions
+   (`2.182`…`2.187`), migrate as a **version range** (see Rewrite:
+   OR-of-substring version families) — only after confirming intent
+2. **Exact / set of full strings** — only the literal strings, no
+   partial contains
+3. **Change the app** — send a normalized attribute (enum / list) and
+   target with `exact` / `setRule`
+4. **Drop this audience rule** / **Keep blocked / manual later**
+
+**C — `regex`**  
+Propose:
+
+1. **Enumerate matches** as `exact` / `setRule` if the set is finite
+2. **Replace with structured attributes** in the app (preferred long-term)
+3. **Drop this audience rule** / **Keep blocked / manual later**
+
+Record every answer under the plan’s **Rules audit / workarounds**
+section (operator → chosen workaround → affected flag/rule ids). In
+Section 5 / Progress / execute payloads:
+
+- Mark each affected flag (or rule) **`BLOCKED`** with the operator
+  reason until a workaround is confirmed and the plan row is rewritten
+- Do **not** pre-tick `[x] Migrate` on a flag whose **only** targeting
+  depends on unresolved blocked ops — tick Skip or leave blocked
+- If the flag has other supported rules: migrate the flag shell +
+  supported rules; keep blocked rule(s) listed and **out of** rules
+  import
+- Unsupported with “keep blocked” stay excluded from rule import
+  (flag may still get everyone catch-all / other rules)
+
+**Step 2 gate:** do not set Generation Status step 2 to `✓ complete`
+until (1) the Rules audit table is in the plan with accurate counts,
+(2) every blocked flag id is listed, and (3) workaround answers are
+recorded or explicitly deferred as keep-blocked. Skipping the audit
+because “most rules look fine” is a bug.
+
 Set the step to `⏸ awaiting user`. Record the confirmed scope — per
 category: default kept or overridden, plus the user's live-experiment
-list — in the plan's Migration Scope section. Only then update
-Generation Status step 2 to `✓ complete`.
+list — **and** the rules-audit workaround answers — in the plan's
+Migration Scope section. Only then update Generation Status step 2 to
+`✓ complete`.
 
 ### Step 3: Select Confidence client
 
@@ -1076,37 +1814,43 @@ Generation Status step 2 to `✓ complete`.
 mcp__confidence__listClients
 ```
 
-**EDUCATE then ASK the user:**
+If an access plan exists with section **Flag ↔ Client attach**, load it.
+Prefer those attachments over a single default for every flag.
+
+**EDUCATE then ASK the user (one question):**
 
 > **What is a client?**
-> A client represents the application that resolves flags — your website,
-> backend service, or mobile app. Each client has its own secret for
-> authentication and can be scoped to environments (dev, staging, prod).
-> Flags are associated with one or more clients, so Confidence knows which
-> application should receive which flags.
+> A client is the **application** that resolves flags — website,
+> backend, or mobile — with its own secret. It is **not** an Optimizely
+> project, environment, or SDK key.
 >
-> Think of it like: "Where will these flags be evaluated?"
+> - **Human who can open a flag in the console** = IAM shares (Phase 0)
+> - **Which apps resolve a flag** = Flag Client(s) (`:addFlagClient`)
+> - **Different behavior by env / audience** = Environments + **flag rules**
 >
-> Your existing clients:
+> From the access plan (if any): <Flag ↔ Client attach summary>
+>
+> Which Confidence client is the **default** when a flag has no attach row?
+> Reply with the number (or type `new <name>`):
 > 1. <client-1>
 > 2. <client-2>
-> ...
+> …
 > N. Create a new client
->
-> Which client should I use as the default for all flags?
-> You can always rearrange them later in the Confidence UI.
 
 **Wait for an explicit pick.** Set the step to `⏸ awaiting user` and
-stop. A re-run of the migration command, an empty message, or any reply
-that is not a number from the list / `new <name>` is **not** consent —
-NEVER infer the recommendation from silence. If the reply is ambiguous,
-re-ask, listing the choices again.
+stop. After they pick the default, ask **separately** (next turn) whether
+multi-app flags keep multiple Clients from the access plan — still one
+numbered question. Never ask default + multi-app + client-less in one
+message.
 
-- If user picks existing → use it
+- If user picks existing → use it as default
 - If user wants new → ASK for name → `mcp__confidence__createClient`
+- If access plan lists multi-client flags → keep those rows; default
+  only fills gaps
 
-**After client selected:** Write the "Default Client" section to the
-plan file and update Generation Status step 3 to `✓ complete`.
+**After client selected:** Write the "Default Client" section **and**
+any Flag ↔ Client attach overrides to the plan file and update
+Generation Status step 3 to `✓ complete`.
 
 **Forked apps (shared code, independent flag sets).** Some apps are
 **forks** of another app — they share a codebase but each fork is its own
@@ -1124,44 +1868,28 @@ default** (fail-safe), the same as before. Run `plan flags` once per fork.
 This step maps Optimizely's bucketing ID (the user ID handed to the SDK)
 to a Confidence entity field.
 
-**EDUCATE then ASK:**
+**EDUCATE then ASK (one question):**
 
 > **What is a randomization unit (entity)?**
 > An entity is the "thing" that gets randomly assigned to a variant —
 > usually a user. The entity field (like `user_id` or `visitor_id`) is
-> the identifier Confidence uses to ensure **consistent assignment**: the
-> same user always sees the same variant.
+> the identifier Confidence uses for **consistent assignment**.
+> In Confidence it is the `targetingKey` / `targetingKeySelector`.
 >
-> In Confidence, it maps to the `targetingKey` in the evaluation context.
+> In Optimizely, flags bucket on the **user ID** passed to `decide()`
+> (or `$opt_bucketing_id`).
 >
-> In Optimizely, every flag buckets on the **user ID** you pass to
-> `decide()` (or a `$opt_bucketing_id` override).
->
-> Common choices:
-> - **user_id** — for authenticated users
-> - **visitor_id** — for anonymous visitors (auto-generated by Confidence
->   client SDKs)
-> - **company_id** — for a company/org/tenant unit
->
-> One thing worth checking: is the ID your code passes to Optimizely an
-> **authenticated user ID**, an **anonymous visitor/device ID**, or a
-> mix? (For an unauthenticated website it's usually an anonymous ID.)
-> The name should reflect what the ID actually is — it determines how
-> the flags behave across login boundaries.
->
-> Your client's existing entity fields:
-> 1. <entity-field-1>
-> 2. <entity-field-2>
-> ...
+> Which Confidence field represents the Optimizely bucketing ID?
+> Reply with the number (or type `new <name>`):
+> 1. user_id — authenticated users
+> 2. visitor_id — anonymous visitors
+> 3. <existing entity field if any>
+> …
 > N. Create a new field
->
-> Which Confidence field represents the Optimizely user/bucketing ID?
 
-Same wait-for-explicit-pick rule as Step 3 above. Silence is not
-consent. If the user doesn't know whether the IDs are authenticated or
-anonymous, proceed with their pick but record the open question in the
-plan ("confirm with the team whether Optimizely receives authenticated
-or anonymous IDs").
+Same wait-for-explicit-pick rule as Step 3. Silence is not consent.
+If they don't know auth vs anonymous, proceed with their pick but note
+it in the plan.
 
 - If user picks existing → use it as `targetingKey`
 - If user wants new → ASK for name + type → `mcp__confidence__addContextField`
@@ -1206,27 +1934,108 @@ one; flags whose classification needs user input stay unticked. In
 **review-each** mode, all boxes start empty.
 
 **After all commands generated:** Update Generation Status step 5 to
-`✓ complete`, set the overall status to `complete`, and tell the user
-(adapt to the chosen mode):
+`✓ complete`, set the overall status to `complete`. Summarize mode
+counts (pre-approved / skipped / unticked). Do not create flags.
 
-> Plan generated! Review it at `.claude/plans/optimizely-flag-migration-<date>.md`
->
-> Mode: **migrate all eligible** — <N> flags are pre-approved, <M> are
-> skipped with reasons, <K> need a decision from you (unticked). Adjust
-> any checkbox you disagree with, then run:
-> `/migrate-optimizely execute <plan-file>`
+**Exit ask (required).** `plan flags` does **not** continue into
+adjust on its own. After Overall is `✓ complete`, **stop and ASK one
+numbered question** (Question UX). Do not start adjust, tick rows, or
+execute until they answer.
 
-(or, review-each mode:)
+```text
+Flag plan is ready (.claude/plans/optimizely-flag-migration-<date>.md).
+There is no automatic path into adjust — pick what to do next.
+Reply with the number:
+1. Adjust flags — change scope, Migrate/Skip, client, bucketing, schema, or rules (no createFlag)
+2. Tick consent — mark Migrate / Skip on flags that still need a decision (still no writes)
+3. Execute flags — create flags now (only if required ticks are set; otherwise pick 2 first)
+4. Done for now — stop; run adjust or execute later
+```
 
-> Migration is **opt-in**: every flag starts with both checkboxes empty.
-> Tick `[x] Migrate` or `[x] Skip` for each flag — `execute` will refuse
-> any flag with neither box set. When ready, run:
-> `/migrate-optimizely execute <plan-file>`
+**On their answer:**
+- **1** → enter **Adjust Flags: Steps** immediately in this turn
+  (same as `/migrate-optimizely adjust flags`; do not require the
+  slash command). After adjust Done, re-ask this exit menu.
+- **2** → help them tick Migrate/Skip; then re-ask this exit menu.
+- **3** → if required ticks are still empty, refuse and send them to
+  option 2. Otherwise hand off to `execute flags`.
+- **4** → stop. Remind them of the plan path and the adjust / execute
+  commands.
 
 **Rule → targeting-rule order.** Optimizely rules form a waterfall —
 the first matching rule (by `rule_priorities`) wins. Confidence
 evaluates targeting rules in declared order, so emit one
 `addTargetingRule` call per Optimizely rule, in the same order.
+
+## Adjust Flags: Steps
+
+Fine-edit the flag plan through the skill. Enter when the user runs
+`/migrate-optimizely adjust flags`, `/migrate-optimizely-adjust-flags`,
+`modify flags`, picks **Adjust flags** on the **plan flags Step 5
+exit ask**, or asks to change flag scope / Migrate·Skip / client /
+bucketing / schema / rules after a flag plan exists. Natural language
+is enough (`skip all partial rollouts`, `migrate checkout-banner`,
+`use client web-app`, `bucketing → visitor_id`).
+
+**Plan writes only.** Edit
+`.claude/plans/optimizely-flag-migration-*.md`. Do **not**
+`createFlag`, `addTargetingRule`, or other Confidence flag writes
+here. `execute flags` applies the updated tables.
+
+### Require a plan
+
+If none exists, run `plan flags` first. If several, use the newest
+unless they name one. Do not invent a second plan file. Overall must
+be `✓ complete` (or step 5 complete).
+
+Starting **Phase 1** — Flag adjust. Show the Adjust Flags tracker:
+
+```
+───── Adjust Flags ────────────────────────────────────────
+  Plan: optimizely-flag-migration-<date>.md
+  Edit: scope · ticks · client · bucketing · schema · rules
+────────────────────────────────────────────────────────────
+```
+
+Skip the full migration overview unless they also started a plan
+command this turn.
+
+### How to ask
+
+If they already stated the change, **apply it** (do not re-ask the
+menu). Otherwise **one** numbered question (Question UX):
+
+```text
+The flag plan is ready to edit. I will change the plan file only — no createFlag.
+What should I change? Reply with the number:
+1. Scope — include/exclude flags or categories
+2. Ticks — Migrate / Skip (one flag, a category, or all eligible)
+3. Client — change selected Confidence client
+4. Bucketing / entity — change targetingKey / entity mapping
+5. Schema / context fields — types, create/skip context fields
+6. Rules / backend — MCP vs REST; rule edits; execution mode
+7. Done — stop adjusting; return to exit menu
+```
+
+Loop until Done or they run execute. On **Done**, re-ask the
+plan-flags Step 5 exit menu unless they already asked to execute.
+
+### What the skill may change
+
+| Kind | Allowed | Forbidden |
+|------|---------|-----------|
+| **Scope** | Move a flag between migrate/excluded; change category decision with a recorded reason | Invent flags not in the scan/export; silently drop excluded rows |
+| **Ticks** | Tick Migrate/Skip for one key, a category, or all eligible | Treat silence as consent; leave neither box set when they asked to approve all |
+| **Client** | Switch to another existing client from `listClients`, or record a new client name for execute to create | Invent a live client id that does not exist and will not be created |
+| **Bucketing** | Change entity / targetingKey mapping; add context field rows | Invent Optimizely attributes that were never scanned |
+| **Schema / rules** | Edit Confidence schema notes, backend MCP↔REST, variant/rule payloads the user states; switch execution mode | `createFlag` / live targeting writes; invent exclusion-group ids |
+
+After each applied change: update sections 1–5 (keep heading names —
+`execute flags` parses them), append a row to **## 7. Adjustments**
+(create that section if missing), re-display the tracker, summarize
+the diff (counts, not every flag unless they asked for one key).
+
+Telemetry: `step` `plan-flags.adjust`, `action` `adjust_flags`.
 
 ---
 
@@ -1329,28 +2138,61 @@ Confidence has **no server-side flag default**. The `Flag` resource
 carries variants and an ordered list of rules but no default-value
 field. The resolver's contract is explicit: *"each rule is tried in
 order; the first match assigns a variant; if no rule matches, no variant
-is assigned."* When no rule matches, the SDK returns **the default the
-caller passed at the call site** (e.g. `decide` falls back to the
-flag-off default).
+is assigned."* When no rule matches, resolve returns
+`RESOLVE_REASON_NO_SEGMENT_MATCH` with an empty variant/value, and the
+SDK returns **the default the caller passed at the call site**.
+
+**Empty rules ≠ everyone.** A flag with `rules: []` (or only disabled
+rules) does **not** serve a variant to all users. Operators often expect
+Optimizely-style "no rule → default for everyone"; Confidence requires an
+**explicit** catch-all rule for that behavior.
 
 So an Optimizely default — the ruleset's `default_variation_key`
 (typically `off`) — does **not** map to any flag-level field. To
 preserve it faithfully, emit it as an explicit **catch-all final rule**:
 
-- `addTargetingRule` with `variantAllocations` =
+- MCP: `addTargetingRule` with `variantAllocations` =
   `{ "<defaultVariant>": 100 }` and **no `payload`** (an omitted/empty
   payload targets all contexts).
+- REST: rule on an allocated everyone segment (e.g. `segments/opt-everyone`)
+  with 100% buckets → default variant, then `enabled: true`.
 - Add it **last**, after every specific rule, so it only catches
   subjects that matched nothing above it.
 
-For a **boolean flag**, the catch-all variant is `disabled` (`off`) —
-reached only by users who matched **no** rule. For a **flag with
-variables**, the catch-all variant carries the `default_variation`'s
-variable values (usually the `off` variation's values). For a
-**variable-less, named-variant flag** (see "Optimizely's flag model"),
-the catch-all variant's `variant` property is the ruleset's
+For a **boolean flag**, the catch-all variant is `disabled` / `off` /
+`off-flag` — reached only by users who matched **no** earlier rule. For a
+**flag with variables**, the catch-all variant carries the
+`default_variation`'s variable values (usually the `off` variation's
+values). For a **variable-less, named-variant flag** (see "Optimizely's
+flag model"), the catch-all variant's `variant` property is the ruleset's
 `default_variation_key` itself (typically `off`) — the same literal
 string a caller branching on the raw variation key would have seen.
+
+### Automatic everyone catch-all (required)
+
+**Plan (make the user aware):** If a flag has **no Optimizely rules** in
+the chosen environment (empty `rule_priorities` / no enabled rules) — or
+only a default_variation with nothing else — the plan **must**:
+
+1. List it in a dedicated plan subsection **"Flags with no Optimizely
+   rules → auto everyone catch-all"** (count + flag keys).
+2. On each such flag entry, set **Confidence rules** to: *auto catch-all
+   only* — 100% → `default_variation_key` (mapped to the Confidence
+   variant id) for everyone.
+3. Call this out in the Step 5 summary / exit ask so the operator is not
+   surprised at execute.
+
+Do **not** silently omit these flags or leave Confidence with zero rules.
+
+**Execute (always enforce):** After creating/importing rules for a
+migrated flag, if it still has **zero enabled** targeting rules (or
+resolve would be `NO_SEGMENT_MATCH` for a generic context), **automatically
+add and enable** the everyone catch-all (MCP empty payload, or REST
+`segments/opt-everyone` / plan segment map). Prefer the plan's default
+variant; if unknown, prefer `off-flag` / `off` / `disabled` / any variant
+with `enabled: false`, else the first variant. Re-enable a disabled
+everyone catch-all instead of duplicating it. Never mark the flag migrated
+until at least one enabled rule exists.
 
 ### Expression combinators
 
@@ -1548,7 +2390,7 @@ shape; the JSON type of **`value`** selects the `Value` type
 | `semver_ge` | `rangeRule.startInclusive: { versionValue: { version } }` |
 | `semver_lt` | `rangeRule.endExclusive: { versionValue: { version } }` |
 | `semver_le` | `rangeRule.endInclusive: { versionValue: { version } }` |
-| `substring` | **BLOCKED** (Confidence has no substring/contains rule) |
+| `substring` | **BLOCKED** by default (no substring/contains rule). **Exception:** OR-of-substring on a version-like attribute → **rewrite candidate** (ASK; see below) — do not copy as string contains |
 | `regex` | **BLOCKED** (Confidence has no general regex rule) |
 
 **Negation.** A leaf inside a `["not", ...]` list is wrapped in `not` in
@@ -1568,12 +2410,17 @@ evaluation context must send a real boolean (not the string `"true"`).
 
 ### Blocked (manual review)
 
-These genuinely have no clean Confidence translation:
+These genuinely have no clean Confidence translation **as written**.
+Some substring patterns are **rewrite candidates** (next subsection) —
+ask before treating them as permanently blocked.
 
 - **`substring`** — Confidence has no substring/contains rule. Reason:
   `Uses a 'contains' match on '<attribute>'; Confidence has no substring
-  rule.` (Workaround: change the context field to send a list of strings
-  and use set matching.)
+  rule.` Docs: string `in` is whole-string membership only; "Confidence
+  does not support substring matching on strings." (Workaround for
+  non-version cases: change the context field to send a list of strings
+  and use set matching. For version-looking OR-of-substring, see
+  **Rewrite: OR-of-substring version families** below.)
 - **`regex`** — Confidence has no general regex rule. Reason: `Uses a
   regex on '<attribute>'; Confidence has no general regex rule.`
 - **`exists`** (and negated-exists) — Confidence has no working presence
@@ -1589,7 +2436,93 @@ These genuinely have no clean Confidence translation:
 
 When a rule/condition is blocked, mark it in Section 5 (per the
 template). A flag is fully blocked only when *every* non-default rule is
-blocked.
+blocked. Rewrite candidates stay **BLOCKED until the user confirms** the
+intent; after confirmation, rewrite the plan row and clear the block.
+
+### Rewrite: OR-of-substring version families (anticipate this)
+
+Optimizely often expresses “app versions 2.182 through 2.187” as an
+`["or", …]` of **six (or more) `substring` / contains leaves** on the
+same attribute (`app-version-name`, `app_version`, `appVersion`, etc.):
+
+```text
+app-version-name contains "2.182"
+OR contains "2.183"
+…
+OR contains "2.187"
+```
+
+That is **not** migratable as substring. Confidence should express the
+**intended** rule as a **version** comparison (treat the value as a
+version, not as text search). Substring is broader and wrong for
+versions — e.g. `"12.185.0"` can contain `"2.185"` even though it is
+not version 2.185.x.
+
+**Detect (during scan / plan flags).** Same attribute; `match_type`
+`substring` (or plain-English “contains”); combined with `or`; **two or
+more** leaf values that look like version prefixes
+(`/^\d+(\.\d+){1,3}$/`). Prefer detection when values are a contiguous
+minor series (e.g. `2.182`…`2.187`). Name hints help (`version`,
+`app_version`, `app-version-name`) but are not required if the values
+are version-shaped.
+
+**Do not auto-apply.** At scope review (or when writing the flag’s plan
+row), **ASK**:
+
+> This audience uses Optimizely **contains** checks on
+> `<attribute>` for `<v_min>` … `<v_max>` (OR). Confidence has no
+> substring rule. Was the intent:
+> 1. **Release families** — continuous version range from
+>    `<v_min>` through `<v_max>` (including patches like
+>    `<v_mid>.1`) → migrate as a Confidence **version** range
+> 2. **Exact strings only** — only those literal values, no patches →
+>    version/`string` equality or `setRule` on the exact list
+> 3. **True substring** (including accidental hits like `12.185.0`) →
+>    keep **BLOCKED** (not supported)
+
+**If they pick (1) — preferred migration.** Rewrite to one criterion
+with `versionValue` + `rangeRule`. Map the Optimizely attribute to the
+Confidence context field the app actually sends (often `app_version` on
+managed mobile context). Prefer an exclusive upper bound on the **next**
+minor so patches under `<v_max>` match:
+
+```json
+{
+  "attribute": {
+    "attributeName": "<mapped-context-field>",
+    "rangeRule": {
+      "startInclusive": { "versionValue": { "version": "<v_min>" } },
+      "endExclusive": { "versionValue": { "version": "<v_max_next>" } }
+    }
+  }
+}
+```
+
+Example: `2.182`…`2.187` → `startInclusive: 2.182`, `endExclusive:
+2.188` (covers `2.185.1` and `2.187.9`, not `2.188` or `12.185.0`).
+
+If the product UI / user insists on “between `2.182` and `2.187`
+**inclusive**” as the wording, still confirm whether patches under
+`2.187` should match. `endInclusive: 2.187` alone may **exclude**
+`2.187.1` under Confidence version compare — for “through the 2.187
+family” keep `endExclusive: 2.188`.
+
+Record in the plan: original Optimizely OR-of-substring list, chosen
+intent (1), mapped field, and the range bounds. Status becomes migratable
+(not BLOCKED). Plain English in the plan: “app version is between 2.182
+and 2.187 (version range; was Optimizely contains OR)”.
+
+**If they pick (2).** `setRule` / OR of `eqRule` with `versionValue` (or
+`stringValue` if they insist on literal string equality) for each exact
+token — narrower than contains; may miss `2.185.1`.
+
+**If they pick (3) or refuse.** Keep **BLOCKED** with the substring
+reason. Do not invent a range.
+
+**Still hard-BLOCKED (no rewrite):** a single unrelated substring
+(e.g. email contains `@test`); substring on non-version-like values;
+substring mixed with other match types on the same attribute without a
+clear version series.
 
 ### Worked example (ruleset waterfall)
 
@@ -1779,7 +2712,20 @@ wrote the rules.
 | Audience | Targeting criteria (inlined) or segment (REST) |
 | Traffic allocation + variation split | Variant allocations inside the rule |
 | Default variation | Final catch-all targeting rule |
+| No Optimizely rules / empty ruleset | **Auto everyone catch-all** (required — empty Confidence rules do **not** resolve for everyone) |
 | Bucketing ID (`decide` user ID) | Entity field (`targetingKey`) |
+
+### Flags with no Optimizely rules → auto everyone catch-all
+
+<Count> flags have no enabled Optimizely rules in env `<ENV_KEY>`. Confidence
+will **not** assign a variant until a rule exists, so `execute flags` will
+**automatically** add an everyone catch-all (100% → each flag's default
+variation). Review the list; change the default variant via `adjust flags`
+if needed before execute.
+
+| Flag | Default variant (catch-all) |
+|------|------------------------------|
+| `<flag-key>` | `<default_variation_key → Confidence variant id>` |
 
 ---
 
@@ -1795,11 +2741,23 @@ wrote the rules.
 | Bandits / adaptive | N | excluded |
 | Paused flags | N | excluded |
 | Blocked | N | excluded until resolved |
+| Rewrite candidates (OR-of-substring → version range) | N | workaround confirmed / blocked |
 
 **Overrides / notes:** <user decisions that differ from the defaults,
 the confirmed live-experiment list, open questions for the customer
 (e.g. whitelists, exclusion groups, whether the export is from the live
 project, authenticated vs anonymous IDs)>
+
+### Rules audit / workarounds (confirmed with user)
+
+| Operator / bucket | Rules | Workaround chosen | Affected flags (sample or path to list) |
+|-------------------|------:|-------------------|-----------------------------------------|
+| Supported (import normally) | N | include | — |
+| `exists` | N | <explicit set / boolean attr / drop rule / keep blocked> | |
+| `substring` | N | <version range / exact set / app change / drop / keep blocked> | |
+| `regex` | N | <enumerate / app change / drop / keep blocked> | |
+| non-custom_attribute | N | <manual / drop / keep blocked> | |
+| Rewrite candidate (version family) | N | <range / exact / keep blocked> | |
 
 ### Excluded flags
 
@@ -1815,11 +2773,23 @@ A client represents the application that resolves flags (e.g. your
 website, backend service, or mobile app). Each client authenticates
 with its own secret and can be scoped to environments (dev, staging,
 prod). Flags are associated with clients so Confidence knows which
-application receives which flags.
+application receives which flags. Project ≠ Client. Env ≠ Client.
+SDK key ≠ Client.
 
 **Available Clients:** <list from MCP>
 
-**Selected:** `<client>`
+**Selected default:** `<client>`
+
+**Flag ↔ Client attach** (from access plan / interview; multi-app OK):
+
+| Flag | Clients | Notes |
+|------|---------|-------|
+| <flag-key> | <c1>, <c2> | multi-app |
+| <flag-key-2> | _(none)_ | defer attach |
+
+**Governance note:** Console who-sees/edits = IAM shares. Runtime
+env/audience = Environments + flag **rules**. Client attach ≠ human
+permission.
 
 ---
 
@@ -1902,7 +2872,7 @@ description so it stays findable>
 **Exclusion group:** <none, or group-id → exclusivity tag (REST)>
 **Adaptive:** <none, or "multi_armed_bandit / stats_accelerator — split snapshotted, no longer auto-tunes">
 **Presence/exists conditions:** <none, or "BLOCKED — `exists`/null match on '<attr>'; Confidence has no working presence operator">
-**Confidence rules:** one targeting rule per Optimizely rule, in priority order, plus a final catch-all rule for the default
+**Confidence rules:** <one targeting rule per Optimizely rule, in priority order, plus a final catch-all for the default **OR** if Optimizely has no rules: "auto everyone catch-all only → `<defaultVariant>` (Confidence empty rules do not serve everyone)">
 **Action:** [ ] Migrate  [ ] Skip
 
 If any rule or the whole flag is BLOCKED, replace the **Action** line
@@ -1910,6 +2880,17 @@ with:
 
 **Status:** BLOCKED — <one-line reason from the BLOCKED rules above>
 **Action:** [ ] Skip (no migrate option available until the block is resolved)
+
+If the only block is an **OR-of-substring version-family** rewrite
+candidate (see Operator Mapping), use this instead until the user
+answers the intent ASK:
+
+**Status:** BLOCKED (rewrite candidate) — Optimizely OR-of-contains on
+`<attribute>` for `<v_min>`…`<v_max>`; Confidence has no substring.
+Propose version `rangeRule` [`<v_min>`, `<v_max_next>`) if intent is
+release families.
+**Action:** [ ] Skip  — or after intent confirmed: clear block, write
+the version-range **Confidence rules**, then `[ ] Migrate  [ ] Skip`
 
 **Commands:**
 <For MCP backend: createFlag, addFlagToClient, addTargetingRule (ONE per Optimizely rule, in priority order) THEN a final catch-all addTargetingRule (no payload, 100% → default variant). For REST backend: createFlag (MCP, to wire the client), then per audience a POST /v1/segments + :allocate, then POST /v1/flags/<flag>/rules (segment + assignmentSpec) + PATCH enabled=true, in order. Finish with resolveFlag (MCP) — positive AND negative case (negative must land on the catch-all and return the default variant)>
@@ -1925,13 +2906,43 @@ with:
 <!-- Status values: :white_circle: pending · :white_check_mark: migrated
 <date> · :no_entry_sign: skipped · :x: failed (reason). `execute`
 updates this table AND the flag's Action line after EVERY flag. -->
+
+---
+
+## 7. Adjustments
+
+`adjust flags` appends rows. Leave empty during the first `plan flags`.
+
+| When | Kind | Change |
+|------|------|--------|
 ```
 
 ---
 
 ## Execute: How It Works
 
-`execute <plan-file>` walks through the plan interactively, step by step.
+Named execute commands work like `execute access`: **no plan path
+required.** Find the matching plan file, then walk it interactively.
+
+| Command | Plan file | If missing |
+|---------|-----------|------------|
+| `execute access` | `.claude/plans/optimizely-access-migration-*.md` | Run `plan access` first |
+| `execute flags` | `.claude/plans/optimizely-flag-migration-*.md` | Run `plan flags` first |
+| `execute code` | `.claude/plans/optimizely-code-migration-*.md` | Run `plan code` first |
+
+If several match, use the newest; if Overall is not `complete`, tell
+the user and **ask** resume the plan vs execute anyway. Do not invent
+a plan. `execute <plan-file>` is an alias: use that path and pick the
+section below from the filename (`access` / `flag` / `code`).
+
+If the file is an access plan, follow **`execute access` in
+[access.md](access.md)** — do not run the flag setup sequence. There
+is **no** `execute clients`. Flag clients are proposed in `plan access`
+Step 4 and created by `execute access` when ticked. After **adjust
+access**, re-run `execute access` to apply deltas (Skip ≠ delete).
+After **adjust flags**, re-run `execute flags` against the updated
+plan (consent gate still applies). After **adjust code**, re-run
+`execute code` against the updated plan.
 
 ### For flag plans
 
@@ -1944,6 +2955,25 @@ flags back to the user and ask them to tick `[x] Migrate` or
 (migrate-all-eligible and review-each). Silence is NOT consent —
 never assume a default for an unticked flag.
 
+**UNSUPPORTED-OPERATOR GATE (mandatory — same moment as consent):**
+Re-scan the plan / execute payloads / Optimizely audiences for
+`match_type` in `{exists, substring, regex}` (and non-`custom_attribute`
+leaves). Any flag/rule still carrying those without a **recorded
+workaround** must be **`BLOCKED`** in the plan. You MUST:
+
+1. List every blocked flag id + operator(s) in chat before writes
+2. **Refuse** to import those audience rules into Confidence (no fake
+   contains/presence/regex criteria)
+3. **Refuse** `[x] Migrate` as full targeting parity when the flag’s
+   production rules depend only on unresolved blocked ops — ask Skip,
+   workaround, or migrate shell + catch-all only with the gap documented
+4. Never clear BLOCKED at execute time without a plan rewrite from
+   adjust / workaround answers
+
+If the plan’s Rules audit section is missing but unsupported ops exist
+in the source, **stop**, run the Step 2 Rules operator audit (or adjust
+flags), and do not pretend counts are zero.
+
 ```
 1. READ the plan file
    - Client is already in the plan — use it, do NOT re-ask
@@ -1952,7 +2982,9 @@ never assume a default for an unticked flag.
    - Run the CONSENT GATE above. If any flag is unticked, STOP HERE.
    - REFUSE TO PROCEED if any flag is marked `BLOCKED` and the user
      hasn't either resolved the block or ticked `[x] Skip`. Surface the
-     BLOCKED flags and the reason for each.
+     BLOCKED flags and the reason for each — including
+     **unsupported operators** (`exists` / `substring` / `regex`) from
+     the Rules audit. Checkbox alone does not clear an operator block.
    - Override handling: If a previously excluded flag is now ticked
      `[x] Migrate`, migrate it — but restate the plan-recorded caveat
      at that flag's checkpoint before proceeding. The user must
@@ -1971,25 +3003,127 @@ never assume a default for an unticked flag.
      must be resolved or removed in the plan before the flag can be
      migrated. If a BLOCKED flag is ticked `[x] Migrate` without the
      block being resolved, refuse and surface the unresolved block.
-2. FOR EACH FLAG marked [x] Migrate:
+     **Exception — rewrite candidates:** OR-of-substring version
+     families (see Operator Mapping) may migrate only after the plan
+     row was rewritten to a confirmed version `rangeRule` (or exact
+     set) and the BLOCKED status cleared. Checkbox alone is still not
+     enough.
+2. FOR EACH FLAG marked [x] Migrate — **flag create only** (shell +
+   client attach; do not bury the full waterfall here):
    - review-each mode:
      a. Show flag name (display name if set), type, description, and
         rules in plain English
      b. ASK: "Create this flag in Confidence? [Yes / Skip / Pause]"
-     c. If Yes → run the Flag Setup Sequence (below)
+     c. If Yes → Flag Setup Sequence STEP 1–2 (create + client). Defer
+        STEP 3 (rules) to the targeting-rules phase below unless
+        review-each does create+rules per flag with an explicit note.
      d. UPDATE THE PLAN FILE (mandatory, see below)
      e. CHECKPOINT: "Flag done. [Continue / Pause]?" — wait for user
    - migrate-all-eligible mode:
-     a. Run the Flag Setup Sequence for the flag — NO per-flag question
+     a. Create / unarchive + `:addFlagClient` for the flag — NO
+        per-flag question. Prefer deferring specific targeting rules
+        to step 2b so progress bars stay separate.
      b. UPDATE THE PLAN FILE (mandatory, see below)
-     c. Update the progress bar; continue to the next flag
+     c. **Update the progress bar in chat** (see **Execute progress
+        bar** — paste the latest `█`/`░` line into a user-visible
+        reply; collapsed shell stdout alone is not enough) and
+        continue to the next flag — never silent multi-minute batches
      d. STOP AND ASK only when something needs a human: a Flag Setup
-        step fails after retry, a resolve verification mismatches, or
-        the flag's plan entry has an unresolved note. Offer
-        [Retry / Skip this flag / Pause].
-3. COMPLETION
-   - Show summary: created vs skipped vs failed
+        step fails after retry, or the flag's plan entry has an
+        unresolved note. Offer [Retry / Skip this flag / Pause].
+
+2b. **AFTER FLAG CREATE — required next-step handoff (targeting rules)**
+
+   When the create loop finishes (or resumes with shells already in
+   Confidence), **stop and surface this in chat before resolve or
+   `plan code`**. Targeting-rules import is the **suggested and
+   required** next step for Phase 1 — do not skip it, and do not
+   suggest Phase 2 until rules + resolve gate are done.
+
+   Show (adapt counts from the plan / execute artifact):
+
+   ```
+   ───── Flag create complete ─────────────────────────────
+     Created: N  |  Already existed: M  |  Failed: F
+
+   Next (required): import targeting rules into Confidence
+     Planned: R rules across F flags (from _rulesets / confidenceRules)
+     Progress will show: Execute Flags · targeting rules █░ …
+
+     [1] Start targeting-rules import  ← suggested
+     [2] Pause (resume later with execute flags)
+   ```
+
+   - Default / recommend **[1]**. On **[1]** (or if the operator already
+     said to run the full execute without pausing): run the **rules
+     import** as its **own** loop with a **mandatory chat-visible**
+     progress bar (`Execute Flags · targeting rules` — see **Execute
+     progress bar → Production waterfall / targeting-rules import**).
+     Same bar rules for segment prep and catch-all passes. Apply
+     workarounds from the plan; never invent rewrites at execute time.
+   - If the plan has **no** specific rules to import (only auto
+     catch-alls): say so in chat, run the catch-all pass with its bar,
+     then continue to the resolve gate.
+   - **Bugs (do not ship):** jumping to `plan code` / Phase 2 after
+     create; create+catchall only while skipping planned specific
+     rules; silent multi-minute rules script; milestone logs only;
+     collapsed heredoc with no chat paste; folding rules into the
+     create bar so the operator never sees rule names land; declaring
+     Phase 1 complete before rules + resolve gate.
+
+2c. **AFTER RULES IMPORT — required next-step handoff (resolve all)**
+
+   When targeting-rules import (and catch-alls) finish, **stop and
+   surface this in chat**. Do **not** offer `plan code` / Phase 2 yet.
+   **Resolve-verify ALL migrated flags** is the **only** natural next
+   suggestion — it is how Phase 1 is **definitively validated**
+   (every flag gets a **segment match**, not `NO_SEGMENT_MATCH`).
+
+   Show:
+
+   ```
+   ───── Targeting rules import complete ──────────────────
+     Rules created: R  |  Catch-alls: C  |  Failed: F
+
+   Next (required to validate Phase 1): resolve-verify ALL migrated flags
+     Goal: every flag returns a segment match (expected variant)
+     This is the Phase 1 gate — not optional, not a sample
+     Progress will show: Execute Flags · resolve verify █░ …
+
+     [1] Start resolve-verify all flags  ← suggested (validates Phase 1)
+     [2] Pause (resume later with execute flags)
+   ```
+
+   - Default / recommend **[1]** as the natural continuation. On **[1]**
+     (or full-execute continue): run **Phase 1 resolve gate** (step 3)
+     with a chat-visible `Execute Flags · resolve verify` bar — **all**
+     migrated flags, not a sample.
+   - Only after the gate passes (or failures are explicitly skipped)
+     may you say **Phase 1 complete / validated** and then suggest
+     `plan code`.
+   - **Bugs:** suggesting `plan code` right after rules; calling Phase 1
+     done because rules imported; spot-checking 3–5 flags; skipping
+     resolve because create/rules "looked fine".
+
+3. **FULL RESOLVE VERIFICATION (mandatory — all migrated flags)**
+   - After creates + rules for the run are done (and the 2c handoff),
+     run **Phase 1 resolve gate** below. Spot-checks of 3–5 flags are
+     **not** enough.
+   - Every flag with Action `✓ Migrated` (or Progress migrated) MUST
+     pass resolve verification — **segment match** to the expected
+     variant — before Phase 1 is reported complete.
+   - Write results to the plan / a sibling
+     `optimizely-flag-resolve-verify-<date>.json` (pass / fail / error
+     per flag). Update Progress with verify status.
+4. COMPLETION (only after resolve gate passes or failures are
+   explicitly skipped with reason)
+   - Show summary: created vs skipped vs failed vs **resolve pass/fail**
+     (segment match counts)
    - The plan file's Progress table must match the summary exactly
+   - Do **not** say "Phase 1 complete" / "Phase 1 validated" while any
+     migrated flag has unresolved verify failure
+   - After a clean gate, announce **Phase 1 validated** (all flags
+     segment-matched), **then** suggest `plan code` as Phase 2
 
 UPDATE THE PLAN FILE (after EVERY flag, before touching the next one):
    - Flag's Section 5 entry: replace the Action line with the outcome —
@@ -2002,6 +3136,82 @@ UPDATE THE PLAN FILE (after EVERY flag, before touching the next one):
    done.
 ```
 
+### Phase 1 resolve gate (end of `execute flags`)
+
+**Goal:** every migrated flag **resolves with a segment match** for its
+Confidence client(s) before Phase 1 is done. Creating flags/rules
+without this gate is incomplete. Empty rules → `NO_SEGMENT_MATCH` for
+everyone — that must fail the gate unless fixed by catch-all / rules.
+
+**When:** immediately after the **2c handoff** (rules import complete).
+The **only** natural next suggestion in chat:
+**Start resolve-verify all flags** (validates Phase 1).
+Do not offer `plan code` until this gate passes.
+
+**Scope:** all flags marked migrated in this execute (or all `[x]
+Migrate` that already exist in Confidence if re-running verify only).
+Skipped / failed creates are out of scope.
+
+**Per flag (minimum):**
+
+1. Wait briefly if the flag was just created (resolver propagation);
+   retry on "No active flags found for the client".
+2. **Positive resolve — segment match** — context that should match the
+   primary rule or catch-all; assert
+   `RESOLVE_REASON_MATCH` / segment match **and** the expected variant
+   (or default catch-all variant when that is the intended production
+   state). `NO_SEGMENT_MATCH`, missing assignment, or wrong variant =
+   **fail**.
+3. **Negative / miss resolve** — when the flag has specific targeting
+   rules, resolve with a context that should **not** match them and
+   assert catch-all / default variant (still a segment match on the
+   catch-all, not an empty resolve).
+4. **Waterfall** — if 2+ ordered specific rules exist, resolve a context
+   that misses rule 1 but matches a later rule (when the plan records
+   such a case).
+5. Include required attributes from the plan (and `targetingKey` /
+   `user_id` / `visitor_id` per bucketing). Resolve through each
+   attached client when the flag has multiple clients (at least one
+   positive resolve per client).
+
+**Bulk OK:** batch or loop with a **chat-visible** progress bar
+(`Execute Flags · resolve verify ████… N/TOTAL flag-id`). Do not
+silently skip flags. Parallelism is fine; results must still be one
+row per flag. Same visibility rules as create/rules (progress file +
+chat paste every ~15–30s; no collapsed-heredoc-only progress).
+
+**Pass / fail:**
+
+| Result | Meaning |
+|--------|---------|
+| pass | Positive resolve is a **segment match** to the expected variant; required negative/waterfall also OK |
+| fail | `NO_SEGMENT_MATCH`, wrong variant, no assignment, client not wired, or repeated resolve errors |
+| error | Tool/API failure after retries — treat like fail for the gate |
+
+**Gate rule:** Phase 1 execute is **not complete** until `fail` +
+`error` counts are **0**, or the operator explicitly ticks Skip on each
+failed flag with a written reason in the verify report. A sample of 3–5
+flags must never close the gate.
+
+**Report** (required artifact):
+
+```text
+.claude/plans/optimizely-flag-resolve-verify-<date>.json
+  { total, passed, failed, errors, results: [{ flagId, client, ok, expected, actual, reason, notes }] }
+```
+
+Surface a short human summary:
+`Resolve verify: N passed (segment match), M failed`.
+List every failure (especially `NO_SEGMENT_MATCH`). Offer
+[Retry failed / Skip with reason / Pause].
+
+Only after the gate passes (or failures are explicitly skipped),
+announce **Phase 1 validated** and then suggest **`plan code`** as the
+next phase. Resolve-verify is the definitive Phase 1 close — not rules
+import alone.
+
+Telemetry: `step` `execute-flags.resolve-verify`, `action` `resolve_flag`,
+with `flags_created` / `flags_failed` reflecting verify outcomes.
 ### For code plans
 
 **Each flag = one PR.** The code migration creates a separate pull
@@ -2074,6 +3284,9 @@ FOR EACH PROJECT:
        - flags: the JSON array (max 20 per call)
        - labels: {"migration-started": "<ISO-timestamp>", "source": "optimizely"}
      → Send telemetry after each batch with counts.
+     → Then run **share_group_flags** in access.md for this project’s
+       flags (group Viewer/Editor by Optimizely role) so the team can
+       **see** them. Do not use a workspace Flags Reader/Editor policy.
 
   3. batchAddTargetingRules (batches of 20, immediately after flags)
      → Collect ALL targeting rules for the flags just created:
@@ -2081,6 +3294,9 @@ FOR EACH PROJECT:
      → Include both specific targeting rules AND catch-all rules (no
        payload). Rules for the same flag MUST appear in order (targeting
        rules before catch-all).
+     → Flags with **no Optimizely rules** still get exactly one catch-all
+       (everyone / empty payload → default variant) — see **Automatic
+       everyone catch-all**.
      → Call batchAddTargetingRules with:
        - rules: the JSON array (max 20 per call)
        - completionLabels: {"migration-completed": "<ISO-timestamp>"}
@@ -2089,17 +3305,28 @@ FOR EACH PROJECT:
        rules succeeded.
      → Send telemetry after each batch.
 
+  3b. Guarantee enabled catch-all (required)
+     → For every migrated flag in this project: if GET flag shows zero
+       enabled rules (or only disabled), automatically add/enable the
+       everyone catch-all. Do not wait for the resolve gate to discover
+       `NO_SEGMENT_MATCH`.
+
   4. Update the plan file
      → Mark each flag's status in the Progress table
      → Flags with migration-started but NO migration-completed label =
        incomplete (rules failed mid-way) — list them for retry
 
-  5. Spot-check verification
-     → Pick 3-5 representative flags and resolve with positive +
-       negative contexts.
-     → If spot-checks pass, move to the next project.
+  5. Per-project resolve (still required, not a substitute for the gate)
+     → After that project's rules are in, resolve-verify **every** flag
+       created/updated in this project (positive + negative as in
+       STEP 4). Progress bar per project is fine.
+     → Spot-checking 3–5 flags is **forbidden** as the only check.
 
   6. Send telemetry with project completion
+
+AFTER ALL PROJECTS: run the global **Phase 1 resolve gate** (above) so
+any flag missed mid-run is still verified. Do not declare Phase 1
+complete until the gate passes.
 ```
 
 **Batch sizing.** Each batch tool accepts up to **20 items per call**.
@@ -2121,7 +3348,7 @@ will surface as errors:
   Strategy: request quota increase before large migrations, or batch
   rules in smaller groups with pauses.
 
-**Variant name mismatch prevention.** The Nike export transforms short
+**Variant name mismatch prevention.** Some Optimizely exports transform short
 Optimizely keys: `on` → `on-flag`, `off` → `off-flag` (Confidence
 4-char minimum). If you create a flag WITHOUT passing these custom
 variants, it gets default `disabled`/`enabled` variants. Then
@@ -2151,11 +3378,21 @@ STEP 3: addTargetingRule
     call per Optimizely rule in the SAME ORDER (rule_priorities;
     Confidence evaluates rules top-down — order is semantically
     significant).
+  → **Progress (mandatory):** for bulk / migrate-all-eligible, drive this
+    step with the `Execute Flags · targeting rules` bar (chat-visible —
+    see **Production waterfall / targeting-rules import**). Update before
+    each rule write with flag id + rule name. Do not hide rule creates
+    inside a collapsed shell.
   → Add the default LAST as a catch-all rule: addTargetingRule with
     variantAllocations { <defaultVariant>: 100 } and NO payload (empty
     payload = targets all contexts). Confidence has no flag-level default
     (see "Default value" above), so this is the only way to reproduce a
     ruleset's default_variation. It MUST come after every specific rule.
+  → If the plan has **no Optimizely rules** for this flag, still add that
+    catch-all (auto everyone). Leaving `rules: []` is a bug — resolve will
+    be `NO_SEGMENT_MATCH` for everyone.
+  → After rules: if the flag still has zero enabled rules, auto-add the
+    catch-all (same as batch step 3b).
   → IMPORTANT: targeting rules added while a flag is archived OR
     immediately after unarchiving may become inactive. Always complete
     steps 1-2 fully BEFORE calling addTargetingRule.
@@ -2173,8 +3410,10 @@ STEP 4: resolveFlag (verification)
     first rule but matches a later one — verifies waterfall order.
   → For attribute-based targeting, the resolve call MUST include those
     attributes in the evaluation context.
-  → Do NOT report a flag as successfully migrated until both positive and
-    negative resolve tests pass.
+  → Do NOT mark this flag ✓ Migrated until both positive and negative
+    resolve tests pass. At end of execute, the **Phase 1 resolve gate**
+    re-checks every migrated flag — per-flag STEP 4 does not replace
+    that gate for bulk runs.
 ```
 
 #### REST sequence (Backend: REST)
@@ -2193,11 +3432,18 @@ STEP 2: For each audience this flag needs (in the plan's Audiences list):
   → Reuse already-created segments (check the plan's segment map) — do
     not recreate
 STEP 3: For each Optimizely rule, in priority order:
+  → **Before each POST:** update `Execute Flags · targeting rules`
+    progress (chat-visible bar — see **Production waterfall /
+    targeting-rules import**). Same for bulk scripts.
   → POST /v1/flags/<flag>/rules  (segment + assignmentSpec bucketRanges
     + targetingKeySelector)
   → PATCH /v1/flags/<flag>/rules/<ruleId>?updateMask=enabled  {enabled:true}
   → Set priority so order matches the Optimizely waterfall (lower = first)
-  → Add the trailing catch-all rule LAST (default variant)
+  → Add the trailing catch-all rule LAST (default variant) — use
+    `Execute Flags · catch-alls` bar when that is a separate pass
+  → If Optimizely had no rules, still POST+enable the everyone catch-all
+  → If after import the flag has zero enabled rules, auto-add catch-all
+    (same guarantee as MCP batch step 3b)
 STEP 4: resolveFlag (verification) — identical to the MCP sequence's
   STEP 4 (positive + negative + waterfall).
 ```
@@ -2264,10 +3510,29 @@ verifies the waterfall (`rule_priorities`) order is preserved.
 
 ## Plan Code: Steps
 
+Follow **Question UX** (top of this file) for every fixed choice in
+Phase 2: **one question per turn**, numbered options, user replies
+with `1` / `2` / ….
+
 The code phase has 5 steps: Step 1 detect language/framework **and the
 migration style**, Step 2 fetch the Confidence SDK guide (and signal any
 resolve-mode change), Step 3 scan the codebase for Optimizely usage, Step
-4 generate transform rules, Step 5 generate the plan.
+4 generate transform rules, Step 5 generate the plan. There is **no
+automatic path** from plan into **adjust code** — after Step 5 you
+**must ASK** one numbered exit question (adjust / execute / done).
+If they pick adjust, enter **Adjust Code: Steps**. **No source edits
+or PRs during plan or adjust.**
+
+When the detected style is ambiguous, ask **one** numbered question:
+
+```text
+How does this app talk to Optimizely today?
+Reply with the number:
+1. Through OpenFeature already (provider swap)
+2. Direct Optimizely SDK calls (call-site rewrite)
+3. Home-grown facade wrapping Optimizely (re-point facade)
+4. Unsure — keep scanning and ask again
+```
 
 ### Step 1: Detect language & framework
 
@@ -2633,12 +3898,101 @@ bandit-action call.)
 ### Step 5: Generate plan
 
 Save the plan to `.claude/plans/optimizely-code-migration-<date>.md`
-using the template below.
+using the template below. Set Overall to `complete`. Do not edit
+source files. Do not open PRs.
+
+**Exit ask (required).** `plan code` does **not** continue into
+adjust on its own. After Overall is `✓ complete`, **stop and ASK one
+numbered question** (Question UX). Do not start adjust or execute
+until they answer.
+
+```text
+Code plan is ready (.claude/plans/optimizely-code-migration-<date>.md).
+There is no automatic path into adjust — pick what to do next.
+Reply with the number:
+1. Adjust code — change style, resolve mode, transforms, or files/flags (no file edits / PRs)
+2. Execute code — transform code / open PRs now
+3. Done for now — stop; run adjust or execute later
+```
+
+**On their answer:**
+- **1** → enter **Adjust Code: Steps** immediately in this turn
+  (same as `/migrate-optimizely adjust code`; do not require the
+  slash command). After adjust Done, re-ask this exit menu.
+- **2** → hand off to `execute code`.
+- **3** → stop. Remind them of the plan path and the adjust / execute
+  commands.
 
 **Two Confidence-wide truths every code transform must honor:**
 
 - **Flags are structs — read a property, not the bare key** (`<flag>.<property>`).
 - **Client SDKs use ambient context; server SDKs pass it per call.**
+
+## Adjust Code: Steps
+
+Fine-edit the code plan through the skill. Enter when the user runs
+`/migrate-optimizely adjust code`, `/migrate-optimizely-adjust-code`,
+`modify code`, picks **Adjust code** on the **plan code Step 5
+exit ask**, or asks to change migration style / resolve mode /
+transforms / files after a code plan exists. Natural language is
+enough (`provider swap only`, `skip tests for now`, `use remote
+resolve`, `don't touch checkout-banner`).
+
+**Plan writes only.** Edit
+`.claude/plans/optimizely-code-migration-*.md`. Do **not** edit
+application source or open PRs here. `execute code` applies the plan.
+
+### Require a plan
+
+If none exists, run `plan code` first. If several, use the newest
+unless they name one. Do not invent a second plan file. Overall must
+be `✓ complete` (or step 5 complete).
+
+Starting **Phase 2** — Code adjust. Show the Adjust Code tracker:
+
+```
+───── Adjust Code ─────────────────────────────────────────
+  Plan: optimizely-code-migration-<date>.md
+  Edit: style · resolve mode · transforms · files/flags
+────────────────────────────────────────────────────────────
+```
+
+Skip the full migration overview unless they also started a plan
+command this turn.
+
+### How to ask
+
+If they already stated the change, **apply it** (do not re-ask the
+menu). Otherwise **one** numbered question (Question UX):
+
+```text
+The code plan is ready to edit. I will change the plan file only — no source edits.
+What should I change? Reply with the number:
+1. Style — provider swap vs call-site rewrite vs facade re-point
+2. Resolve mode — in-process / cached client / server-precomputed / remote
+3. Transforms — find/replace rules, wrapper path, API surface
+4. Files / flags — include/skip paths or flag-keyed groups; PR grouping
+5. Done — stop adjusting; return to exit menu
+```
+
+Loop until Done or they run execute. On **Done**, re-ask the
+plan-code Step 5 exit menu unless they already asked to execute.
+
+### What the skill may change
+
+| Kind | Allowed | Forbidden |
+|------|---------|-----------|
+| **Style** | Switch provider-swap / rewrite / facade with a recorded reason | Pretend call sites need rewrite when already on OpenFeature without confirmation |
+| **Resolve mode** | Change target mode + refresh SDK guide notes from `confidence-docs` when needed | Invent unsupported SDK packages |
+| **Transforms** | Edit find/replace tables, wrapper file path, method surface | Edit application source during adjust |
+| **Files / flags** | Skip or include scanned files/flag groups; mark human-review | Invent call sites not found in the scan; open PRs |
+
+After each applied change: update sections 1–4 (keep heading names —
+`execute code` parses them), append a row to **## 5. Adjustments**
+(create that section if missing), re-display the tracker, summarize
+the diff.
+
+Telemetry: `step` `plan-code.adjust`, `action` `adjust_code`.
 
 ---
 
@@ -2858,6 +4212,15 @@ language/mode-specific Confidence provider (and its `setProviderAndWait` /
 | # | Item | Status |
 |---|------|--------|
 | 0 | SDK Setup | :white_circle: |
+
+---
+
+## 5. Adjustments
+
+`adjust code` appends rows. Leave empty during the first `plan code`.
+
+| When | Kind | Change |
+|------|------|--------|
 ```
 
 ---
@@ -2865,14 +4228,18 @@ language/mode-specific Confidence provider (and its `setProviderAndWait` /
 ## Required Prerequisites
 
 This skill needs the Confidence-side MCPs listed in "Prerequisites:
-Confidence Side" above (`confidence` for `plan flags`/`execute`,
-`confidence-docs` for `plan code`), plus the Optimizely REST API — no
-MCP, just `curl` with `Authorization: Bearer $OPTIMIZELY_API_TOKEN`.
+Confidence Side" above (`confidence` for `plan flags` / `execute flags`,
+`confidence-docs` for `plan code` / `execute code`), plus Optimizely REST
+**or** export files. Access **execute** / clients also need IAM REST
+([access.md](access.md)).
+**ASK for Optimizely credentials before any `api.optimizely.com` call.**
+**ASK for Confidence IAM credentials before `execute access` or any IAM write — not before `plan access`.**
 
 | Source | What's used |
 |--------|-------------|
-| Confidence MCP | `listClients`, `createClient`, `getContextSchema`, `addContextField`, `createFlag`, `addFlagToClient`, `unarchiveFlag`, `addTargetingRule`, `resolveFlag`, `batchCreateFlags` (bulk), `batchAddTargetingRules` (bulk) |
+| Confidence MCP (**try first** for flags + Flag clients) | `listClients`, `createClient`, `getContextSchema`, `addContextField`, `createFlag`, `addFlagToClient`, `unarchiveFlag`, `addTargetingRule`, `resolveFlag`, `batchCreateFlags` (bulk), `batchAddTargetingRules` (bulk). If MCP `needsAuth` / errors → use IAM/Flags REST below |
 | Confidence Docs MCP (`plan code`) | `getLocalResolveIntegrationGuide`, `getCodeSnippetAndSdkIntegrationTips`, `searchDocumentation`, `getFullSource` |
-| Confidence REST API (`CONFIDENCE_TOKEN`, OPTIONAL — full-fidelity Phase 1) | `POST /v1/segments` + `:allocate`, `POST /v1/flags/{flag}/rules` + `PATCH …?updateMask=enabled`; token via `POST https://iam.confidence.dev/v1/oauth/token` |
+| Confidence IAM REST (`CONFIDENCE_TOKEN` — **required** for users/groups/policies/invites/shares; **fallback** for Flag clients when MCP fails; optional full-fidelity flags) | `POST https://iam.confidence.dev/v1/oauth/token`; `/v1/userInvitations`, `/v1/groups` + `:addGroupMembers`, `/v1/policies` (`optimizely-group-*` on the group identity), `/v1/clients`; flags `:addFlagClient`, `POST /v1/segments` + `:allocate`, `POST /v1/flags/{flag}/rules`. On accept: group + policy + client immediately. Access keep-list: never delete operator, `admin-policy`, `default-policy`, auto-created Flag client. See [access.md](access.md) **Transport: MCP first, REST fallback** |
 | Optimizely Flags API (`OPTIMIZELY_API_TOKEN`) | `GET /flags/v1/projects/{id}/flags[/{key}]`, `GET …/flags/{key}/variations`, `GET …/flags/{key}/environments/{env}/ruleset` |
-| Optimizely Platform API v2 (`OPTIMIZELY_API_TOKEN`) | `GET /v2/audiences[/{id}]`, `GET /v2/environments`, `GET /v2/projects` |
+| Optimizely Platform API v2 (`OPTIMIZELY_API_TOKEN`) | `GET /v2/audiences[/{id}]`, `GET /v2/environments`, `GET /v2/projects`; collaborators / teams / roles for `plan access` |
+| Optimizely export files | Flag JSON (B1/B2) and/or IAM JSON (`users` / `teams`/`groups` + a join). Desktop JSON opt-in: `~/Desktop` then `~/Downloads`. Sample: `test-fixtures/iam-export-sample.json` |

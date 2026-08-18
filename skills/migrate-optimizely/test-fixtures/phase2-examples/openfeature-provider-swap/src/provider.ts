@@ -18,7 +18,7 @@ import type {
 } from '@openfeature/web-sdk';
 import { createInstance, type Client } from '@optimizely/optimizely-sdk';
 
-const ON_OFF_STRING_FLAGS = new Set(['analytics', 'nike_classification', 'new_ui']);
+const ON_OFF_STRING_FLAGS = new Set(['analytics', 'user_classification', 'new_ui']);
 
 export class OptimizelyProvider implements Provider {
   readonly runsOn = 'client';

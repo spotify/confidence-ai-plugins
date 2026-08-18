@@ -46,7 +46,7 @@ conversation:
     ```
   - "test-app"
   - "1"
-  - "user_id"
+  - "1"
   - "1"
   - "No, skip it. Don't migrate this flag."
 

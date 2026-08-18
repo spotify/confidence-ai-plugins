@@ -9,6 +9,7 @@ interface RawScenario {
   description: string;
   skill: string;
   skills?: string[];
+  prompt_files?: string[];
   tags?: string[];
   source_flags?: Record<string, unknown>[];
   conversation: string[];
@@ -28,6 +29,7 @@ export function loadMultiTurnScenarios(skill: string): Scenario[] {
       description: raw.description,
       skill: raw.skill,
       skills: raw.skills,
+      promptFiles: raw.prompt_files || [],
       tags: raw.tags || [],
       sourceFlags: raw.source_flags || [],
       conversation: raw.conversation,
