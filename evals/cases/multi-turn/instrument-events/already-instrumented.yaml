@@ -1,0 +1,48 @@
+name: already-instrumented
+description: >
+  App already has full event coverage for 5 key actions. The skill should
+  NOT re-create those same event definitions but MAY suggest additional
+  events for uncovered actions. It must acknowledge the existing coverage.
+skill: instrument-events
+tags: [multi-turn, no-duplicates]
+
+conversation:
+  - >
+    Instrument my dashboard app with event tracking.
+
+    Existing confidence.track() calls:
+    - src/dashboard/DashboardPage.tsx:45 — confidence.track('dashboard-viewed', { user_id, dashboard_id })
+    - src/reports/ReportGenerator.tsx:89 — confidence.track('report-generated', { user_id, report_type })
+    - src/settings/SettingsPage.tsx:23 — confidence.track('settings-updated', { user_id, changed_fields })
+    - src/auth/LoginHandler.tsx:67 — confidence.track('login-completed', { user_id, auth_method })
+    - src/auth/SignupHandler.tsx:34 — confidence.track('signup-completed', { user_id, referral_source })
+
+tool_responses:
+  - tool: listEventDefinitions
+    responses:
+      - >
+        Found 5 event definition(s):
+        - Name: eventDefinitions/dashboard-viewed — Schema: user_id (string, entity: entities/user), dashboard_id (string) — Events published: 45000
+        - Name: eventDefinitions/report-generated — Schema: user_id (string, entity: entities/user), report_type (string) — Events published: 12000
+        - Name: eventDefinitions/settings-updated — Schema: user_id (string, entity: entities/user), changed_fields (string) — Events published: 3400
+        - Name: eventDefinitions/login-completed — Schema: user_id (string, entity: entities/user), auth_method (string) — Events published: 89000
+        - Name: eventDefinitions/signup-completed — Schema: user_id (string, entity: entities/user), referral_source (string) — Events published: 5600
+
+ask_answers: []
+
+assertions:
+  # Must NOT re-create event definitions that already exist
+  - type: tool_call_arg_not_contains
+    tool_name: mcp__confidence_flags__createEventDefinition
+    arg_name: eventDefinitionId
+    pattern: "dashboard-viewed|report-generated|settings-updated|login-completed|signup-completed"
+    regex: true
+
+  # Must acknowledge existing coverage
+  - type: text_contains
+    pattern: "already|covered|tracked|instrumented|existing"
+    regex: true
+
+  # Must mention explore-metric
+  - type: text_contains
+    pattern: "explore-metric"

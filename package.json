@@ -18,7 +18,16 @@
     "eval:multi-turn:hendrix": "ANTHROPIC_BASE_URL=${HENDRIX_BASE_URL:-https://hendrix-genai.spotify.net/taskforce/glm-5-2} ANTHROPIC_API_KEY=$HENDRIX_API_KEY BRAINTRUST_API_URL=${BRAINTRUST_API_URL:-https://braintrust.spotifyinternal.com} braintrust eval evals/multi-turn/migrate-optimizely.eval.ts evals/multi-turn/migrate-posthog.eval.ts evals/multi-turn/migrate-eppo.eval.ts evals/multi-turn/migrate-statsig.eval.ts evals/multi-turn/onboard-confidence.eval.ts",
     "eval:multi-turn:local": "ANTHROPIC_BASE_URL=${HENDRIX_BASE_URL:-https://hendrix-genai.spotify.net/taskforce/glm-5-2} ANTHROPIC_API_KEY=$HENDRIX_API_KEY braintrust eval --no-send-logs evals/multi-turn/migrate-optimizely.eval.ts evals/multi-turn/migrate-posthog.eval.ts evals/multi-turn/migrate-eppo.eval.ts evals/multi-turn/migrate-statsig.eval.ts evals/multi-turn/onboard-confidence.eval.ts",
     "eval:multi-turn:onboard": "braintrust eval evals/multi-turn/onboard-confidence.eval.ts",
-    "eval:multi-turn:onboard:local": "ANTHROPIC_BASE_URL=${HENDRIX_BASE_URL:-https://hendrix-genai.spotify.net/taskforce/glm-5-2} ANTHROPIC_API_KEY=$HENDRIX_API_KEY braintrust eval --no-send-logs evals/multi-turn/onboard-confidence.eval.ts"
+    "eval:multi-turn:onboard:local": "ANTHROPIC_BASE_URL=${HENDRIX_BASE_URL:-https://hendrix-genai.spotify.net/taskforce/glm-5-2} ANTHROPIC_API_KEY=$HENDRIX_API_KEY braintrust eval --no-send-logs evals/multi-turn/onboard-confidence.eval.ts",
+    "eval:instrument-events": "braintrust eval evals/instrument-events.eval.ts",
+    "eval:instrument-events:hendrix": "ANTHROPIC_BASE_URL=${HENDRIX_BASE_URL:-https://hendrix-genai.spotify.net/taskforce/glm-5-2} ANTHROPIC_API_KEY=$HENDRIX_API_KEY BRAINTRUST_API_URL=${BRAINTRUST_API_URL:-https://braintrust.spotifyinternal.com} braintrust eval evals/instrument-events.eval.ts",
+    "eval:instrument-events:local": "ANTHROPIC_BASE_URL=${HENDRIX_BASE_URL:-https://hendrix-genai.spotify.net/taskforce/glm-5-2} ANTHROPIC_API_KEY=$HENDRIX_API_KEY braintrust eval --no-send-logs evals/instrument-events.eval.ts",
+    "eval:explore-metric": "braintrust eval evals/explore-metric.eval.ts",
+    "eval:explore-metric:hendrix": "ANTHROPIC_BASE_URL=${HENDRIX_BASE_URL:-https://hendrix-genai.spotify.net/taskforce/glm-5-2} ANTHROPIC_API_KEY=$HENDRIX_API_KEY BRAINTRUST_API_URL=${BRAINTRUST_API_URL:-https://braintrust.spotifyinternal.com} braintrust eval evals/explore-metric.eval.ts",
+    "eval:explore-metric:local": "ANTHROPIC_BASE_URL=${HENDRIX_BASE_URL:-https://hendrix-genai.spotify.net/taskforce/glm-5-2} ANTHROPIC_API_KEY=$HENDRIX_API_KEY braintrust eval --no-send-logs evals/explore-metric.eval.ts",
+    "eval:multi-turn:instrument-events": "braintrust eval evals/multi-turn/instrument-events.eval.ts",
+    "eval:multi-turn:instrument-events:hendrix": "ANTHROPIC_BASE_URL=${HENDRIX_BASE_URL:-https://hendrix-genai.spotify.net/taskforce/glm-5-2} ANTHROPIC_API_KEY=$HENDRIX_API_KEY BRAINTRUST_API_URL=${BRAINTRUST_API_URL:-https://braintrust.spotifyinternal.com} braintrust eval evals/multi-turn/instrument-events.eval.ts",
+    "eval:multi-turn:instrument-events:local": "ANTHROPIC_BASE_URL=${HENDRIX_BASE_URL:-https://hendrix-genai.spotify.net/taskforce/glm-5-2} ANTHROPIC_API_KEY=$HENDRIX_API_KEY braintrust eval --no-send-logs evals/multi-turn/instrument-events.eval.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",
