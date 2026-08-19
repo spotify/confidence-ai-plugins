@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.8.0](https://github.com/spotify/confidence-ai-plugins/compare/v0.7.0...v0.8.0) (2026-08-19)
+
+
+### Features
+
+* add Codex marketplace.json for OpenAI plugin directory distribution ([9e8bc1d](https://github.com/spotify/confidence-ai-plugins/commit/9e8bc1dccbfa3ee70725a2aa5bebeb1faceb8f35))
+* add Codex marketplace.json for OpenAI plugin distribution ([#63](https://github.com/spotify/confidence-ai-plugins/issues/63)) ([9e8bc1d](https://github.com/spotify/confidence-ai-plugins/commit/9e8bc1dccbfa3ee70725a2aa5bebeb1faceb8f35))
+* add instrument-events and explore-metric skills with evals ([#67](https://github.com/spotify/confidence-ai-plugins/issues/67)) ([522fc63](https://github.com/spotify/confidence-ai-plugins/commit/522fc63eedd9557820807353867387cdbd7cf4c9))
+* **migrate-optimizely:** add full phase 0-2 plan/adjust/execute flow ([#65](https://github.com/spotify/confidence-ai-plugins/issues/65)) ([f59de52](https://github.com/spotify/confidence-ai-plugins/commit/f59de5266f96311bcbe462b4483263c42bb0859e))
+
 ## [Unreleased]
 
 ### Features
