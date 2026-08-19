@@ -2223,7 +2223,7 @@ until at least one enabled rule exists.
 | OR | `{ "or": { "operands": [{ "ref": "ref-0" }, { "ref": "ref-1" }] } }` |
 | NOT | `{ "not": { "ref": "ref-0" } }` |
 | NOT IN (list) | Prefer one `setRule` criterion wrapped in `not`: `{ "not": { "ref": "ref-0" } }`. |
-| attribute IS null / IS set | **Not supported** — ruleless presence criteria error at resolve (see "Existence / null checks"); BLOCK these. |
+| attribute IS null / IS set | **IS NULL / IS NOT NULL** — equals-null `eqRule` `value: {}`; wrap in `not` for IS NOT NULL (Optimizely exists). Never ruleless criteria. |
 
 ### Worked examples
 
