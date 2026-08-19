@@ -1,0 +1,40 @@
+name: no-metric-calc-requested
+description: >
+  User explicitly asks for metrics alongside instrumentation. The skill
+  must NOT run metric calculations — it should create events and tell the
+  user about explore-metric for the metrics part.
+skill: instrument-events
+tags: [multi-turn, separation, no-metric-calc, explore-metric-hint]
+
+conversation:
+  - >
+    Instrument my app and show me what the revenue metric would look like.
+
+    Project: React e-commerce app.
+    Key file: src/checkout/handler.ts:42 — processes orders with amount field.
+    No existing tracking.
+    Available entities: entities/visitor (Visitor).
+  - "Yes, create the purchase-completed event."
+
+ask_answers:
+  - match: "event|track|instrument|purchase"
+    answer: "purchase-completed"
+
+assertions:
+  # Must create event definition with entity reference
+  - type: tool_call_arg_contains
+    tool_name: mcp__confidence_flags__createEventDefinition
+    arg_name: schema
+    pattern: "entityReference"
+
+  # Must NOT run metric calculations
+  - type: tool_not_called
+    tool_name: mcp__confidence_flags__createMetricCalculation
+
+  # Must NOT generate Metric Explorer URLs
+  - type: text_not_contains
+    pattern: "metrics/explorer?"
+
+  # Must mention explore-metric as the way to preview metrics
+  - type: text_contains
+    pattern: "explore-metric"

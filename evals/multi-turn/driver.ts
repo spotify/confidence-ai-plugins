@@ -3,6 +3,7 @@ import type { Scenario, Trace, ToolCall, ToolResult, TextBlock } from "./types.j
 import { loadSkillPrompt } from "../lib/skill-prompt.js";
 import { migrationHarness } from "./tools.js";
 import { onboardHarness } from "./onboard-tools.js";
+import { instrumentEventsHarness } from "./instrument-events-tools.js";
 import { buildTrace } from "./trace.js";
 
 const MAX_TOOL_ROUNDS_PER_TURN = 20;
@@ -18,7 +19,9 @@ export interface SkillHarness {
 }
 
 function harnessFor(scenario: Scenario): SkillHarness {
-  return scenario.skill.startsWith("migrate-") ? migrationHarness : onboardHarness;
+  if (scenario.skill.startsWith("migrate-")) return migrationHarness;
+  if (scenario.skill === "instrument-events") return instrumentEventsHarness;
+  return onboardHarness;
 }
 
 export async function runConversation(scenario: Scenario): Promise<Trace> {

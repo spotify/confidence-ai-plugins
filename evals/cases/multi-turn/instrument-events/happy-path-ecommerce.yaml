@@ -1,0 +1,53 @@
+name: happy-path-ecommerce
+description: >
+  Full instrument-events flow for an e-commerce app. The skill should
+  scan the project, propose domain-specific events with entity references,
+  create event definitions, and hint explore-metric.
+skill: instrument-events
+tags: [multi-turn, happy-path, entity-ref, domain-relevance, explore-metric-hint]
+
+conversation:
+  - >
+    Instrument my e-commerce app with event tracking. Here's the project:
+
+    package.json has: react, @spotify-confidence/sdk
+    README: "ShopFlow is an online store. Users browse products, add to cart, checkout, and track orders."
+
+    Key files:
+    - src/checkout/CheckoutPage.tsx:42 — handles order submission
+    - src/cart/CartPage.tsx:28 — add/remove items
+    - src/products/ProductPage.tsx:15 — product detail view
+    - src/auth/SignupForm.tsx:55 — user registration
+
+    No existing tracking. Available entities: entities/user (User), entities/visitor (Visitor).
+  - "Yes, create all of them."
+
+ask_answers:
+  - match: "event|track|instrument"
+    answer: "checkout-completed,cart-item-added,user-registered"
+
+assertions:
+  # Must create event definitions with entity references
+  - type: tool_call_arg_contains
+    tool_name: mcp__confidence_flags__createEventDefinition
+    arg_name: schema
+    pattern: "entityReference"
+
+  # Must NOT run metric calculations
+  - type: tool_not_called
+    tool_name: mcp__confidence_flags__createMetricCalculation
+
+  # Must mention explore-metric
+  - type: text_contains
+    pattern: "explore-metric"
+
+  # Event names must be domain-specific (not generic)
+  - type: tool_call_arg_not_contains
+    tool_name: mcp__confidence_flags__createEventDefinition
+    arg_name: eventDefinitionId
+    pattern: "user-action|button-click|page-view"
+
+  # Must show step tracker (markers or words)
+  - type: text_contains
+    pattern: "pending|in progress|done|○|◉|✓"
+    regex: true
