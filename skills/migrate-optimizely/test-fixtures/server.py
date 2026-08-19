@@ -114,7 +114,7 @@ AUDIENCES: list[dict[str, Any]] = [
         "description": "Ordered within 14 days.",
         "conditions": _conditions("and", ["or", ["or", _cond("days_since_last_order", "le", 14)]]),
     },
-    # 5. substring → BLOCKED (no Confidence substring rule)
+    # 5. substring mid-string (@test) → BLOCKED (not prefix/suffix)
     {
         "id": 5,
         "name": "Test email substring",
@@ -142,7 +142,7 @@ AUDIENCES: list[dict[str, Any]] = [
         "description": "Internal employees.",
         "conditions": _conditions("and", ["or", ["or", _cond("is_internal", "exact", True)]]),
     },
-    # 10. exists (presence) → BLOCKED (no working Confidence presence operator)
+    # 10. exists (presence) → IS NOT NULL (auto)
     {
         "id": 10,
         "name": "Has plan",
@@ -322,11 +322,11 @@ FLAGS: list[dict[str, Any]] = [
             ),
         },
     },
-    # 6. substring audience → BLOCKED.
+    # 6. substring audience → BLOCKED (email contains @test, mid-string).
     {
         "key": "substring_gate",
         "name": "Substring gate",
-        "description": "Email contains a substring — not migratable.",
+        "description": "Email contains @test — mid-string substring, not migratable.",
         "archived": False,
         "variable_definitions": {},
         "_variations": BOOL_VARIATIONS,
@@ -442,7 +442,7 @@ FLAGS: list[dict[str, Any]] = [
             ),
         },
     },
-    # 12. exists audience → BLOCKED (no working Confidence presence operator).
+    # 12. exists audience → IS NOT NULL (auto).
     {
         "key": "plan_badge",
         "name": "Plan badge",

@@ -180,7 +180,7 @@ Running experiments and partial-% rollouts stay out by default (different bucket
 
 | Command | What it does | Writes to Confidence? |
 |---------|--------------|------------------------|
-| `plan flags` / `-plan-flags` | Scan Optimizely flags and write `.claude/plans/optimizely-flag-migration-<date>.md`. Lists flags with **no Optimizely rules** as **auto everyone catch-all**. **Must** run a **Rules operator audit** and mark `exists` / `substring` / `regex` as **BLOCKED** (Confidence unsupported). When complete, the agent **must ask** what next (adjust / tick / execute / done) | No |
+| `plan flags` / `-plan-flags` | Scan Optimizely flags and write `.claude/plans/optimizely-flag-migration-<date>.md`. Lists flags with **no Optimizely rules** as **auto everyone catch-all**. **Must** run a **Rules operator audit**: on **exists** / **substring**, **tell the user** and auto-map **exists → IS NOT NULL**, **substring → starts with / ends with**. **regex** and mid-string contains stay **BLOCKED**. When complete, the agent **must ask** what next (adjust / tick / execute / done) | No |
 | `adjust flags` / `-adjust-flags` | Fine-edit that plan: **scope**, **Migrate/Skip ticks**, **client**, **bucketing**, **schema**, **rules**. Also offered from the plan-flags exit ask | No |
 | `execute flags` / `-execute-flags` | **(1) create flag shells** → **(2) suggest rules import** → **(3) suggest resolve-verify ALL flags (segment match) — this validates Phase 1** → then `plan code`. Auto everyone catch-all if a flag still has zero enabled rules. Never call Phase 1 done after rules alone | **Yes** (flags) |
 

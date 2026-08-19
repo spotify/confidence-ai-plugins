@@ -1,9 +1,8 @@
-name: substring-gate-blocked
+name: locale-suffix-ends-with
 description: >
-  Audience uses substring match on email (@test). That is
-  mid-string contains, not starts with / ends with, so
-  this flag is BLOCKED.
-tags: [blocked, substring, unsupported_operator]
+  Audience uses substring on locale with a leading underscore suffix.
+  Auto-translate to ends with and tell the user. Not BLOCKED.
+tags: [substring, workaround, ends-with]
 
 input:
   user_message: |
@@ -11,9 +10,9 @@ input:
     Here is a flag from my project. What is the migration
     path for this one? Describe it in plain English.
   flag:
-    key: substring_gate
-    name: Substring gate
-    description: Gate using email substring match.
+    key: locale-suffix-gate
+    name: Locale suffix gate
+    description: Gate using locale suffix contains.
     archived: false
     variable_definitions: {}
     variations:
@@ -22,29 +21,28 @@ input:
     ruleset:
       enabled: true
       default_variation_key: off
-      rule_priorities: [email_check]
+      rule_priorities: [locale_check]
       rules:
-        email_check:
+        locale_check:
           type: targeted_delivery
           percentage_included: 10000
-          audience_conditions: ["or", { audience_id: 5 }]
-          audience_ids: [5]
+          audience_conditions: ["or", { audience_id: 13 }]
+          audience_ids: [13]
           variations:
             on: { percentage_included: 10000 }
     referenced_audiences:
-      "5":
-        name: Test email substring
+      "13":
+        name: Locale ends beta
         conditions: >
           ["and",
-          {"type": "custom_attribute", "name": "email",
-          "match_type": "substring", "value": "@test"}]
+          {"type": "custom_attribute", "name": "device_locale",
+          "match_type": "substring", "value": "_beta"}]
 
 expected:
-  scope: blocked
+  scope: migrate
   flag_shape: boolean
-  blocked_reason: substring
   plan_includes:
-    - "blocked"
+    - "ends with"
     - "substring"
   plan_excludes:
     - "mcp__confidence"
