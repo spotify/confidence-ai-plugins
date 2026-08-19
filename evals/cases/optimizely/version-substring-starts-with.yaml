@@ -45,4 +45,13 @@ expected:
     - "starts with"
     - "substring"
   plan_excludes:
+    - "startsWithRule"
+    - "eqRule"
     - "mcp__confidence"
+  resolutions:
+    - context: { app_version: "1.2.0" }
+      variant: "on"
+    - context: { app_version: "1.1.0" }
+      variant: "off"
+    - context: {}
+      variant: "off"

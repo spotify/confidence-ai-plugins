@@ -47,4 +47,10 @@ expected:
     - "IS NOT NULL"
     - "exists"
   plan_excludes:
+    - "eqRule"
     - "mcp__confidence"
+  resolutions:
+    - context: { plan: "pro" }
+      variant: "on"
+    - context: {}
+      variant: "off"

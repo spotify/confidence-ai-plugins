@@ -45,4 +45,13 @@ expected:
     - "ends with"
     - "substring"
   plan_excludes:
+    - "endsWithRule"
+    - "eqRule"
     - "mcp__confidence"
+  resolutions:
+    - context: { device_locale: "en_beta" }
+      variant: "on"
+    - context: { device_locale: "en_US" }
+      variant: "off"
+    - context: {}
+      variant: "off"

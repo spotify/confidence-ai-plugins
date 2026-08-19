@@ -16,6 +16,12 @@ type ConfidenceValue =
   | { versionValue: { version: string } }
   | { timestampValue: string };
 
+function isEqualsNullValue(v: unknown): boolean {
+  if (v == null) return true;
+  if (typeof v !== "object") return false;
+  return Object.keys(v as object).length === 0;
+}
+
 function unwrapValue(v: ConfidenceValue): string | number | boolean {
   if ("stringValue" in v) return v.stringValue;
   if ("numberValue" in v) return v.numberValue;
@@ -48,7 +54,7 @@ function isVersionValue(v: Record<string, unknown>): boolean {
 interface Criterion {
   attribute: {
     attributeName: string;
-    eqRule?: { value: ConfidenceValue };
+    eqRule?: { value?: ConfidenceValue | Record<string, never> };
     setRule?: { values: ConfidenceValue[] };
     rangeRule?: {
       startInclusive?: ConfidenceValue;
@@ -70,8 +76,13 @@ function evalCriterion(criterion: Criterion, ctx: Context): boolean {
   const ctxValue = ctx[attr.attributeName];
 
   if (attr.eqRule) {
+    // Empty `value: {}` is Confidence equals-null (IS NULL). Expression `not`
+    // of that criterion is IS NOT NULL — Optimizely exists workaround.
+    if (isEqualsNullValue(attr.eqRule.value)) {
+      return ctxValue === undefined || ctxValue === null;
+    }
     if (ctxValue === undefined || ctxValue === null) return false;
-    const target = unwrapValue(attr.eqRule.value);
+    const target = unwrapValue(attr.eqRule.value as ConfidenceValue);
     return ctxValue === target;
   }
 
