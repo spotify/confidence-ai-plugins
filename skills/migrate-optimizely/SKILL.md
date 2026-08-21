@@ -496,6 +496,7 @@ operator names.
   conversation or write them to the plan file
 - DO say things like: "Creating flag with rule: plan equals 'pro' AND country is US or UK"
 - DO describe rules in plain English: "app version is at least 1.2.0", "country is US or CA"
+- DO say **exists → IS NOT NULL**, **substring → starts with / ends with** when those Optimizely operators appear (see Auto-tell)
 - DO describe variants naturally: "on at 100%", "50/50 split between control and treatment"
 - DO translate Optimizely concepts to the user's vocabulary:
   "rollout" not "targeted_delivery", "experiment" not "a/b rule",
@@ -513,7 +514,7 @@ plain words; the exact payloads belong in the plan file only.
 | `eqRule` | "an equals rule" / "matches exactly" |
 | `setRule` | "a value-set rule" / "is one of ..." |
 | `rangeRule` | "a numeric range rule" / "is at least/at most ..." |
-| `startsWithRule` / `endsWithRule` | "a starts-with rule" / "an ends-with rule" |
+| `startsWithRule` / `endsWithRule` | "starts with" / "ends with" |
 | `versionValue` | "a version comparison" |
 | `variantAllocations` | "the variant split" / "50/50 split" |
 | `createFlag` | "create the flag" |
@@ -1681,8 +1682,8 @@ internals):
 > | Rollouts at a partial % | N | exclude |
 > | Multi-armed bandits | N | exclude |
 > | Paused flags | N | exclude |
-> | Blocked (missing data / unsupported targeting) | N | excluded until resolved |
-> | Rewrite candidates (OR-of-substring → version range) | N | ask intent, then migrate or keep blocked |
+> | Blocked (missing data / regex / mid-string contains / non-custom attributes) | N | excluded until resolved |
+> | Exists / substring (auto-translated) | N | migrate with IS NOT NULL / starts with / ends with |
 >
 > The A/B tests need your input: the export marks them "running", but
 > <staleness evidence, e.g. "all of them have been running for over a
@@ -1713,9 +1714,7 @@ is confirmed, before Step 3) — do **not** defer until execute.
 **Hard rule — never skip this audit.** Completing Step 2 / Overall
 without a **Rules audit (production)** section that lists every
 `exists` / `substring` / `regex` (and non-`custom_attribute`) hit is a
-**skill bug**. Silent migrate of those operators is forbidden — Confidence
-cannot express them, and execute must not invent a contains/presence/
-regex rule.
+**skill bug**. Do not skip the table because “most rules look fine.”
 
 **Scan requirement:** while scanning flags/audiences/`_rulesets`, walk
 every audience leaf `match_type`. Any `exists`, `substring`, or `regex`
@@ -1728,52 +1727,57 @@ candidates.
 `and`/`or`/`not`, everyone / no-audience 100% TD) → include in the plan
 as normal migrate/import candidates.
 
-**Unsupported** audience operators must be listed with counts and
-**flag ids**, then **ASK for a workaround** (structured picker / ticks).
-Do not silently skip them, do not tick `[x] Migrate` as if they were
-fine, and do not invent a rewrite without consent.
+#### Auto-tell: exists and substring (MANDATORY)
 
-Present a short audit table:
+As soon as the scan finds Optimizely **exists** or **substring /
+contains** on production rules, **tell the user in chat in the same
+Step 2 turn**. Do **not** wait for a workaround picker. Do **not** mark
+those flags BLOCKED when the auto-map below applies. Confidence has no
+exists and no contains; the skill **automatically translates**:
 
-> ### Rules audit (production)
+| In Optimizely | In Confidence | Plain English |
+|---------------|---------------|---------------|
+| **exists** | **IS NOT NULL** | The field is present and has a value |
+| **not exists** | **IS NULL** | The field is missing |
+| **substring / contains** at the **start** of the value (`en_`, `1.2`, `iOS `) | **starts with** | The value begins with that text |
+| **substring / contains** at the **end** of the value (`_beta`, `_test`) | **ends with** | The value ends with that text |
+| **not** substring on a prefix (e.g. version is not `1.2.0`) | **not starts with** | The value does not begin with that text |
+
+Chat copy (use this shape; no internal payload names):
+
+> Confidence cannot copy Optimizely **exists** or **substring** as-is.
+> This is the automatic translation:
 >
-> | Bucket | Flags (rules) | Plan default |
-> |--------|--------------:|--------------|
-> | Supported — import as Confidence rules | N | include |
-> | Blocked — `exists` (attribute present) | N | **BLOCKED** — ask workaround |
-> | Blocked — `substring` (contains) | N | **BLOCKED** — ask workaround |
-> | Blocked — `regex` | N | **BLOCKED** — ask workaround |
-> | Blocked — non-`custom_attribute` leaf | N | **BLOCKED** — ask workaround |
-> | Rewrite candidate — OR-of-substring version family | N | ask intent |
+> - **exists** → **IS NOT NULL** (not exists → **IS NULL**)
+> - **substring** at the start of the value → **starts with**
+> - **substring** at the end of the value → **ends with**
 >
-> List every blocked flag id under each bucket (or a linked appendix).
-> Supported rules will be planned and executed normally.
-> Blocked rules stay **BLOCKED** until a workaround is confirmed.
+> Then list every affected flag and the mapping you applied
+> (e.g. “`plan_badge`: `plan` exists → `plan` IS NOT NULL”).
+>
+> Short caveats (always say):
+> - Empty string `""` is a value — **IS NOT NULL** matches it; omitted /
+>   null does not. Optimizely exists is “the field was sent.”
+> - **starts with** / **ends with** are not “contains anywhere.” Mid-string
+>   contains has **no** mapping.
 
-Then ask **one workaround group at a time** (⏸ awaiting user between
-groups). Use `AskQuestion` when available.
+**Classify each substring needle (plan + execute):**
 
-**A — `exists` (attribute is present / absent)**  
-Confidence has no presence operator. Propose:
+1. Needle **starts with `_`** (e.g. `_beta`, `_test`) → **ends with**
+2. Needle contains `@`, is a hex/token fragment (8+ hex chars, no `.`),
+   or is clearly in the **middle** of a string → **no workaround** —
+   keep **BLOCKED**, tell the user
+3. Everything else (version prefixes `1.2`, locale `en_`, OS
+   `iOS `, OR-of-version contains) → **starts with** (OR of starts
+   with when Optimizely ORed several needles)
 
-1. **Explicit value set** — if the attribute has a known small set of
-   values, target those with `exact` / `setRule` (list the values)
-2. **Send a boolean from the app** — e.g. context `has_<attr>: true`
-   when the attribute is set; target `exact` true/false
-3. **Drop this audience rule** — keep flag; omit this rule (document gap)
-4. **Keep blocked / manual later** — leave out of execute until redesigned
+Record the chosen mapping in the plan **Rules audit / workarounds**
+table in the same turn. These flags are **migratable**. Execute **must**
+import the translated rules (IS NOT NULL / starts with / ends with) —
+not invent a different rewrite, not skip them as BLOCKED.
 
-**B — `substring` (contains)**  
-Confidence has no contains rule. Propose:
-
-1. **Version family rewrite** — if values look like versions
-   (`2.182`…`2.187`), migrate as a **version range** (see Rewrite:
-   OR-of-substring version families) — only after confirming intent
-2. **Exact / set of full strings** — only the literal strings, no
-   partial contains
-3. **Change the app** — send a normalized attribute (enum / list) and
-   target with `exact` / `setRule`
-4. **Drop this audience rule** / **Keep blocked / manual later**
+**Still ASK (one group at a time; ⏸ awaiting user).** Use `AskQuestion`
+when available.
 
 **C — `regex`**  
 Propose:
@@ -1782,25 +1786,45 @@ Propose:
 2. **Replace with structured attributes** in the app (preferred long-term)
 3. **Drop this audience rule** / **Keep blocked / manual later**
 
-Record every answer under the plan’s **Rules audit / workarounds**
-section (operator → chosen workaround → affected flag/rule ids). In
-Section 5 / Progress / execute payloads:
+Present a short audit table:
 
-- Mark each affected flag (or rule) **`BLOCKED`** with the operator
-  reason until a workaround is confirmed and the plan row is rewritten
+> ### Rules audit (production)
+>
+> | Bucket | Flags (rules) | Plan default |
+> |--------|--------------:|--------------|
+> | Supported — import as Confidence rules | N | include |
+> | Exists — auto **IS NOT NULL** / not exists → **IS NULL** | N | migrate (tell user) |
+> | Substring — auto **starts with** / **ends with** | N | migrate (tell user) |
+> | Blocked — substring mid-string (no mapping) | N | **BLOCKED** |
+> | Blocked — `regex` | N | **BLOCKED** — ask workaround |
+> | Blocked — non-`custom_attribute` leaf | N | **BLOCKED** — ask workaround |
+>
+> List every flag id under each bucket (or a linked appendix).
+> Auto-translated exists/substring rules are planned and executed with
+> the mapping above. Regex / mid-string contains / non-custom attributes
+> stay **BLOCKED** until a workaround is confirmed.
+
+Record auto-maps and regex answers under the plan’s **Rules audit /
+workarounds** section (operator → chosen workaround → affected flag
+ids). In Section 5 / Progress / execute payloads:
+
+- **exists / prefix-or-suffix substring:** write Confidence rules with
+  the auto-map; do **not** mark the flag BLOCKED
+- **mid-string substring, regex, non-custom_attribute:** mark **`BLOCKED`**
+  until a workaround is confirmed
 - Do **not** pre-tick `[x] Migrate` on a flag whose **only** targeting
-  depends on unresolved blocked ops — tick Skip or leave blocked
-- If the flag has other supported rules: migrate the flag shell +
-  supported rules; keep blocked rule(s) listed and **out of** rules
-  import
-- Unsupported with “keep blocked” stay excluded from rule import
-  (flag may still get everyone catch-all / other rules)
+  depends on unresolved blocked ops (regex / mid-string / browser) —
+  tick Skip or leave blocked
+- If the flag has other supported or auto-translated rules: migrate the
+  flag shell + those rules; keep truly blocked rule(s) listed and
+  **out of** rules import
 
 **Step 2 gate:** do not set Generation Status step 2 to `✓ complete`
 until (1) the Rules audit table is in the plan with accurate counts,
-(2) every blocked flag id is listed, and (3) workaround answers are
-recorded or explicitly deferred as keep-blocked. Skipping the audit
-because “most rules look fine” is a bug.
+(2) every exists/substring hit was **told to the user** with the
+Confidence translation, (3) every truly blocked flag id is listed, and
+(4) regex / other ASK answers are recorded or explicitly deferred as
+keep-blocked. Skipping the audit because “most rules look fine” is a bug.
 
 Set the step to `⏸ awaiting user`. Record the confirmed scope — per
 category: default kept or overridden, plus the user's live-experiment
@@ -2028,7 +2052,7 @@ plan-flags Step 5 exit menu unless they already asked to execute.
 | **Ticks** | Tick Migrate/Skip for one key, a category, or all eligible | Treat silence as consent; leave neither box set when they asked to approve all |
 | **Client** | Switch to another existing client from `listClients`, or record a new client name for execute to create | Invent a live client id that does not exist and will not be created |
 | **Bucketing** | Change entity / targetingKey mapping; add context field rows | Invent Optimizely attributes that were never scanned |
-| **Schema / rules** | Edit Confidence schema notes, backend MCP↔REST, variant/rule payloads the user states; switch execution mode | `createFlag` / live targeting writes; invent exclusion-group ids |
+| **Schema / rules** | Edit Confidence schema notes, backend MCP↔REST, variant/rule payloads the user states; switch execution mode; optionally tighten auto **starts with** version prefixes to a version range | `createFlag` / live targeting writes; invent exclusion-group ids; undo exists → IS NOT NULL or prefix/suffix substring maps without recording why |
 
 After each applied change: update sections 1–5 (keep heading names —
 `execute flags` parses them), append a row to **## 7. Adjustments**
@@ -2100,8 +2124,10 @@ proto3 → JSON (camelCase keys).
 > **errors at resolve** (verified live: the rule returns
 > `Status: ERROR — Resolve status unknown` and is treated as no-match).
 > So there is **no reliable "attribute exists / is null" targeting** via
-> the current tooling — do NOT emit ruleless criteria. Map Optimizely's
-> `exists` match type to **BLOCKED** (see Operator Mapping).
+> a **ruleless** criterion — do NOT emit ruleless criteria. Optimizely
+> `exists` is **not** BLOCKED: auto-translate to **IS NOT NULL** (see
+> Operator Mapping). Never tell the user this is unmigratable when the
+> IS NOT NULL map applies.
 
 **Value types.** A `Value` is a oneof: `boolValue`, `numberValue`,
 `stringValue`, `timestampValue` (RFC-3339 string), `versionValue`
@@ -2121,16 +2147,10 @@ rather than lexically.
 "is one of" and is preferred over an `or` of `eqRule`s when realizing
 list membership. Both resolve identically.
 
-**Existence / null checks are NOT supported.** A bare attribute
-criterion with no inner rule (`{ "attribute": { "attributeName": "X" } }`)
-looks like a presence check, but it is **broken at resolve**: it stores
-with `operator: "unknown"` and the resolver returns
-`Status: ERROR — Resolve status unknown`, which is treated as no-match
-(verified live against the resolver). There is therefore **no reliable
-way to target "attribute is set" or "attribute is null/absent"**. Do NOT
-emit ruleless criteria. Map Optimizely's `exists` match type (and any
-negated-exists) to **BLOCKED** — see the Operator Mapping table and the
-Blocked section.
+**Ruleless existence checks are NOT supported.** A bare attribute
+criterion with no inner rule is broken at resolve (`operator: unknown`).
+Do NOT emit ruleless criteria. Use the **IS NOT NULL** / **IS NULL**
+auto-map in Operator Mapping (`exists` / not exists).
 
 ### Default value (no server-side default → emit a catch-all rule)
 
@@ -2203,7 +2223,7 @@ until at least one enabled rule exists.
 | OR | `{ "or": { "operands": [{ "ref": "ref-0" }, { "ref": "ref-1" }] } }` |
 | NOT | `{ "not": { "ref": "ref-0" } }` |
 | NOT IN (list) | Prefer one `setRule` criterion wrapped in `not`: `{ "not": { "ref": "ref-0" } }`. |
-| attribute IS null / IS set | **Not supported** — ruleless presence criteria error at resolve (see "Existence / null checks"); BLOCK these. |
+| attribute IS null / IS set | **IS NULL / IS NOT NULL** — equals-null `eqRule` `value: {}`; wrap in `not` for IS NOT NULL (Optimizely exists). Never ruleless criteria. |
 
 ### Worked examples
 
@@ -2380,7 +2400,7 @@ shape; the JSON type of **`value`** selects the `Value` type
 | `exact` (string) | one criterion `eqRule` with `stringValue`, expression `ref` |
 | `exact` (number) | one criterion `eqRule` with `numberValue`, expression `ref` |
 | `exact` (boolean) | one criterion `eqRule` with `boolValue`, expression `ref` |
-| `exists` | **BLOCKED** (no working presence operator — ruleless criteria error at resolve) |
+| `exists` | **IS NOT NULL** (auto). Criterion: `eqRule` empty `value: {}` (equals null); expression `not` of that ref. **not exists** → same criterion, expression is the ref (**IS NULL**). Never ruleless criteria. Tell the user in chat. |
 | `gt` | `rangeRule.startExclusive: { numberValue: N }` |
 | `ge` | `rangeRule.startInclusive: { numberValue: N }` |
 | `lt` | `rangeRule.endExclusive: { numberValue: N }` |
@@ -2390,14 +2410,14 @@ shape; the JSON type of **`value`** selects the `Value` type
 | `semver_ge` | `rangeRule.startInclusive: { versionValue: { version } }` |
 | `semver_lt` | `rangeRule.endExclusive: { versionValue: { version } }` |
 | `semver_le` | `rangeRule.endInclusive: { versionValue: { version } }` |
-| `substring` | **BLOCKED** by default (no substring/contains rule). **Exception:** OR-of-substring on a version-like attribute → **rewrite candidate** (ASK; see below) — do not copy as string contains |
+| `substring` | **starts with** or **ends with** (auto) — see classify needles in **Auto-tell: exists and substring**. Prefix / version / locale → `startsWithRule`. Needle starting `_` → `endsWithRule`. Mid-string (`@`, hex token) → **BLOCKED**. Never copy as contains. Tell the user in chat. |
 | `regex` | **BLOCKED** (Confidence has no general regex rule) |
 
 **Negation.** A leaf inside a `["not", ...]` list is wrapped in `not` in
 the Confidence expression. `["not", {exact value}]` is "not equals" (a
-real `eqRule` under `not`, which works). `["not", {exists}]` ("attribute
-is null/absent") is **BLOCKED** — it depends on the unsupported presence
-criterion.
+real `eqRule` under `not`, which works). `["not", {exists}]` is
+**IS NULL** (auto — same equals-null criterion, expression is the ref).
+`["not", {substring prefix}]` is **not starts with**.
 
 **Set membership.** Optimizely expresses "is one of" as an `["or", ...]`
 of `exact` leaves on the same attribute. Collapse those into a single
@@ -2411,24 +2431,17 @@ evaluation context must send a real boolean (not the string `"true"`).
 ### Blocked (manual review)
 
 These genuinely have no clean Confidence translation **as written**.
-Some substring patterns are **rewrite candidates** (next subsection) —
-ask before treating them as permanently blocked.
+Prefix/suffix substring and exists are **auto-translated** (previous
+subsections) — do not list those as BLOCKED.
 
-- **`substring`** — Confidence has no substring/contains rule. Reason:
-  `Uses a 'contains' match on '<attribute>'; Confidence has no substring
-  rule.` Docs: string `in` is whole-string membership only; "Confidence
-  does not support substring matching on strings." (Workaround for
-  non-version cases: change the context field to send a list of strings
-  and use set matching. For version-looking OR-of-substring, see
-  **Rewrite: OR-of-substring version families** below.)
+- **`substring` mid-string** — Confidence has no contains-anywhere rule.
+  Auto **starts with** / **ends with** only when the needle is a prefix
+  or suffix. Email contains `@test`, hex in the middle of a value, etc.
+  stay **BLOCKED**. Reason in the plan: `Uses a 'contains' match on
+  '<attribute>' that is not a prefix or suffix.` In chat: “substring in
+  the middle of the string has no Confidence mapping.”
 - **`regex`** — Confidence has no general regex rule. Reason: `Uses a
   regex on '<attribute>'; Confidence has no general regex rule.`
-- **`exists`** (and negated-exists) — Confidence has no working presence
-  operator; a ruleless attribute criterion stores as `operator: unknown`
-  and errors at resolve. Reason: `Uses an 'exists'/presence match on
-  '<attribute>'; Confidence has no presence operator.` (Workaround: if
-  the attribute has a small known set of values, target those explicitly
-  with a `setRule`; otherwise migrate manually.)
 - **Non-`custom_attribute` audience leaves** (`browser`, `device`,
   `query`, `cookie`, `location`, ODP `qualified` segments) — no
   Confidence equivalent. Reason: `Uses a '<type>' audience condition with
@@ -2436,93 +2449,28 @@ ask before treating them as permanently blocked.
 
 When a rule/condition is blocked, mark it in Section 5 (per the
 template). A flag is fully blocked only when *every* non-default rule is
-blocked. Rewrite candidates stay **BLOCKED until the user confirms** the
-intent; after confirmation, rewrite the plan row and clear the block.
+blocked. Auto-translated exists/substring flags are **not** blocked.
 
-### Rewrite: OR-of-substring version families (anticipate this)
+### Rewrite: OR-of-substring version families
 
-Optimizely often expresses “app versions 2.182 through 2.187” as an
+Optimizely often expresses “app versions 1.2 through 1.7” as an
 `["or", …]` of **six (or more) `substring` / contains leaves** on the
-same attribute (`app-version-name`, `app_version`, `appVersion`, etc.):
+same attribute (`app-version-name`, `app_version`, `appVersion`, etc.).
 
-```text
-app-version-name contains "2.182"
-OR contains "2.183"
-…
-OR contains "2.187"
-```
+**Default (auto):** treat each needle as a **starts with** (OR). Tell
+the user: Optimizely contains on those version prefixes → Confidence
+**starts with** the same prefixes. Do **not** block. Do **not** wait
+for an intent picker. This is weaker than contains-anywhere and weaker
+than a true version range (`1.2.0` matches; `x1.2` does not).
 
-That is **not** migratable as substring. Confidence should express the
-**intended** rule as a **version** comparison (treat the value as a
-version, not as text search). Substring is broader and wrong for
-versions — e.g. `"12.185.0"` can contain `"2.185"` even though it is
-not version 2.185.x.
+**Optional (adjust flags only):** if the user later wants a tighter
+**version range** (`1.2` through `1.7` including patches, exclusive
+upper `1.8`), rewrite the plan row then. Never invent that range at
+execute unless the plan already recorded it.
 
-**Detect (during scan / plan flags).** Same attribute; `match_type`
-`substring` (or plain-English “contains”); combined with `or`; **two or
-more** leaf values that look like version prefixes
-(`/^\d+(\.\d+){1,3}$/`). Prefer detection when values are a contiguous
-minor series (e.g. `2.182`…`2.187`). Name hints help (`version`,
-`app_version`, `app-version-name`) but are not required if the values
-are version-shaped.
-
-**Do not auto-apply.** At scope review (or when writing the flag’s plan
-row), **ASK**:
-
-> This audience uses Optimizely **contains** checks on
-> `<attribute>` for `<v_min>` … `<v_max>` (OR). Confidence has no
-> substring rule. Was the intent:
-> 1. **Release families** — continuous version range from
->    `<v_min>` through `<v_max>` (including patches like
->    `<v_mid>.1`) → migrate as a Confidence **version** range
-> 2. **Exact strings only** — only those literal values, no patches →
->    version/`string` equality or `setRule` on the exact list
-> 3. **True substring** (including accidental hits like `12.185.0`) →
->    keep **BLOCKED** (not supported)
-
-**If they pick (1) — preferred migration.** Rewrite to one criterion
-with `versionValue` + `rangeRule`. Map the Optimizely attribute to the
-Confidence context field the app actually sends (often `app_version` on
-managed mobile context). Prefer an exclusive upper bound on the **next**
-minor so patches under `<v_max>` match:
-
-```json
-{
-  "attribute": {
-    "attributeName": "<mapped-context-field>",
-    "rangeRule": {
-      "startInclusive": { "versionValue": { "version": "<v_min>" } },
-      "endExclusive": { "versionValue": { "version": "<v_max_next>" } }
-    }
-  }
-}
-```
-
-Example: `2.182`…`2.187` → `startInclusive: 2.182`, `endExclusive:
-2.188` (covers `2.185.1` and `2.187.9`, not `2.188` or `12.185.0`).
-
-If the product UI / user insists on “between `2.182` and `2.187`
-**inclusive**” as the wording, still confirm whether patches under
-`2.187` should match. `endInclusive: 2.187` alone may **exclude**
-`2.187.1` under Confidence version compare — for “through the 2.187
-family” keep `endExclusive: 2.188`.
-
-Record in the plan: original Optimizely OR-of-substring list, chosen
-intent (1), mapped field, and the range bounds. Status becomes migratable
-(not BLOCKED). Plain English in the plan: “app version is between 2.182
-and 2.187 (version range; was Optimizely contains OR)”.
-
-**If they pick (2).** `setRule` / OR of `eqRule` with `versionValue` (or
-`stringValue` if they insist on literal string equality) for each exact
-token — narrower than contains; may miss `2.185.1`.
-
-**If they pick (3) or refuse.** Keep **BLOCKED** with the substring
-reason. Do not invent a range.
-
-**Still hard-BLOCKED (no rewrite):** a single unrelated substring
-(e.g. email contains `@test`); substring on non-version-like values;
-substring mixed with other match types on the same attribute without a
-clear version series.
+**Still hard-BLOCKED (no rewrite):** a single unrelated mid-string
+substring (e.g. email contains `@test`); hex/token in the middle of a
+value.
 
 ### Worked example (ruleset waterfall)
 
@@ -2741,7 +2689,7 @@ if needed before execute.
 | Bandits / adaptive | N | excluded |
 | Paused flags | N | excluded |
 | Blocked | N | excluded until resolved |
-| Rewrite candidates (OR-of-substring → version range) | N | workaround confirmed / blocked |
+| Exists / substring (auto-translated) | N | migrate — IS NOT NULL / starts with / ends with |
 
 **Overrides / notes:** <user decisions that differ from the defaults,
 the confirmed live-experiment list, open questions for the customer
@@ -2753,11 +2701,10 @@ project, authenticated vs anonymous IDs)>
 | Operator / bucket | Rules | Workaround chosen | Affected flags (sample or path to list) |
 |-------------------|------:|-------------------|-----------------------------------------|
 | Supported (import normally) | N | include | — |
-| `exists` | N | <explicit set / boolean attr / drop rule / keep blocked> | |
-| `substring` | N | <version range / exact set / app change / drop / keep blocked> | |
+| `exists` | N | **IS NOT NULL** (not exists → **IS NULL**) — auto | |
+| `substring` | N | **starts with** / **ends with** — auto; mid-string stay blocked | |
 | `regex` | N | <enumerate / app change / drop / keep blocked> | |
 | non-custom_attribute | N | <manual / drop / keep blocked> | |
-| Rewrite candidate (version family) | N | <range / exact / keep blocked> | |
 
 ### Excluded flags
 
@@ -2871,7 +2818,7 @@ description so it stays findable>
 **Audiences:** <none, or list of Confidence segments created (REST) / inlined (MCP) with the optimizely-audience-id → segments/<id> mapping>
 **Exclusion group:** <none, or group-id → exclusivity tag (REST)>
 **Adaptive:** <none, or "multi_armed_bandit / stats_accelerator — split snapshotted, no longer auto-tunes">
-**Presence/exists conditions:** <none, or "BLOCKED — `exists`/null match on '<attr>'; Confidence has no working presence operator">
+**Presence/exists conditions:** <none, or "exists on `<attr>` → IS NOT NULL (auto)" / "not exists → IS NULL">
 **Confidence rules:** <one targeting rule per Optimizely rule, in priority order, plus a final catch-all for the default **OR** if Optimizely has no rules: "auto everyone catch-all only → `<defaultVariant>` (Confidence empty rules do not serve everyone)">
 **Action:** [ ] Migrate  [ ] Skip
 
@@ -2881,16 +2828,10 @@ with:
 **Status:** BLOCKED — <one-line reason from the BLOCKED rules above>
 **Action:** [ ] Skip (no migrate option available until the block is resolved)
 
-If the only block is an **OR-of-substring version-family** rewrite
-candidate (see Operator Mapping), use this instead until the user
-answers the intent ASK:
-
-**Status:** BLOCKED (rewrite candidate) — Optimizely OR-of-contains on
-`<attribute>` for `<v_min>`…`<v_max>`; Confidence has no substring.
-Propose version `rangeRule` [`<v_min>`, `<v_max_next>`) if intent is
-release families.
-**Action:** [ ] Skip  — or after intent confirmed: clear block, write
-the version-range **Confidence rules**, then `[ ] Migrate  [ ] Skip`
+If the only remaining block is **mid-string substring** (not prefix/suffix),
+keep BLOCKED. Prefix/suffix substring and exists are auto-migratable —
+write the **Confidence rules** (starts with / ends with / IS NOT NULL)
+and `[ ] Migrate  [ ] Skip`. Do **not** use a rewrite-candidate wait.
 
 **Commands:**
 <For MCP backend: createFlag, addFlagToClient, addTargetingRule (ONE per Optimizely rule, in priority order) THEN a final catch-all addTargetingRule (no payload, 100% → default variant). For REST backend: createFlag (MCP, to wire the client), then per audience a POST /v1/segments + :allocate, then POST /v1/flags/<flag>/rules (segment + assignmentSpec) + PATCH enabled=true, in order. Finish with resolveFlag (MCP) — positive AND negative case (negative must land on the catch-all and return the default variant)>
@@ -2958,21 +2899,24 @@ never assume a default for an unticked flag.
 **UNSUPPORTED-OPERATOR GATE (mandatory — same moment as consent):**
 Re-scan the plan / execute payloads / Optimizely audiences for
 `match_type` in `{exists, substring, regex}` (and non-`custom_attribute`
-leaves). Any flag/rule still carrying those without a **recorded
-workaround** must be **`BLOCKED`** in the plan. You MUST:
+leaves).
 
-1. List every blocked flag id + operator(s) in chat before writes
-2. **Refuse** to import those audience rules into Confidence (no fake
-   contains/presence/regex criteria)
+- **exists** and prefix/suffix **substring** with the auto-map recorded
+  (IS NOT NULL / starts with / ends with) → **import those rules**. Do
+  not refuse. Do not treat them as unresolved BLOCKED.
+- **regex**, **mid-string substring**, **non-custom_attribute** without a
+  recorded workaround → **`BLOCKED`**. You MUST:
+
+1. List every truly blocked flag id + operator(s) in chat before writes
+2. **Refuse** to import those audience rules (no fake regex / mid-string
+   contains / browser criteria)
 3. **Refuse** `[x] Migrate` as full targeting parity when the flag’s
-   production rules depend only on unresolved blocked ops — ask Skip,
-   workaround, or migrate shell + catch-all only with the gap documented
-4. Never clear BLOCKED at execute time without a plan rewrite from
-   adjust / workaround answers
+   production rules depend only on unresolved blocked ops
+4. Never clear a true BLOCKED at execute without a plan rewrite
 
-If the plan’s Rules audit section is missing but unsupported ops exist
-in the source, **stop**, run the Step 2 Rules operator audit (or adjust
-flags), and do not pretend counts are zero.
+If the plan’s Rules audit section is missing but exists/substring/regex
+ops exist in the source, **stop**, run the Step 2 Rules operator audit
+(auto-tell exists/substring), and do not pretend counts are zero.
 
 ```
 1. READ the plan file
@@ -2982,9 +2926,11 @@ flags), and do not pretend counts are zero.
    - Run the CONSENT GATE above. If any flag is unticked, STOP HERE.
    - REFUSE TO PROCEED if any flag is marked `BLOCKED` and the user
      hasn't either resolved the block or ticked `[x] Skip`. Surface the
-     BLOCKED flags and the reason for each — including
-     **unsupported operators** (`exists` / `substring` / `regex`) from
-     the Rules audit. Checkbox alone does not clear an operator block.
+     BLOCKED flags and the reason for each — **regex**, **mid-string
+     substring**, **non-custom_attribute**. Auto-translated **exists**
+     (IS NOT NULL) and prefix/suffix **substring** (starts with / ends
+     with) are **not** BLOCKED — import them. Checkbox alone does not
+     clear a true operator block.
    - Override handling: If a previously excluded flag is now ticked
      `[x] Migrate`, migrate it — but restate the plan-recorded caveat
      at that flag's checkpoint before proceeding. The user must
@@ -2998,16 +2944,10 @@ flags), and do not pretend counts are zero.
        3. If yes, ask: "What rollout percentage should I use in
           Confidence?" (suggest the original percentage as default)
        4. Use `rolloutPercentage` in the `addTargetingRule` call.
-     BLOCKED flags are NEVER overridable by checkbox alone —
-     the blocking condition (e.g. "uses unsupported operator")
-     must be resolved or removed in the plan before the flag can be
-     migrated. If a BLOCKED flag is ticked `[x] Migrate` without the
-     block being resolved, refuse and surface the unresolved block.
-     **Exception — rewrite candidates:** OR-of-substring version
-     families (see Operator Mapping) may migrate only after the plan
-     row was rewritten to a confirmed version `rangeRule` (or exact
-     set) and the BLOCKED status cleared. Checkbox alone is still not
-     enough.
+     True BLOCKED flags (regex / mid-string contains / browser, etc.)
+     are NEVER overridable by checkbox alone — the blocking condition
+     must be resolved in the plan. Exists / starts-with / ends-with
+     auto-maps are already resolved.
 2. FOR EACH FLAG marked [x] Migrate — **flag create only** (shell +
    client attach; do not bury the full waterfall here):
    - review-each mode:

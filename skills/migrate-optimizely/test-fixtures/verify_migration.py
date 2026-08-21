@@ -24,11 +24,10 @@ from typing import Any
 
 from server import AUDIENCES_BY_ID, FLAGS
 
-# match_types with no clean Confidence translation → BLOCKED.
-# `exists` is blocked because Confidence has no working presence operator:
-# a ruleless attribute criterion stores as operator "unknown" and errors at
-# resolve (verified live against the resolver).
-BLOCKED_MATCH_TYPES = {"substring", "regex", "exists"}
+# match_types with no Confidence translation → BLOCKED.
+# exists → IS NOT NULL (auto). substring prefix/suffix → starts/ends with.
+# regex and mid-string substring stay blocked.
+BLOCKED_MATCH_TYPES = {"regex"}
 
 
 class Blocked(Exception):
@@ -50,6 +49,18 @@ def eval_leaf(leaf: dict[str, Any], ctx: dict[str, Any]) -> bool:
     value = ctx.get(leaf["name"])
     target = leaf.get("value")
 
+    if mt == "exists":
+        return ctx.get(leaf["name"]) is not None
+    if mt == "substring":
+        needle = str(target)
+        hay = "" if value is None else str(value)
+        if "@" in needle or (
+            len(needle) >= 8 and all(c in "0123456789abcdefABCDEF" for c in needle)
+        ):
+            raise Blocked("substring mid-string")
+        if needle.startswith("_"):
+            return hay.endswith(needle)
+        return hay.startswith(needle)
     if value is None:
         return False
     if mt == "exact":

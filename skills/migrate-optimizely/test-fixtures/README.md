@@ -98,14 +98,14 @@ Pick a throwaway Confidence client and map the Optimizely user ID to a
 | `na_promo` | audience `country US OR CA` → `setRule` | Migrate |
 | `mobile_checkout` | audience `app_version semver_ge 1.2.0 AND os exact ios` → version `rangeRule` + string `eqRule` | Migrate |
 | `winback_banner` | audience `days_since_last_order le 14` → numeric `rangeRule.endInclusive` | Migrate |
-| `substring_gate` | audience `email substring` → no Confidence substring rule | BLOCKED |
-| *(anticipated pattern)* | OR of several `substring` leaves on a version-like attr (`app-version-name` contains `2.182`…`2.187`) | **Not auto-migrated as contains.** Skill must ASK intent, then rewrite to version `rangeRule` [`2.182`, `2.188`) if “release families”; see SKILL.md **Rewrite: OR-of-substring version families** |
+| `substring_gate` | audience `email` contains `@test` (mid-string) | BLOCKED |
+| *(version contains)* | OR of `substring` on version-like prefixes (`2.182`…`2.187`) | **Auto starts with** those prefixes. Tell the user. Optional tighter version range only via `adjust flags`. |
 | `product_sort` | flag WITH variables (`sort_algorithm` string, `show_amounts` bool), a/b 50/50 → struct flag, variant split | Migrate |
 | `pricing_test` | a/b at 50% allocation THEN an everyone fallback rule → REST backend (un-allocated traffic must fall through) | Migrate (REST) |
 | `headline_mab` | `multi_armed_bandit` / `stats_accelerator` → adaptive split snapshotted, with a note | Migrate (note) |
 | `legacy_banner` | ruleset `enabled: false` → flag created OFF, rules at 0% | Migrate (with warning) |
 | `members_dashboard` | combo `Authenticated AND NOT Internal` → inline both audiences, internal negated | Migrate |
-| `plan_badge` | audience `plan exists` → Confidence has no working presence operator (ruleless criteria error at resolve) | BLOCKED |
+| `plan_badge` | audience `plan exists` → **IS NOT NULL** (auto). Tell the user. | Migrate |
 | `browser_gate` | non-`custom_attribute` (`browser`) audience leaf → no Confidence equivalent | BLOCKED |
 | `old_experiment` | `archived: true` → hidden from list unless opted in | Skipped (archived) |
 
@@ -117,11 +117,11 @@ Pick a throwaway Confidence client and map the Optimizely user ID to a
 | 2 `North America` | `country exact US OR country exact CA` | set membership → `setRule` |
 | 3 `Modern mobile` | `app_version semver_ge 1.2.0 AND os exact ios` | version range + string eq |
 | 4 `Recent purchasers` | `days_since_last_order le 14` | numeric → `rangeRule.endInclusive` |
-| 5 `Test email substring` | `email substring @test` | BLOCKED (hard — not a version rewrite) |
+| 5 `Test email substring` | `email substring @test` | BLOCKED (mid-string contains) |
 | 6 `Regex email` | `email regex .*@test\.com` | BLOCKED |
 | 7 `Authenticated users` | `is_logged_in exact true` | used alone + in a combo |
 | 9 `Internal staff` | `is_internal exact true` | used NEGATED in a combo |
-| 10 `Has plan` | `plan exists` | BLOCKED — no working presence operator |
+| 10 `Has plan` | `plan exists` | **IS NOT NULL** (auto) |
 | 11 `Chrome users` | `browser exact gc` | non-custom_attribute → BLOCKED |
 
 ## Summary export scenario (Option B2: flattened export)
@@ -217,9 +217,10 @@ After running `plan flags`, the generated plan file at
   in at 0% rollout
 - For `members_dashboard`, inline the `Authenticated` and `Internal`
   audiences, with `Internal` wrapped in `not`
-- Mark `substring_gate`, `browser_gate`, and `plan_badge` as **BLOCKED**
-  (`plan_badge` uses an `exists` match, which has no working Confidence
-  presence operator). `execute flags` should refuse to proceed on them unless
+- Mark `substring_gate` and `browser_gate` as **BLOCKED**
+  (`substring_gate` is mid-string email contains `@test`). Map
+  `plan_badge` as **exists → IS NOT NULL** (tell the user; migratable).
+  `execute flags` should refuse only remaining BLOCKED flags unless
   they're `[x] Skip`'d
 
 ## Verifying the translation logic (`verify_migration.py`)

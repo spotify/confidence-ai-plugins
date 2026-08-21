@@ -1,9 +1,8 @@
-name: plan-badge-exists-is-not-null
+name: locale-suffix-ends-with
 description: >
-  Audience uses exists match on "plan" attribute.
-  Auto-translate to IS NOT NULL and tell the user.
-  Not BLOCKED.
-tags: [exists, workaround, is-not-null]
+  Audience uses substring on locale with a leading underscore suffix.
+  Auto-translate to ends with and tell the user. Not BLOCKED.
+tags: [substring, workaround, ends-with]
 
 input:
   user_message: |
@@ -11,9 +10,9 @@ input:
     Here is a flag from my project. What is the migration
     path for this one? Describe it in plain English.
   flag:
-    key: plan_badge
-    name: Plan badge
-    description: Show badge if user has a plan attribute.
+    key: locale-suffix-gate
+    name: Locale suffix gate
+    description: Gate using locale suffix contains.
     archived: false
     variable_definitions: {}
     variations:
@@ -22,35 +21,37 @@ input:
     ruleset:
       enabled: true
       default_variation_key: off
-      rule_priorities: [has_plan]
+      rule_priorities: [locale_check]
       rules:
-        has_plan:
+        locale_check:
           type: targeted_delivery
           percentage_included: 10000
-          audience_conditions: ["or", { audience_id: 10 }]
-          audience_ids: [10]
+          audience_conditions: ["or", { audience_id: 13 }]
+          audience_ids: [13]
           variations:
             on: { percentage_included: 10000 }
     referenced_audiences:
-      "10":
-        name: Has plan
+      "13":
+        name: Locale ends beta
         conditions: >
           ["and",
-          {"type": "custom_attribute",
-          "name": "plan",
-          "match_type": "exists"}]
+          {"type": "custom_attribute", "name": "device_locale",
+          "match_type": "substring", "value": "_beta"}]
 
 expected:
   scope: migrate
   flag_shape: boolean
   plan_includes:
-    - "IS NOT NULL"
-    - "exists"
+    - "ends with"
+    - "substring"
   plan_excludes:
+    - "endsWithRule"
     - "eqRule"
     - "mcp__confidence"
   resolutions:
-    - context: { plan: "pro" }
+    - context: { device_locale: "en_beta" }
       variant: "on"
+    - context: { device_locale: "en_US" }
+      variant: "off"
     - context: {}
       variant: "off"

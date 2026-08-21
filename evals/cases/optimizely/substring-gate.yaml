@@ -1,7 +1,8 @@
 name: substring-gate-blocked
 description: >
-  Audience uses substring match on email. Confidence
-  has no substring/contains rule, so this flag is BLOCKED.
+  Audience uses substring match on email (@test). That is
+  mid-string contains, not starts with / ends with, so
+  this flag is BLOCKED.
 tags: [blocked, substring, unsupported_operator]
 
 input:
