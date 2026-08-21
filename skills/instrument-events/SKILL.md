@@ -78,11 +78,13 @@ Display at the START and after EACH step completes (updating status):
 ```
 ───── Instrument Events ──────────────────────────────────
   [1] Scan project              ○ pending
-  [2] Discover instrumentation  ○ pending
-  [3] Propose events & metrics  ○ pending
-  [4] Create event definitions  ○ pending
-  [5] Add SDK code              ○ pending
-  [6] Verify pipeline           ○ pending
+  [2] Select client             ○ pending
+  [3] Select entity             ○ pending
+  [4] Discover instrumentation  ○ pending
+  [5] Propose events & metrics  ○ pending
+  [6] Create event definitions  ○ pending
+  [7] Add SDK code              ○ pending
+  [8] Verify pipeline           ○ pending
 ────────────────────────────────────────────────────────────
 ```
 
@@ -97,9 +99,9 @@ Status markers: `○ pending` · `◉ in progress` · `⏸ awaiting user` · `�
 - The event data cannot be used for metrics
 - The entire metric pipeline is broken
 
-When proposing events, ALWAYS identify which field is the entity identifier (user_id, visitor_id, org_id, etc.) and mark it with an entity reference. Call `listEntities` to find available entities.
+When proposing events, ALWAYS use the entity the user selected in Step 3. Call `listEntities` to find available entities.
 
-**NEVER create duplicate event definitions.** In Step 2, cross-reference existing `track()` calls with existing event definitions. If a `track()` call already has a matching event definition with events flowing, do NOT re-create that event definition — acknowledge the existing coverage. You MAY still suggest NEW events for uncovered actions, but never re-create ones that already exist.
+**NEVER create duplicate event definitions.** In Step 4, cross-reference existing `track()` calls with existing event definitions. If a `track()` call already has a matching event definition with events flowing, do NOT re-create that event definition — acknowledge the existing coverage. You MAY still suggest NEW events for uncovered actions, but never re-create ones that already exist.
 
 **ALWAYS mention `/confidence:explore-metric`** in your response as the next step for metric preview and creation, even if you haven't completed all steps yet.
 
@@ -154,23 +156,79 @@ EDUCATE:
 
 **Determine the SDK** — based on tech stack:
 
-| Stack | SDK | Package |
-|-------|-----|---------|
-| JavaScript/TypeScript (browser) | Confidence JS SDK | `@spotify-confidence/sdk` |
-| React | Confidence JS SDK | `@spotify-confidence/sdk` |
-| Node.js | Confidence JS SDK | `@spotify-confidence/sdk` |
-| Java/Kotlin (server) | Confidence Java SDK | `com.spotify.confidence:sdk` |
-| Python | Confidence Python SDK | `spotify-confidence` |
-| Go | Confidence Go SDK | `github.com/spotify/confidence-sdk-go` |
-| Swift/iOS | Confidence Swift SDK | `ConfidenceSDK` |
-| Kotlin/Android | Confidence Kotlin SDK | `com.spotify.confidence:sdk-android` |
-| Flutter/Dart | Confidence Flutter SDK | `confidence_flutter_sdk` |
+| Stack | SDK | Tracking package | Flag evaluation package (if needed) |
+|-------|-----|-----------------|-------------------------------------|
+| JavaScript/TypeScript (browser) | Confidence JS SDK | `@spotify-confidence/sdk` | `@spotify-confidence/openfeature-web-provider` |
+| React (client) | Confidence JS SDK | `@spotify-confidence/sdk` | `@spotify-confidence/openfeature-web-provider` |
+| Node.js / Next.js (server) | Confidence JS SDK + Local Resolve | `@spotify-confidence/sdk` | `@spotify-confidence/openfeature-server-provider-local` |
+| Java/Kotlin (server) | Confidence Java SDK | `com.spotify.confidence:sdk` | `com.spotify.confidence:openfeature-provider-local` |
+| Python | Confidence Python SDK | `spotify-confidence` | `confidence-openfeature-provider` |
+| Go | Confidence Go SDK | `github.com/spotify/confidence-sdk-go` | `github.com/spotify/confidence-resolver/openfeature-provider/go` |
+| Swift/iOS | Confidence Swift SDK | `ConfidenceSDK` | (included) |
+| Kotlin/Android | Confidence Kotlin SDK | `com.spotify.confidence:sdk-android` | (included) |
+| Flutter/Dart | Confidence Flutter SDK | `confidence_flutter_sdk` | (included) |
+
+**Note:** For server-side/backend environments (Node.js, Java, Go, Python), Confidence uses a **local resolver** powered by WebAssembly from [spotify/confidence-resolver](https://github.com/spotify/confidence-resolver). Flags are evaluated locally with microsecond latency — no per-evaluation network calls. Event tracking still uses `confidence.track()` from the SDK, which sends events to the Confidence backend.
 
 Print "Detected <framework> project (<language>) — will use <SDK>"
 
 ---
 
-## Step 2. Discover existing instrumentation
+## Step 2. Select client
+
+EDUCATE:
+
+> **What is a client?**
+> A client represents the application that resolves flags and sends events — your
+> website, backend service, or mobile app. Each client has its own secret for
+> authentication and can be scoped to environments (dev, staging, prod).
+
+**List available clients** by calling `mcp__confidence-flags__listClients`.
+
+**If multiple clients exist**, use `AskUserQuestion` to let the user choose which client to use. Present the client names as options.
+
+**If no clients exist**, create one by calling `mcp__confidence-flags__createClient` with a name based on the project (e.g., `saas-starter-backend`). Confirm the name with the user via `AskUserQuestion` before creating.
+
+**If exactly one client exists**, confirm with the user that it's the right one to use.
+
+**Get the client secret** by calling `mcp__confidence-flags__getClientSecret` for the selected client.
+
+**Write the secret to `.env`:**
+- If `.env` exists, append `CONFIDENCE_CLIENT_SECRET=<secret>` (don't overwrite existing vars)
+- If `.env` doesn't exist, create it with `CONFIDENCE_CLIENT_SECRET=<secret>`
+- If `.env.example` or `.env.template` exists, add a placeholder there too
+- If `.gitignore` exists and doesn't include `.env`, add it
+
+**Important:** The client must be type **Backend** for server-side integrations. If the selected client is not Backend type, warn the user and offer to create a new Backend client. Backend secrets must be kept secure — they can download the resolver state with all flags and rules.
+
+Print "Using client: <client-name>"
+
+---
+
+## Step 3. Select entity
+
+EDUCATE:
+
+> **What is an entity?**
+> An entity represents the unit you're measuring — typically a user, visitor, or
+> organization. Every event needs an entity reference so Confidence knows how to
+> aggregate metrics (e.g., "revenue **per user**" or "clicks **per visitor**").
+
+**List available entities** by calling `mcp__confidence-flags__listEntities`.
+
+**Use `AskUserQuestion`** to let the user choose which entity to use for event tracking. Present entity names and descriptions as options.
+
+If no entities exist, explain that at least one entity is needed and suggest creating one (e.g., `user` or `visitor`).
+
+**Also ask what field name** the app uses to identify this entity (e.g., `user_id`, `visitor_id`, `email`). Examine the codebase for patterns — look at auth/session code, database schemas, API handlers — and suggest the most likely field name. Present suggestions via `AskUserQuestion`.
+
+Store the selected entity and field name for use in Steps 5 and 6.
+
+Print "Using entity: <entity-name> (field: <field-name>)"
+
+---
+
+## Step 4. Discover existing instrumentation
 
 EDUCATE:
 
@@ -208,7 +266,7 @@ Do NOT propose new events just to have something to suggest. If coverage is comp
 
 ---
 
-## Step 3. Propose events AND metrics together
+## Step 5. Propose events AND metrics together
 
 EDUCATE:
 
@@ -228,11 +286,11 @@ EDUCATE:
 **For each candidate, determine:**
 - Event name (kebab-case, 4-63 chars)
 - Schema fields with types
-- Which field is the **entity identifier** (e.g., `visitor_id`, `user_id`) — this gets the entity reference
+- The entity identifier field from Step 3 (e.g., `user_id`) — this gets the entity reference selected by the user
 - Where in the code to add the `track()` call (file:line)
 - Suggested metric: type (conversion/consumption/average/ratio), measure column, aggregation
 
-**Call `mcp__confidence-flags__listEntities`** to find available entities for the entity reference.
+**Use the entity selected in Step 3** for all event proposals. The entity field name and entity reference must match what the user chose.
 
 **Present each candidate as an event+metric pair:**
 
@@ -241,12 +299,12 @@ EDUCATE:
 │  purchase-completed                                     │
 │                                                         │
 │  Event schema:                                          │
-│    visitor_id → string (entity: entities/visitor)       │
+│    user_id    → string (entity: entities/user)          │
 │    amount     → double                                  │
 │    currency   → string                                  │
 │    item_count → int                                     │
 │                                                         │
-│  Suggested metric: Revenue per visitor                  │
+│  Suggested metric: Revenue per user                     │
 │    Kind: consumption  │  Measure: amount  │  Agg: SUM   │
 │                                                         │
 │  Insert at: src/checkout/handler.ts:42                  │
@@ -257,17 +315,17 @@ Use AskUserQuestion with multiSelect to let the user pick which event+metric pai
 
 ---
 
-## Step 4. Create event definitions
+## Step 6. Create event definitions
 
 For each selected event:
 
-1. Call `mcp__confidence-flags__createEventDefinition` with the event ID and schema JSON **including entity references**:
+1. Call `mcp__confidence-flags__createEventDefinition` with the event ID and schema JSON **including entity references using the entity from Step 3**:
 
 ```json
 {
-  "visitor_id": {
+  "user_id": {
     "stringSchema": {},
-    "semanticType": {"entityReference": {"entity": "entities/visitor"}}
+    "semanticType": {"entityReference": {"entity": "entities/user"}}
   },
   "amount": {"doubleSchema": {}},
   "currency": {"stringSchema": {}},
@@ -282,20 +340,67 @@ For each selected event:
 
 Print:
 ```
-Created event definition: purchase-completed (4 fields, entity: visitor)
+Created event definition: purchase-completed (4 fields, entity: user)
 Fact table auto-created: factTables/purchase-completed
-  Entities: visitor_id → entities/visitor
+  Entities: user_id → entities/user
   Measures: amount, item_count
   Dimensions: currency
 ```
 
 ---
 
-## Step 5. Add SDK code
+## Step 7. Add SDK code
 
-**Check if the Confidence SDK is already installed.** If not, provide the install command.
+EDUCATE:
 
-**Detect the analytics pattern** from Step 2:
+> Now I'll install the SDK, initialize it, and add tracking calls at each
+> event location. For server-side apps, Confidence uses a local resolver
+> powered by WebAssembly — flags evaluate locally with microsecond latency.
+> Event tracking sends data to the Confidence backend for metrics.
+
+**Check if the Confidence SDK is already installed.** If not, install the correct packages:
+
+For **Node.js / Next.js (server-side)** — install both the SDK for tracking and the local resolve provider for flag evaluation:
+```bash
+# Tracking (confidence.track())
+yarn add @spotify-confidence/sdk
+
+# Flag evaluation (local resolve via WASM — from spotify/confidence-resolver)
+yarn add @openfeature/server-sdk @spotify-confidence/openfeature-server-provider-local
+```
+
+For **browser / React (client-side)**:
+```bash
+yarn add @spotify-confidence/sdk @openfeature/web-sdk @spotify-confidence/openfeature-web-provider
+```
+
+**Initialize the SDK** at the app's entry point. For server-side Node.js/Next.js:
+
+```typescript
+import { Confidence } from '@spotify-confidence/sdk';
+
+const confidence = Confidence.create({
+  clientSecret: process.env.CONFIDENCE_CLIENT_SECRET!,
+  environment: 'backend',
+  timeout: 10000,
+});
+
+export { confidence };
+```
+
+If the app will also use feature flags (not just tracking), add the local resolve provider setup:
+
+```typescript
+import { OpenFeature } from '@openfeature/server-sdk';
+import { createConfidenceServerProvider } from '@spotify-confidence/openfeature-server-provider-local';
+
+const provider = createConfidenceServerProvider({
+  flagClientSecret: process.env.CONFIDENCE_CLIENT_SECRET!,
+});
+await OpenFeature.setProviderAndWait(provider);
+```
+
+**Detect the analytics pattern** from Step 4:
 - If the app uses `confidence.track()` directly → add direct track calls
 - If it uses a framework layer (e.g., Backstage `useAnalytics()`) → use that layer
 
@@ -304,7 +409,7 @@ Fact table auto-created: factTables/purchase-completed
 JavaScript/TypeScript (direct):
 ```typescript
 confidence.track('purchase-completed', {
-  visitor_id: user.id,
+  user_id: user.id,
   amount: cart.total,
   currency: 'USD',
   item_count: cart.items.length,
@@ -320,22 +425,39 @@ analytics.captureEvent({
 });
 ```
 
-**Run the project's build/typecheck** to verify the code compiles.
+**Run the project's build/typecheck** to verify the code compiles. Fix any type errors before continuing.
 
 ---
 
-## Step 6. Verify pipeline
+## Step 8. Verify pipeline
 
 EDUCATE:
 
-> I'll verify the event pipeline is set up correctly.
+> I'll verify the full event pipeline — from SDK to warehouse — is working correctly.
 
-**Check:**
+**Check pipeline components:**
 
 1. `mcp__confidence-flags__checkWarehouseExists` — is a warehouse configured?
 2. `mcp__confidence-flags__getEventDefinition` for each created event — does it exist with entity references?
 3. `mcp__confidence-flags__listFactTables` — was the fact table auto-created?
 4. `mcp__confidence-flags__listExposureTables` — are there exposure tables matching the entity? (needed for the metric explorer URL)
+
+**Test events are flowing:**
+
+Ask the user if they want to start the app and verify events end-to-end:
+
+Use `AskUserQuestion`:
+- **Yes, start the app and test** — run the dev server, trigger an action, check publish counts
+- **Skip, I'll test later** — skip verification
+
+If the user wants to test:
+1. Start the dev server using the project's dev command (e.g., `pnpm dev`, `npm run dev`)
+2. Tell the user to trigger an action in the app (e.g., sign up, click a button) that fires one of the instrumented events
+3. Wait a moment, then call `mcp__confidence-flags__getEventDefinition` for the triggered event and check the `publishCount` — if it increased from 0, events are flowing
+4. If events are NOT flowing, troubleshoot:
+   - Is `CONFIDENCE_CLIENT_SECRET` set in `.env`?
+   - Is the SDK initialized correctly?
+   - Are there console errors?
 
 **Print pipeline status:**
 
@@ -344,14 +466,15 @@ Pipeline Status:
   Event definitions:  ✓ 2 created (with entity references)
   Warehouse:          ✓ configured
   Fact tables:        ✓ 2 auto-created
-  Exposure tables:    ✓ 3 found for entity Visitor
+  Events flowing:     ✓ publish count increased (signup-completed: 1)
+  Exposure tables:    — none yet (created when an experiment starts)
 ```
 
 If the warehouse is NOT configured, suggest `/confidence:onboard-confidence setup-warehouse`.
 
 If no fact table was auto-created:
-- Check that the event definition has entity references (Step 4 requirement)
-- Check that auto fact table creation is enabled for this account
+- Check that the event definition has entity references (Step 6 requirement)
+- Check that auto fact table creation is enabled for the account
 - Guide the user to create the fact table manually in the UI
 
 If no exposure tables exist for the entity:
@@ -360,12 +483,14 @@ If no exposure tables exist for the entity:
 
 ---
 
-## Step 7. Summary & next steps
+## Step 9. Summary & next steps
 
 Print what was done:
 
 ```
 ───── Summary ────────────────────────────────────────────
+  Client:     <client-name>
+  Entity:     <entity-name> (field: <field-name>)
   Created:    2 event definitions (with entity references)
   Fact tables: 2 auto-created
   Modified:   3 files with track() calls
@@ -374,8 +499,8 @@ Print what was done:
 ```
 
 List every change:
-- Created event definition `purchase-completed` (4 fields, entity: visitor)
-- Created event definition `signup-completed` (3 fields, entity: visitor)
+- Created event definition `purchase-completed` (4 fields, entity: user)
+- Created event definition `signup-completed` (3 fields, entity: user)
 - Fact table `factTables/purchase-completed` auto-created (measures: amount, item_count)
 - Fact table `factTables/signup-completed` auto-created (measures: —)
 - Modified `src/checkout/handler.ts:42` — added `confidence.track('purchase-completed', ...)`
@@ -401,9 +526,11 @@ List every change:
 - **EDUCATE before each step** — use a blockquote to briefly explain what's happening and why
 - **Never show secrets** in conversation output
 - **Use the Confidence vanilla SDK** `confidence.track()` for event tracking (not OpenFeature `client.track()` — the OpenFeature tracking spec is not yet wired to Confidence providers). Adapt to the app's existing analytics layer if present.
+- **For backend/server-side apps**, recommend the local resolve provider from [spotify/confidence-resolver](https://github.com/spotify/confidence-resolver) for flag evaluation. Event tracking still uses `confidence.track()` from the vanilla SDK.
 - **Handle failures gracefully** — if MCP is unavailable, explain what the user needs to do manually
 - **Proposals must be project-specific** — generic events like "user_action" are not helpful
 - **Entity references are required** — every event definition MUST have at least one string field with `semanticType.entityReference`. Without it, no fact table is auto-created.
 - **Fact tables are auto-created** from event definitions with entity references (when enabled for the account). The fact table definition appears instantly; warehouse data arrives within ~1 hour via the event connector batch.
 - **Exposure tables are system-created** from assignment tables when experiments start — the user doesn't create them
 - **Do NOT run metric calculations or generate Metric Explorer URLs** — that's the explore-metric skill's job. This skill focuses on instrumentation only.
+- **Be interactive** — use AskUserQuestion at every decision point (client selection, entity selection, event selection, verification). Never make assumptions the user should confirm.
