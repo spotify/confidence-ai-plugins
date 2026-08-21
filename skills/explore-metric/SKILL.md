@@ -118,21 +118,18 @@ Mark the recommended kind based on context:
 
 If the user picks consumption, average, or a kind that needs a measure column, ask which measure to use (from the fact table's measures list) with the most relevant one marked "(Recommended)".
 
-### 5. Find exposure tables
+### 5. Exposure table handling
 
-Call `mcp__confidence-flags__listExposureTables` and filter to:
-- Same entity as the fact table
-- State is `TABLE_STATE_ACTIVE`
-- Has `exposureDataDeliveredUntilTime` (meaning data exists)
+**Do NOT include the `exposure` parameter in the generated URL.**
 
-Sort by most recent data delivery time. Pick the best match.
+The Metric Explorer requires the fact table's data partitions to overlap with the exposure table's data partitions. There is no MCP tool to verify this overlap (it requires the `QueryAvailableTimeRange` gRPC endpoint). Picking an exposure table blindly causes "No available time range for this metric" errors when the data doesn't overlap.
 
-If no matching exposure tables exist:
-> No active experiments found for this entity. The Metric Explorer
-> requires an experiment to be running. You can still create the metric
-> manually in the UI, or start an experiment first.
+Instead, let the user select the experiment in the Metric Explorer UI, where the dropdown only shows experiments with valid data ranges.
 
-Generate the URL without the `exposure` param — the user can select one in the UI.
+Tell the user:
+> The link opens the Metric Explorer with your fact table and metric kind
+> pre-filled. Select an experiment from the dropdown in the UI — it only
+> shows experiments with overlapping data, so you won't hit time range errors.
 
 ### 6. Generate the Metric Explorer URL
 
@@ -144,7 +141,6 @@ Generate the URL without the `exposure` param — the user can select one in the
 |-------|---------|-------|
 | Fact table | `factTable` | `factTables/{id}` (URL-encoded) |
 | Entity | `entity` | `entities/{id}` (URL-encoded) |
-| Exposure table | `exposure` | `exposureTables/{id}` (URL-encoded) |
 | Metric kind | `kind` | `conversion`, `consumption`, `average`, `ratio`, `ctr` |
 | Measure column | `measurement` | column name (for consumption/average) |
 | Aggregation | `agg` | `count`, `sum`, `avg`, `min`, `max`, `countDistinct` |
@@ -165,13 +161,14 @@ Generate the URL without the `exposure` param — the user can select one in the
 Examples of CORRECT encoding:
 - `factTable=factTables%2Fpurchase-completed` ✓
 - `entity=entities%2Fenk6xv5ido8wqotjxkcz` ✓
-- `exposure=exposureTables%2Fbed86624e687c05638a42199c4344b7b` ✓
 
 Examples of WRONG encoding (will break the UI):
 - `factTable=factTables/purchase-completed` ✗
 - `entity=entities/visitor` ✗
 
 Always include these required params: `factTable`, `entity`, `kind`, `agg`, `aggOp=none`.
+
+**Do NOT include `exposure` in the URL.** The Metric Explorer requires the fact table and exposure table data partitions to overlap, and there is no MCP tool or public API to verify this overlap (`QueryAvailableTimeRange` is behind an internal GraphQL BFF). Including an exposure table blindly causes "No available time range" errors. Let the user select the experiment in the UI dropdown, which only shows valid options.
 
 **Present the link:**
 
@@ -181,17 +178,13 @@ Always include these required params: `factTable`, `entity`, `kind`, `agg`, `agg
   📊 Revenue per visitor
      Kind: consumption  │  Measure: amount  │  Agg: SUM
 
-  https://app.confidence.spotify.com/metrics/explorer?factTable=factTables%2Fpurchase-completed&entity=entities%2Fvisitor&exposure=exposureTables%2Fabc123&kind=consumption&measurement=amount&agg=sum&aggOp=none
+  https://app.confidence.spotify.com/metrics/explorer?factTable=factTables%2Fpurchase-completed&entity=entities%2Fvisitor&kind=consumption&measurement=amount&agg=sum&aggOp=none
 
   In the Metric Explorer:
-    1. Click "Calculate" to preview the metric
-    2. Review the chart and diagnostics
-    3. Click "Create" to save it as a real metric
-
-  Note: If you see "No available time range", check that
-  the exposure table's data range overlaps with the fact
-  table's data. Try selecting a different experiment in
-  the dropdown — each experiment has its own time range.
+    1. Select an experiment from the dropdown
+    2. Click "Calculate" to preview the metric
+    3. Review the chart and diagnostics
+    4. Click "Create" to save it as a real metric
 
 ────────────────────────────────────────────────────────────
 ```
@@ -214,9 +207,8 @@ Options:
 - **Never run metric calculations in the terminal** — the Metric Explorer UI handles calculation, timing, and visualization. This skill only generates the URL.
 - **Always URL-encode resource names** — `factTables/x` becomes `factTables%2Fx`
 - **The URL must be on a SINGLE LINE** — never split across multiple lines. The user must be able to click it directly.
-- **Pick the most recent exposure table** matching the entity — sorted by `exposureDataDeliveredUntilTime` descending
+- **NEVER include `exposure` in the URL** — there is no MCP tool or public API to verify that the exposure table's data partitions overlap with the fact table's data (`QueryAvailableTimeRange` is behind an internal GraphQL BFF at `graphql-konfidens.spotify.com`). Including an exposure table blindly causes "No available time range for this metric" errors. Let the user select the experiment in the Metric Explorer UI dropdown.
 - **If multiple entities** exist on the fact table, ask the user which one to use
-- **Handle missing data gracefully** — if no fact table, no exposure table, or no measures exist, explain what's missing and what the user can do
+- **Handle missing data gracefully** — if no fact table or no measures exist, explain what's missing and what the user can do
 - **Every AskUserQuestion MUST have a recommended default** — analyze context and suggest the best option first with "(Recommended)" in the label
 - **Start from the business question** — don't force the user to think in terms of fact tables and aggregation types. Translate their intent into the right configuration.
-- **"No available time range" troubleshooting** — if the user reports this error, suggest: (1) try a different exposure table/experiment with a longer data range, (2) check the exposure table's `exposureDataDeliveredUntilTime` overlaps with fact table data, (3) for newly instrumented events, data lands in the warehouse within ~1 hour.
