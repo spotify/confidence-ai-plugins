@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.9.0](https://github.com/spotify/confidence-ai-plugins/compare/v0.8.0...v0.9.0) (2026-08-21)
+
+
+### Features
+
+* **migrate-optimizely:** auto-map exists/substring with evals ([#68](https://github.com/spotify/confidence-ai-plugins/issues/68)) ([1e8918c](https://github.com/spotify/confidence-ai-plugins/commit/1e8918ca2a9f2637672099665634e757abee9d2f))
+
+
+### Bug Fixes
+
+* **skills:** improve instrument-events and explore-metric interactivity and reliability ([#69](https://github.com/spotify/confidence-ai-plugins/issues/69)) ([e2021ae](https://github.com/spotify/confidence-ai-plugins/commit/e2021aea02169f55fa7cdbd6d9a03610410ab58f))
+
 ## [0.8.0](https://github.com/spotify/confidence-ai-plugins/compare/v0.7.0...v0.8.0) (2026-08-19)
 
 
