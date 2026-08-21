@@ -534,3 +534,4 @@ List every change:
 - **Exposure tables are system-created** from assignment tables when experiments start — the user doesn't create them
 - **Do NOT run metric calculations or generate Metric Explorer URLs** — that's the explore-metric skill's job. This skill focuses on instrumentation only.
 - **Be interactive** — use AskUserQuestion at every decision point (client selection, entity selection, event selection, verification). Never make assumptions the user should confirm.
+- **NEVER delete event definitions** without explicit user confirmation. Deleting an event definition is a soft-delete that permanently blocks the name from being reused, and any events sent to a deleted definition are rejected with `EVENT_DEFINITION_NOT_FOUND`. If a definition needs to be replaced, always ask the user first and explain the consequences.
