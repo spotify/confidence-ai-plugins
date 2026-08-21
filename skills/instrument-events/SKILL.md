@@ -70,6 +70,7 @@ curl -s -X POST "https://events.eu.confidence.dev/v1/events:publish" \
 - DO show human-readable status updates
 - DO handle all MCP/API complexity silently
 - **Use AskUserQuestion for all choices** — never numbered lists in plain text
+- **Every question MUST have a recommended default.** Analyze the project context and make an informed suggestion. Put the recommended option first with "(Recommended)" appended to its label. The user should be able to accept defaults and keep moving without having to think from scratch.
 
 ### Step Tracker
 
