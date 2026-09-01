@@ -3777,9 +3777,15 @@ is implicit). Map by how the result is used:
 - `getVariation` (no impression) has no separate Confidence form —
   Confidence logs exposure on resolve. Note the behavior change.
 
-**React SDK mapping.** `@optimizely/react-sdk` →
-`@spotify-confidence/react` (or the React local-resolve provider for
-RSC; fetch the JS guide in Step 2):
+**React SDK mapping.** `@optimizely/react-sdk` → Confidence React
+local-resolve provider (`@spotify-confidence/openfeature-server-provider-local`
+with `/react-server` and `/react-client` subpath exports; fetch the JS
+guide in Step 2). **When possible, avoid `@spotify-confidence/react`,
+`@spotify-confidence/sdk`, and `@openfeature/react-sdk` — these are
+being phased out.** Server Components use `getFlag` (from
+`/react-server`); Client Components use `useFlag` (from `/react-client`)
+with a `'use client'` directive. Place the `ConfidenceProvider` above any
+`<Suspense>` boundary:
 
 | Optimizely React | Confidence React |
 |------------------|------------------|

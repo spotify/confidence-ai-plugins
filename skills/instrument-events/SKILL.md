@@ -160,8 +160,8 @@ EDUCATE:
 | Stack | SDK | Tracking package | Flag evaluation package (if needed) |
 |-------|-----|-----------------|-------------------------------------|
 | JavaScript/TypeScript (browser) | Confidence JS SDK | `@spotify-confidence/sdk` | `@spotify-confidence/openfeature-web-provider` |
-| React (client) | Confidence JS SDK | `@spotify-confidence/sdk` | `@spotify-confidence/openfeature-web-provider` |
-| Node.js / Next.js (server) | Confidence JS SDK + Local Resolve | `@spotify-confidence/sdk` | `@spotify-confidence/openfeature-server-provider-local` |
+| React / Next.js | Confidence Server Provider (Local Resolve) | `@spotify-confidence/sdk` | `@spotify-confidence/openfeature-server-provider-local` (use `/react-server` for `ConfidenceProvider`/`getFlag`, `/react-client` for `useFlag`) |
+| Node.js (server) | Confidence JS SDK + Local Resolve | `@spotify-confidence/sdk` | `@spotify-confidence/openfeature-server-provider-local` |
 | Java/Kotlin (server) | Confidence Java SDK | `com.spotify.confidence:sdk` | `com.spotify.confidence:openfeature-provider-local` |
 | Python | Confidence Python SDK | `spotify-confidence` | `confidence-openfeature-provider` |
 | Go | Confidence Go SDK | `github.com/spotify/confidence-sdk-go` | `github.com/spotify/confidence-resolver/openfeature-provider/go` |
@@ -370,10 +370,11 @@ yarn add @spotify-confidence/sdk
 yarn add @openfeature/server-sdk @spotify-confidence/openfeature-server-provider-local
 ```
 
-For **browser / React (client-side)**:
+For **React / Next.js** — use the local-resolve server provider with React subpath exports:
 ```bash
-yarn add @spotify-confidence/sdk @openfeature/web-sdk @spotify-confidence/openfeature-web-provider
+yarn add @openfeature/server-sdk @spotify-confidence/openfeature-server-provider-local
 ```
+When possible, avoid `@spotify-confidence/react`, `@spotify-confidence/sdk`, and `@openfeature/react-sdk` — these are being phased out. For event tracking in React / Next.js apps, use the server provider's built-in logging; if you need `confidence.track()`, install `@spotify-confidence/sdk` solely for that purpose.
 
 **Initialize the SDK** at the app's entry point. For server-side Node.js/Next.js:
 

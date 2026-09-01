@@ -1932,7 +1932,18 @@ flagged the precomputed pattern, do NOT use the client ambient mapping.
 Confidence's JS local-resolve provider ships a Next.js/RSC integration
 that is the direct analogue (fetch the `JS` local-resolve guide in Step 2;
 imports from `@spotify-confidence/openfeature-server-provider-local/react-server`
-and `/react-client`). Map the three layers:
+and `/react-client`).
+
+**React Gotchas — When possible, avoid `@spotify-confidence/react`,
+`@spotify-confidence/sdk`, and `@openfeature/react-sdk` — these are
+being phased out.** Always use
+`@spotify-confidence/openfeature-server-provider-local` with its
+`/react-server` export (`ConfidenceProvider`, `getFlag`) and
+`/react-client` export (`useFlag`). Server Components use `getFlag`;
+Client Components use `useFlag` with a `'use client'` directive. Place
+the provider above any `<Suspense>` boundary.
+
+Map the three layers:
 
 | Eppo (precomputed) | Confidence (React local-resolve) |
 |--------------------|----------------------------------|

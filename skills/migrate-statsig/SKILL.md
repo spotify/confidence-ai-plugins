@@ -2178,15 +2178,18 @@ user argument; emit a one-time context setup instead.
 | `client.getExperiment("e").get("p", d)` | `get<Type>Value("e.p", d)` | (same — set once) |
 
 **React mapping.** Statsig `@statsig/react-bindings` hooks map to
-Confidence's React `useFlag`. **Prefer the local-resolve React integration**
-(server-precomputed / RSC) — the standalone Confidence React SDK
-(`@spotify-confidence/react`) is being phased out. Imports come from
-`@spotify-confidence/openfeature-server-provider-local/react-server`
-(the `<ConfidenceProvider context flags>` RSC component + `getFlag`) and
-`/react-client` (`useFlag`/`useFlagDetails`). Register the provider once on
-the server with `createConfidenceServerProvider` + `OpenFeature.setProviderAndWait`
-(as in the server case). (Validated by typechecking migrated React code
-against provider `0.14.2` + React 19.)
+Confidence's React `useFlag`. **When possible, avoid
+`@spotify-confidence/react`, `@spotify-confidence/sdk`, and
+`@openfeature/react-sdk` — these are being phased out.**
+Always use the local-resolve React integration from
+`@spotify-confidence/openfeature-server-provider-local`: imports come from
+`/react-server` (the `<ConfidenceProvider context flags>` RSC component +
+`getFlag` for Server Components) and `/react-client` (`useFlag` /
+`useFlagDetails` for Client Components — requires `'use client'`
+directive). Place the provider above any `<Suspense>` boundary. Register
+the provider once on the server with `createConfidenceServerProvider` +
+`OpenFeature.setProviderAndWait` (as in the server case). (Validated by
+typechecking migrated React code against provider `0.14.2` + React 19.)
 
 | Statsig (React) | Confidence (React, local-resolve) |
 |-----------------|-----------------------------------|
@@ -2200,9 +2203,11 @@ against provider `0.14.2` + React 19.)
 ⚠️ **Resolve-mode shift:** Statsig React (client-precomputed) → Confidence
 **server-precomputed**. Client reads stay local/offline, but resolution moves
 to the server, so this needs an RSC server (e.g. Next.js App Router). For a
-pure SPA with no server, fall back to the (deprecated) cached-client web SDK
-`@spotify-confidence/react` (`ConfidenceProvider` + `useFlag` on top of
-`@spotify-confidence/sdk`).
+pure SPA that requires dynamic client-side context modifications the local
+resolve SDK cannot support, the cached-client web SDK
+(`@spotify-confidence/sdk` + `@spotify-confidence/react`) still works but is
+being phased out — prefer migrating to Next.js App Router with the
+local-resolve provider when possible.
 
 **Remove Statsig readiness scaffolding.** Statsig examples gate the
 first check behind `await statsig.initialize(...)` /
