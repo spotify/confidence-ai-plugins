@@ -495,7 +495,9 @@ EDUCATE:
 
 **React/Next.js gotchas:**
 
-- Next.js App Router: use `ConfidenceProvider` in the root layout. Server Components use `getFlag('flag.prop', default, context)`; Client Components use the `useFlag('flag.prop', default)` hook. If using the client provider, the rendering file must be a Client Component — extract into `providers.tsx` with `"use client"` if needed.
+- When possible, avoid `@spotify-confidence/react`, `@spotify-confidence/sdk`, or `@openfeature/react-sdk` — these are being phased out. Use `@spotify-confidence/openfeature-server-provider-local` which evaluates flags locally via WebAssembly.
+- Import `ConfidenceProvider` and `getFlag` from `@spotify-confidence/openfeature-server-provider-local/react-server`. Import `useFlag` from `@spotify-confidence/openfeature-server-provider-local/react-client`.
+- Next.js App Router: use `ConfidenceProvider` in the root layout with an evaluation context. Server Components use `getFlag('flag.prop', default, context)` (async). Client Components use the `useFlag('flag.prop', default)` hook and require a `'use client'` directive — extract into `providers.tsx` if needed.
 - Never call `useFlag` in a Server Component — use `getFlag` or wrap in a Client Component.
 - Place the provider above any `<Suspense>` boundary.
 
