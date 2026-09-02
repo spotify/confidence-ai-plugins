@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.10.0](https://github.com/spotify/confidence-ai-plugins/compare/v0.9.0...v0.10.0) (2026-09-02)
+
+
+### Features
+
+* update React guidance according to latest docs ([#71](https://github.com/spotify/confidence-ai-plugins/issues/71)) ([ce4a8dc](https://github.com/spotify/confidence-ai-plugins/commit/ce4a8dc5a81bc5eb9e3781682c044f9791285aa9))
+
+
+### Bug Fixes
+
+* remove incorrect package mention ([#73](https://github.com/spotify/confidence-ai-plugins/issues/73)) ([c8eb4ae](https://github.com/spotify/confidence-ai-plugins/commit/c8eb4aefefc4e095759ef0e5d1dd7e4e5ae6dae7))
+
 ## [0.9.0](https://github.com/spotify/confidence-ai-plugins/compare/v0.8.0...v0.9.0) (2026-08-21)
 
 
