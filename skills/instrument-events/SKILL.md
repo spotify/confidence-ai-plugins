@@ -374,7 +374,7 @@ For **React / Next.js** — use the local-resolve server provider with React sub
 ```bash
 yarn add @openfeature/server-sdk @spotify-confidence/openfeature-server-provider-local
 ```
-When possible, avoid `@spotify-confidence/react`, `@spotify-confidence/sdk`, and `@openfeature/react-sdk` — these are being phased out. For event tracking in React / Next.js apps, use the server provider's built-in logging; if you need `confidence.track()`, install `@spotify-confidence/sdk` solely for that purpose.
+When possible, avoid `@spotify-confidence/react` and `@spotify-confidence/sdk` — these are being phased out. For event tracking in React / Next.js apps, use the server provider's built-in logging; if you need `confidence.track()`, install `@spotify-confidence/sdk` solely for that purpose.
 
 **Initialize the SDK** at the app's entry point. For server-side Node.js/Next.js:
 
