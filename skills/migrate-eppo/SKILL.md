@@ -1934,9 +1934,8 @@ that is the direct analogue (fetch the `JS` local-resolve guide in Step 2;
 imports from `@spotify-confidence/openfeature-server-provider-local/react-server`
 and `/react-client`).
 
-**React Gotchas — When possible, avoid `@spotify-confidence/react`,
-`@spotify-confidence/sdk`, and `@openfeature/react-sdk` — these are
-being phased out.** Always use
+**React Gotchas — When possible, avoid `@spotify-confidence/react` and
+`@spotify-confidence/sdk` — these are being phased out.** Always use
 `@spotify-confidence/openfeature-server-provider-local` with its
 `/react-server` export (`ConfidenceProvider`, `getFlag`) and
 `/react-client` export (`useFlag`). Server Components use `getFlag`;

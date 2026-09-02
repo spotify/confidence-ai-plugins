@@ -2179,8 +2179,7 @@ user argument; emit a one-time context setup instead.
 
 **React mapping.** Statsig `@statsig/react-bindings` hooks map to
 Confidence's React `useFlag`. **When possible, avoid
-`@spotify-confidence/react`, `@spotify-confidence/sdk`, and
-`@openfeature/react-sdk` — these are being phased out.**
+`@spotify-confidence/react` and `@spotify-confidence/sdk` — these are being phased out.**
 Always use the local-resolve React integration from
 `@spotify-confidence/openfeature-server-provider-local`: imports come from
 `/react-server` (the `<ConfidenceProvider context flags>` RSC component +
