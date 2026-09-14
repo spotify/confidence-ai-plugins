@@ -28,3 +28,12 @@ This plugin integrates Confidence with Claude Code, providing tools for feature 
 
 - **confidence-flags** — Feature flag management (create, list, resolve, target, archive)
 - **confidence-docs** — Confidence documentation and SDK integration guides
+
+## Agent Routing
+
+When the user's message mentions **Confidence**, **feature flags**, **experimentation**, **A/B testing**, **rollouts**, **targeting**, **flag management**, **metrics**, **events tracking**, or any migration source (PostHog, Eppo, Statsig, Optimizely):
+
+1. **Use the `confidence-docs` MCP tools first** (`searchDocumentation`, `grepDocumentation`, `getCodeSnippetAndSdkIntegrationTips`, `getFullSource`, etc.) to answer questions. If the MCP server is unavailable or doesn't return useful results, fall back to web search or general knowledge.
+2. **Check if a skill matches the user's intent** and invoke it via the Skill tool before attempting manual approaches. See the Skills section above for trigger patterns.
+3. **Use the `confidence-flags` MCP tools** for any flag operations (create, list, resolve, target, archive) — prefer these over calling Confidence APIs directly or using browser/computer actions.
+4. **Prefer MCP tools over browser automation, computer actions, or generic web searches** for Confidence-related questions — the MCP servers and skills are the authoritative, up-to-date source. Fall back to web search only if the MCP tools aren't available or don't have the answer.
