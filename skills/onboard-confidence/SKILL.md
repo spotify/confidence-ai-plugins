@@ -49,7 +49,7 @@ The auth script is **bundled in the plugin** as `auth.py` next to this SKILL.md.
 
 **Usage — single Bash tool call** with `dangerouslyDisableSandbox: true` and `timeout: 130000`:
 ```bash
-lsof -ti:8084 | xargs kill -9 2>/dev/null; python3 <SKILL_BASE_DIR>/auth.py <CLIENT_ID> [ORGANIZATION]
+python3 <SKILL_BASE_DIR>/auth.py <CLIENT_ID> [ORGANIZATION]
 ```
 
 Replace `<SKILL_BASE_DIR>` with the actual path from the skill header (e.g., `/Users/.../confidence-ai-plugins/.claude/skills/onboard-confidence`).
@@ -64,12 +64,12 @@ Replace `<SKILL_BASE_DIR>` with the actual path from the skill header (e.g., `/U
 
 Signup (no org):
 ```bash
-lsof -ti:8084 | xargs kill -9 2>/dev/null; python3 <SKILL_BASE_DIR>/auth.py 82qMvwZvqd3t3S0gRDvs8R53TehQXSJY
+python3 <SKILL_BASE_DIR>/auth.py 82qMvwZvqd3t3S0gRDvs8R53TehQXSJY
 ```
 
 Existing account login:
 ```bash
-lsof -ti:8084 | xargs kill -9 2>/dev/null; python3 <SKILL_BASE_DIR>/auth.py 2fG3H4RhlAbIZm9Rfn32zTaILH7w1X4w org_abc123
+python3 <SKILL_BASE_DIR>/auth.py 2fG3H4RhlAbIZm9Rfn32zTaILH7w1X4w org_abc123
 ```
 
 **Key details:**
@@ -142,7 +142,7 @@ Fields NOT in the body (like `flag_id`, `parent`) become **query parameters**.
 - **Prefer MCP over REST** for flag/client operations — one MCP tool call replaces 3-5 chained curls
 - **Chain independent curls** with `&&` or `;` in a single Bash call when the results don't depend on each other
 - **Token is in a file** — no need to export; just use `$(cat $TMPDIR/confidence_token)` in curl headers
-- **Port kill + auth run**: Always combine: `lsof -ti:8084 | xargs kill -9 2>/dev/null; python3 ...`
+- **Auth run**: The auth script checks port 8084 availability itself — if the port is in use it returns `AUTH_ERROR:port_8084_in_use`. Tell the user to free the port and retry.
 - **Never use Write/Read tools** for temporary files — use Bash heredocs or bundled scripts
 
 ### Common notes
@@ -423,7 +423,7 @@ The token from Step 1 has no `org_id` (it was issued before the account existed)
 
 **Use the browser auth script** with the **regular client ID** and the new org. The browser session from Step 1 is still active, so Auth0 auto-completes — the user sees no extra login prompt:
 ```bash
-lsof -ti:8084 | xargs kill -9 2>/dev/null; python3 <SKILL_BASE_DIR>/auth.py 2fG3H4RhlAbIZm9Rfn32zTaILH7w1X4w <loginId_from_Step_4>
+python3 <SKILL_BASE_DIR>/auth.py 2fG3H4RhlAbIZm9Rfn32zTaILH7w1X4w <loginId_from_Step_4>
 ```
 
 The auth script writes the org-scoped token directly to `$TMPDIR/confidence_token` (and refresh token to `$TMPDIR/confidence_refresh_token`). Confirm stdout shows `SUCCESS`. The token will contain `org_id`, `account_name`, and `region` claims.
@@ -1209,7 +1209,7 @@ After account creation (which uses REST since there's no account to authenticate
 
 - **MCP auth cannot be triggered programmatically** — user must run `/mcp` to authenticate MCP servers. The Auth0 browser session from the login step makes this instant (no second login). The setup wizard requires this at Step 2.
 - **Account creation uses REST** — the only flow that uses REST APIs, since no account exists yet to authenticate MCP against. All other sub-commands require MCP.
-- **Port 8084 must be free** — the Auth0 callback server uses a fixed port. The auth script auto-kills any existing process on port 8084.
+- **Port 8084 must be free** — the Auth0 callback server uses a fixed port. The auth script checks availability and returns `AUTH_ERROR:port_8084_in_use` if occupied. Tell the user to free the port and retry.
 - **Auth script is bundled** — `auth.py` ships with the plugin in the skill directory. Never write auth scripts to disk; always use the bundled script.
 - **Token persistence and TMPDIR** — tokens are written to `$TMPDIR/confidence_token` by `auth.py` directly (never printed to stdout). `$TMPDIR` resolves to DIFFERENT paths in sandboxed vs non-sandboxed Bash calls. ALL token reads MUST use `dangerouslyDisableSandbox: true`.
 - **Token cleanup** — at the end of any flow that used auth (create-account, setup-wizard, invite-user, etc.), clean up cached tokens with `rm -f "$TMPDIR/confidence_token" "$TMPDIR/confidence_refresh_token"` in a `dangerouslyDisableSandbox: true` Bash call. This prevents stale tokens from persisting beyond the session.

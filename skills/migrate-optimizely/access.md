@@ -154,11 +154,10 @@ Then run `skills/onboard-confidence/auth.py` with the existing-account
 Auth0 client (`2fG3H4RhlAbIZm9Rfn32zTaILH7w1X4w`) and `login`:
 
 ```bash
-lsof -ti:8084 | xargs kill -9 2>/dev/null
 python3 skills/onboard-confidence/auth.py 2fG3H4RhlAbIZm9Rfn32zTaILH7w1X4w login
 ```
 
-Never show the token. Save `TOKEN:` to `$TMPDIR/confidence_token`.
+The auth script writes tokens directly to `$TMPDIR/confidence_token`.
 Smoke-test `GET /v1/users`. Say the account email / workspace.
 If the JWT has `org_id`, re-run auth.py with that org id for a
 workspace-scoped token.

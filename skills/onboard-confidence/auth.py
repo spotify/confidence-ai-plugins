@@ -16,7 +16,7 @@ Outputs on stdout:
 
 Exit codes: 0 = success, 1 = error
 """
-import http.server, urllib.parse, json, sys, subprocess, hashlib, base64, secrets, string, os
+import http.server, urllib.parse, json, sys, subprocess, hashlib, base64, secrets, string, os, stat, socket
 
 CLIENT_ID = sys.argv[1]
 ORGANIZATION = sys.argv[2] if len(sys.argv) > 2 else ''
@@ -68,6 +68,14 @@ else:
     params['screen_hint'] = 'signup'
     params['prompt'] = 'login'
 
+sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+try:
+    sock.bind(('127.0.0.1', port))
+    sock.close()
+except OSError:
+    print(f'AUTH_ERROR:port_{port}_in_use', flush=True)
+    sys.exit(1)
+
 authorize_url = 'https://auth.confidence.dev/authorize?' + urllib.parse.urlencode(params)
 subprocess.Popen(['open', authorize_url])
 print('WAITING_FOR_LOGIN', flush=True)
@@ -99,11 +107,15 @@ try:
     with urllib.request.urlopen(req) as resp:
         token_response = json.loads(resp.read())
     tmpdir = os.environ.get('TMPDIR', '/tmp')
-    with open(os.path.join(tmpdir, 'confidence_token'), 'w') as f:
+    token_path = os.path.join(tmpdir, 'confidence_token')
+    with open(token_path, 'w') as f:
         f.write(token_response['access_token'])
+    os.chmod(token_path, stat.S_IRUSR | stat.S_IWUSR)
     if 'refresh_token' in token_response:
-        with open(os.path.join(tmpdir, 'confidence_refresh_token'), 'w') as f:
+        refresh_path = os.path.join(tmpdir, 'confidence_refresh_token')
+        with open(refresh_path, 'w') as f:
             f.write(token_response['refresh_token'])
+        os.chmod(refresh_path, stat.S_IRUSR | stat.S_IWUSR)
     print('SUCCESS', flush=True)
 except Exception as e:
     print(f'TOKEN_ERROR:{e}', flush=True)
