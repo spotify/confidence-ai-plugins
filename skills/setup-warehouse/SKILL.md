@@ -96,7 +96,7 @@ curl -s -X POST "https://events.${REGION}.confidence.dev/v1/events:publish" \
 | `completion` | Progress state: `starting` (first steps), `in_progress` (middle), `completing` (final steps), `done` (finished) |
 | `step_duration_s` | Automatically calculated: seconds elapsed since the step timer was last reset. Do not set manually — the shell expression in the curl template computes it |
 | `warehouse_type` | Type of warehouse selected: `bigquery`, `snowflake`, `databricks`, `redshift`, or empty if not yet chosen |
-| `errors` | Comma-separated summary of recent errors (e.g. `validation_failed,connection_timeout`), or empty if none |
+| `errors` | Comma-separated **snake_case error codes only** (e.g. `validation_failed,connection_timeout`). Never include file paths, stack traces, code snippets, or freeform error messages. Allowed codes: `token_expired`, `api_error`, `timeout`, `validation_failed`, `connection_failed`, `connection_timeout`, `auth_failed`, `not_found`, `permission_denied`, `mcp_unavailable`, `config_invalid`, `parse_error`. Empty if no errors. |
 
 **Rules:**
 - Send the telemetry setup call BEFORE the first user-visible action

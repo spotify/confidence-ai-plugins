@@ -56,7 +56,7 @@ Replace `<SKILL_BASE_DIR>` with the actual path from the skill header (e.g., `/U
 
 **Outputs on stdout** (parse line by line):
 - `WAITING_FOR_LOGIN` — browser opened, waiting for callback
-- `TOKEN:<jwt>` — success, extract everything after `TOKEN:`
+- `SUCCESS` — tokens written directly to `$TMPDIR/confidence_token` (and `$TMPDIR/confidence_refresh_token` if granted). No token values appear on stdout.
 - `AUTH_ERROR:<msg>` — Auth0 returned an error
 - `TOKEN_ERROR:<msg>` — token exchange failed
 
@@ -85,11 +85,7 @@ Tokens are persisted to `$TMPDIR/confidence_token` (and optionally `$TMPDIR/conf
 
 **CRITICAL: TMPDIR differs between sandboxed and non-sandboxed Bash calls.** Sandboxed calls use a path like `/tmp/claude-501/`, while `dangerouslyDisableSandbox: true` calls use the system TMPDIR (e.g., `/var/folders/.../T/`). If tokens are written in a sandboxed call but read in a non-sandboxed curl call, the curl will read a stale or missing token. **ALL token writes and reads MUST use `dangerouslyDisableSandbox: true`** to ensure a consistent TMPDIR path. This includes the auth script call (already non-sandboxed for network), the token save, the token validity check, and all curl calls.
 
-**After every successful auth**, write the token to file — **in the same `dangerouslyDisableSandbox: true` Bash call** as the auth script or curl that produced it:
-```bash
-# Parse TOKEN from auth.py stdout and persist (same Bash call, same TMPDIR)
-echo "<TOKEN_VALUE>" > "$TMPDIR/confidence_token"
-```
+**After every successful auth**, the auth script writes tokens directly to `$TMPDIR/confidence_token` (and `$TMPDIR/confidence_refresh_token` if granted). No manual token save step is needed — just confirm stdout shows `SUCCESS`. Since the auth script runs with `dangerouslyDisableSandbox: true`, the tokens are written to the correct (non-sandboxed) TMPDIR automatically.
 
 **On every sub-command start**, check if the token file exists and is not expired. **This Bash call MUST use `dangerouslyDisableSandbox: true`** so it reads from the same TMPDIR that curl will use:
 
@@ -220,7 +216,7 @@ curl -s -X POST "https://events.${REGION}.confidence.dev/v1/events:publish" \
 | `clients_created` | Cumulative count of SDK clients created |
 | `flags_created` | Cumulative count of flags created during setup wizard |
 | `invitations_sent` | Cumulative count of user invitations sent |
-| `errors` | Comma-separated summary of recent errors (e.g. `account_exists,email_unverified,token_expired`), or empty if none |
+| `errors` | Comma-separated **snake_case error codes only** (e.g. `account_exists,email_unverified,token_expired`). Never include file paths, stack traces, code snippets, or freeform error messages. Allowed codes: `token_expired`, `api_error`, `timeout`, `validation_failed`, `quota_exceeded`, `connection_failed`, `auth_failed`, `not_found`, `permission_denied`, `mcp_unavailable`, `account_exists`, `email_unverified`, `invite_failed`, `parse_error`. Empty if no errors. |
 
 **Rules:**
 - Send the telemetry setup call BEFORE the first user-visible action (e.g., before the login browser opens)
@@ -275,18 +271,18 @@ Use `●` for completed, `▶` for in-progress, `○` for pending.
 
 ### Step 1: Log in
 
-Run the bundled auth script with the **signup client ID** (`82qMvwZvqd3t3S0gRDvs8R53TehQXSJY`) and no organization arg. Parse the TOKEN and REFRESH_TOKEN from stdout.
+Run the bundled auth script with the **signup client ID** (`82qMvwZvqd3t3S0gRDvs8R53TehQXSJY`) and no organization arg. The script writes tokens directly to `$TMPDIR/confidence_token` and `$TMPDIR/confidence_refresh_token` — confirm stdout shows `SUCCESS`.
 
 Tell the user:
 > Opening your browser to log in. Sign up with Google or create an account with email and password.
 
-Write `TOKEN` to `$TMPDIR/confidence_token` and `REFRESH_TOKEN` to `$TMPDIR/confidence_refresh_token`. **The token save and all subsequent reads MUST use `dangerouslyDisableSandbox: true`** to ensure consistent TMPDIR paths (see Token management section).
+The auth script writes tokens directly to `$TMPDIR/confidence_token` and `$TMPDIR/confidence_refresh_token`. Since it runs with `dangerouslyDisableSandbox: true`, the tokens are already in the correct TMPDIR. **All subsequent reads MUST also use `dangerouslyDisableSandbox: true`** to ensure consistent TMPDIR paths (see Token management section).
 
 If login fails, show the error in plain English and offer to retry.
 
-**After successful login**, immediately extract the user's email by calling the Auth0 userinfo endpoint — **combine the token save and userinfo curl in a single `dangerouslyDisableSandbox: true` Bash call**:
+**After successful login**, immediately extract the user's email by calling the Auth0 userinfo endpoint — the auth script already wrote the token to `$TMPDIR/confidence_token`, so just read it in a `dangerouslyDisableSandbox: true` Bash call:
 ```bash
-echo "<TOKEN_VALUE>" > "$TMPDIR/confidence_token" && echo "<REFRESH_VALUE>" > "$TMPDIR/confidence_refresh_token" && curl -s "https://konfidens.eu.auth0.com/userinfo" -H "Authorization: Bearer $(cat $TMPDIR/confidence_token)"
+curl -s "https://konfidens.eu.auth0.com/userinfo" -H "Authorization: Bearer $(cat $TMPDIR/confidence_token)"
 ```
 Response: `{ "email": "user@company.com", "name": "...", ... }`
 
@@ -430,13 +426,7 @@ The token from Step 1 has no `org_id` (it was issued before the account existed)
 lsof -ti:8084 | xargs kill -9 2>/dev/null; python3 <SKILL_BASE_DIR>/auth.py 2fG3H4RhlAbIZm9Rfn32zTaILH7w1X4w <loginId_from_Step_4>
 ```
 
-The response token will contain `org_id`, `account_name`, and `region` claims. Parse the TOKEN and REFRESH_TOKEN from stdout, then **save them in a separate `dangerouslyDisableSandbox: true` Bash call**:
-
-```bash
-echo "<ORG_SCOPED_TOKEN>" > "$TMPDIR/confidence_token" && echo "<REFRESH_TOKEN>" > "$TMPDIR/confidence_refresh_token"
-```
-
-**This save call MUST use `dangerouslyDisableSandbox: true`** — even though it doesn't need network access — so that `$TMPDIR` resolves to the same path that future curl calls will use. A sandboxed save writes to a different TMPDIR and the token will be invisible to non-sandboxed curl calls.
+The auth script writes the org-scoped token directly to `$TMPDIR/confidence_token` (and refresh token to `$TMPDIR/confidence_refresh_token`). Confirm stdout shows `SUCCESS`. The token will contain `org_id`, `account_name`, and `region` claims.
 
 Tell the user:
 > Connecting to your new workspace... (your browser will briefly open and close automatically — no action needed)
@@ -1221,6 +1211,7 @@ After account creation (which uses REST since there's no account to authenticate
 - **Account creation uses REST** — the only flow that uses REST APIs, since no account exists yet to authenticate MCP against. All other sub-commands require MCP.
 - **Port 8084 must be free** — the Auth0 callback server uses a fixed port. The auth script auto-kills any existing process on port 8084.
 - **Auth script is bundled** — `auth.py` ships with the plugin in the skill directory. Never write auth scripts to disk; always use the bundled script.
-- **Token persistence and TMPDIR** — tokens are written to `$TMPDIR/confidence_token` for account creation only. `$TMPDIR` resolves to DIFFERENT paths in sandboxed vs non-sandboxed Bash calls. ALL token writes and reads MUST use `dangerouslyDisableSandbox: true`.
+- **Token persistence and TMPDIR** — tokens are written to `$TMPDIR/confidence_token` by `auth.py` directly (never printed to stdout). `$TMPDIR` resolves to DIFFERENT paths in sandboxed vs non-sandboxed Bash calls. ALL token reads MUST use `dangerouslyDisableSandbox: true`.
+- **Token cleanup** — at the end of any flow that used auth (create-account, setup-wizard, invite-user, etc.), clean up cached tokens with `rm -f "$TMPDIR/confidence_token" "$TMPDIR/confidence_refresh_token"` in a `dangerouslyDisableSandbox: true` Bash call. This prevents stale tokens from persisting beyond the session.
 - **Learning API** — REST-only (no MCP tool). Course content is generated by the skill using docs MCP; the API only tracks progress indices.
 - **`learn` sub-command** — uses docs MCP for content. If MCP not connected, the skill can still teach using its own knowledge but won't have the latest docs.

@@ -81,7 +81,7 @@ curl -s -X POST "https://events.eu.confidence.dev/v1/events:publish" \
 | `flags_proposed` | Number of flag proposals presented to the user |
 | `flags_implemented` | Cumulative count of flags the user accepted and that were implemented |
 | `existing_provider` | Name of existing flag provider found (e.g. `posthog`, `statsig`, `optimizely`, `eppo`), or empty if none |
-| `errors` | Comma-separated summary of recent errors (e.g. `mcp_unavailable,build_failed`), or empty if none |
+| `errors` | Comma-separated **snake_case error codes only** (e.g. `mcp_unavailable,build_failed`). Never include file paths, stack traces, code snippets, or freeform error messages. Allowed codes: `token_expired`, `api_error`, `timeout`, `validation_failed`, `quota_exceeded`, `connection_failed`, `auth_failed`, `not_found`, `permission_denied`, `mcp_unavailable`, `build_failed`, `sdk_error`, `parse_error`. Empty if no errors. |
 
 **Rules:**
 

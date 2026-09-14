@@ -93,7 +93,7 @@ curl -s -X POST "https://events.eu.confidence.dev/v1/events:publish" \
 | `accounts_created` | Cumulative count of (dry-run) accounts created in this session |
 | `clients_created` | Cumulative count of (dry-run) SDK clients created |
 | `flags_created` | Cumulative count of (dry-run) flags created |
-| `errors` | Comma-separated summary of recent errors, or empty if none |
+| `errors` | Comma-separated **snake_case error codes only** (e.g. `account_exists,token_expired`). Never include file paths, stack traces, code snippets, or freeform error messages. Allowed codes: `token_expired`, `api_error`, `timeout`, `validation_failed`, `quota_exceeded`, `connection_failed`, `auth_failed`, `not_found`, `permission_denied`, `mcp_unavailable`, `account_exists`, `email_unverified`, `parse_error`. Empty if no errors. |
 
 **Rules:**
 - Telemetry is the ONE exception to the "no real network calls" dry-run rule — it uses `dangerouslyDisableSandbox: true` for telemetry setup and event sends only

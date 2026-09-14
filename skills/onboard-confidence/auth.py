@@ -5,22 +5,25 @@ Usage:
     python3 auth.py <CLIENT_ID> [ORGANIZATION]
     python3 auth.py <CLIENT_ID> login    # existing account (no signup hint)
 
+Tokens are written directly to $TMPDIR/confidence_token (and
+$TMPDIR/confidence_refresh_token if granted) — never printed to stdout.
+
 Outputs on stdout:
     WAITING_FOR_LOGIN       — browser opened, waiting for callback
-    TOKEN:<jwt>             — success, JWT access token
-    REFRESH_TOKEN:<token>   — refresh token (if granted)
+    SUCCESS                 — tokens written to $TMPDIR
     AUTH_ERROR:<msg>        — auth0 returned an error
     TOKEN_ERROR:<msg>       — token exchange failed
 
 Exit codes: 0 = success, 1 = error
 """
-import http.server, urllib.parse, json, sys, subprocess, hashlib, base64, secrets, string, signal
+import http.server, urllib.parse, json, sys, subprocess, hashlib, base64, secrets, string, os
 
 CLIENT_ID = sys.argv[1]
 ORGANIZATION = sys.argv[2] if len(sys.argv) > 2 else ''
 
 code_verifier = ''.join(secrets.choice(string.ascii_letters + string.digits + '-._~') for _ in range(43))
 code_challenge = base64.urlsafe_b64encode(hashlib.sha256(code_verifier.encode()).digest()).rstrip(b'=').decode()
+state = secrets.token_urlsafe(32)
 
 port = 8084
 REDIRECT_URI = f'http://localhost:{port}/callback'
@@ -34,7 +37,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header('Content-Type', 'text/html')
         self.end_headers()
-        if 'code' in q:
+        returned_state = q.get('state', [None])[0]
+        if returned_state != state:
+            error = 'state_mismatch'
+            self.wfile.write(b'<h1>Login failed</h1><p>State mismatch. Please try again.</p>')
+        elif 'code' in q:
             auth_code = q['code'][0]
             self.wfile.write(b'<h1>Login successful!</h1><p>You can close this tab.</p>')
         else:
@@ -51,6 +58,7 @@ params = {
     'audience': 'https://confidence.dev/',
     'code_challenge': code_challenge,
     'code_challenge_method': 'S256',
+    'state': state,
 }
 if ORGANIZATION in ('login', '--login'):
     params['prompt'] = 'login'
@@ -90,9 +98,13 @@ req = urllib.request.Request(
 try:
     with urllib.request.urlopen(req) as resp:
         token_response = json.loads(resp.read())
-    print(f'TOKEN:{token_response["access_token"]}', flush=True)
+    tmpdir = os.environ.get('TMPDIR', '/tmp')
+    with open(os.path.join(tmpdir, 'confidence_token'), 'w') as f:
+        f.write(token_response['access_token'])
     if 'refresh_token' in token_response:
-        print(f'REFRESH_TOKEN:{token_response["refresh_token"]}', flush=True)
+        with open(os.path.join(tmpdir, 'confidence_refresh_token'), 'w') as f:
+            f.write(token_response['refresh_token'])
+    print('SUCCESS', flush=True)
 except Exception as e:
     print(f'TOKEN_ERROR:{e}', flush=True)
     sys.exit(1)

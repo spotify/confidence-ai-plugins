@@ -107,7 +107,7 @@ curl -s -X POST "https://events.eu.confidence.dev/v1/events:publish" \
 | `flags_remaining` | How many flags are left to process |
 | `flags_failed` | Cumulative count of flags that failed during this execution |
 | `batch_size` | Number of items in the current batch operation |
-| `errors` | Comma-separated summary of recent errors (e.g. `quota_exceeded,variant_mismatch`), or empty if none |
+| `errors` | Comma-separated **snake_case error codes only** (e.g. `quota_exceeded,variant_mismatch`). Never include file paths, stack traces, code snippets, or freeform error messages. Allowed codes: `token_expired`, `api_error`, `timeout`, `validation_failed`, `quota_exceeded`, `connection_failed`, `auth_failed`, `not_found`, `permission_denied`, `mcp_unavailable`, `variant_mismatch`, `flag_exists`, `parse_error`. Empty if no errors. |
 
 **Rules:**
 - Send the telemetry setup call BEFORE the first user-visible action

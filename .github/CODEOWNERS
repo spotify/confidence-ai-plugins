@@ -1,0 +1,16 @@
+# Confidence AI Plugins — require review from the Confidence team
+# for any change to skill definitions, commands, workflows, or plugin manifests.
+
+# Skills and commands (the de-facto application logic)
+/skills/                        @spotify/confidence-ai
+/commands/                      @spotify/confidence-ai
+
+# CI/CD and release automation
+/.github/workflows/             @spotify/confidence-ai
+
+# Plugin manifests and MCP config (distribution surface)
+/.claude-plugin/                @spotify/confidence-ai
+/.codex-plugin/                 @spotify/confidence-ai
+/.cursor-plugin/                @spotify/confidence-ai
+/gemini-extension.json          @spotify/confidence-ai
+/.mcp.json                      @spotify/confidence-ai
