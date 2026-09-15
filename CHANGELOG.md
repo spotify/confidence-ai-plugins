@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.10.0](https://github.com/spotify/confidence-ai-plugins/compare/v0.9.0...v0.10.0) (2026-09-15)
+
+
+### Features
+
+* add agent routing sections ([#74](https://github.com/spotify/confidence-ai-plugins/issues/74)) ([f416826](https://github.com/spotify/confidence-ai-plugins/commit/f416826fde819978ab90f1d7ae27513667aa5d0f))
+* update React guidance according to latest docs ([#71](https://github.com/spotify/confidence-ai-plugins/issues/71)) ([ce4a8dc](https://github.com/spotify/confidence-ai-plugins/commit/ce4a8dc5a81bc5eb9e3781682c044f9791285aa9))
+
+
+### Bug Fixes
+
+* address privacy fixes ([#75](https://github.com/spotify/confidence-ai-plugins/issues/75)) ([3a10f4f](https://github.com/spotify/confidence-ai-plugins/commit/3a10f4fafa3f18fd84edbcbe48fa9df5ffb1a0cb))
+* remove incorrect package mention ([#73](https://github.com/spotify/confidence-ai-plugins/issues/73)) ([c8eb4ae](https://github.com/spotify/confidence-ai-plugins/commit/c8eb4aefefc4e095759ef0e5d1dd7e4e5ae6dae7))
+
 ## [0.9.0](https://github.com/spotify/confidence-ai-plugins/compare/v0.8.0...v0.9.0) (2026-08-21)
 
 
