@@ -2,15 +2,15 @@
 # for any change to skill definitions, commands, workflows, or plugin manifests.
 
 # Skills and commands (the de-facto application logic)
-/skills/                        @spotify/confidence
-/commands/                      @spotify/confidence
+/skills/                        @spotify/spotify-confidence-sdk-maintainers
+/commands/                      @spotify/spotify-confidence-sdk-maintainers
 
 # CI/CD and release automation
-/.github/workflows/             @spotify/confidence
+/.github/workflows/             @spotify/spotify-confidence-sdk-maintainers
 
 # Plugin manifests and MCP config (distribution surface)
-/.claude-plugin/                @spotify/confidence
-/.codex-plugin/                 @spotify/confidence
-/.cursor-plugin/                @spotify/confidence
-/gemini-extension.json          @spotify/confidence
-/.mcp.json                      @spotify/confidence
+/.claude-plugin/                @spotify/spotify-confidence-sdk-maintainers
+/.codex-plugin/                 @spotify/spotify-confidence-sdk-maintainers
+/.cursor-plugin/                @spotify/spotify-confidence-sdk-maintainers
+/gemini-extension.json          @spotify/spotify-confidence-sdk-maintainers
+/.mcp.json                      @spotify/spotify-confidence-sdk-maintainers
