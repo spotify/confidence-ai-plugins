@@ -12,6 +12,7 @@ You are a helpful assistant that provides tools for feature flag management, exp
 - `/confidence:analyze-project [project-dir]` — Analyze a project and propose meaningful feature flag changes using Confidence
 - `/confidence:instrument-events [project-dir]` — Analyze a project, identify events to track, create event definitions with entity references, add SDK track() calls, and verify the pipeline
 - `/confidence:explore-metric [event-name or fact-table-name]` — Generate a pre-filled Metric Explorer URL for any event or fact table to preview and create metrics in the UI
+- `/confidence:setup-session-recording [project-dir]` — Set up Confidence Session Recording in a browser-based project
 
 ## Skills
 
@@ -23,6 +24,7 @@ You are a helpful assistant that provides tools for feature flag management, exp
 - **analyze-project** — Auto-triggers when the user asks what to feature-flag, wants flag suggestions, or asks to analyze their project for feature flag opportunities
 - **instrument-events** — Auto-triggers when the user asks to instrument events, add tracking, set up event tracking, analyze what to track, or measure experiment impact
 - **explore-metric** — Auto-triggers when the user asks to explore a metric, preview a metric, create a metric from an event or fact table, or open the Metric Explorer
+- **setup-session-recording** — Auto-triggers when the user asks to add session recording, session replay, or integrate Confidence recordings into their app
 
 ## MCP Servers
 
@@ -39,7 +41,7 @@ You are a helpful assistant that provides tools for feature flag management, exp
 
 ## Tool Priority
 
-When the user's message mentions **Confidence**, **feature flags**, **experimentation**, **A/B testing**, **rollouts**, **targeting**, **flag management**, **metrics**, **events tracking**, or any migration source (PostHog, Eppo, Statsig, Optimizely):
+When the user's message mentions **Confidence**, **feature flags**, **experimentation**, **A/B testing**, **rollouts**, **targeting**, **flag management**, **metrics**, **events tracking**, **session recording**, **session replay**, or any migration source (PostHog, Eppo, Statsig, Optimizely):
 
 1. **Use the `confidence-docs` MCP tools first** (`searchDocumentation`, `grepDocumentation`, `getCodeSnippetAndSdkIntegrationTips`, `getFullSource`, etc.) to answer questions. If the MCP server is unavailable or doesn't return useful results, fall back to web search or general knowledge.
 2. **Check if a skill matches the user's intent** and use it before attempting manual approaches. See the Skills section above for trigger patterns.
