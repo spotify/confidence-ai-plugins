@@ -1087,21 +1087,22 @@ Then show the Dry Run Summary banner.
 
 ```
 ───── [DRY RUN] Setup Warehouse (Databricks) ─────────────────
-  [1] Choose warehouse     ● done
-  [2] Workspace URL        ○ pending
-  [3] SQL Warehouse ID     ○ pending
-  [4] Service principal    ○ pending
-  [5] AWS account & CLI    ○ pending
-  [6] S3 bucket            ○ pending
-  [7] IAM role             ○ pending
-  [8] Databricks schema    ○ pending
-  [9] Create warehouse     ○ pending
-  [10] Create connectors   ○ pending
-  [11] Assignment table    ○ pending
-  [12] Verify pipeline     ○ pending
-  [13] Done                ○ pending
+  [1]  Choose warehouse        ● done
+  [2]  Workspace URL           ○ pending
+  [3]  SQL Warehouse ID        ○ pending
+  [4]  Service principal       ○ pending
+  [5]  Choose staging provider ○ pending
+  [6]  Configure staging       ○ pending
+  [7]  Databricks schema       ○ pending
+  [8]  Create warehouse        ○ pending
+  [9]  Create connectors       ○ pending
+  [10] Assignment table        ○ pending
+  [11] Verify pipeline         ○ pending
+  [12] Done                    ○ pending
 ──────────────────────────────────────────────────────────────
 ```
+
+After the user chooses a staging provider in Step 5, update the Step 6 label to show which one (e.g., `Configure staging (S3)` or `Configure staging (ADLS)`).
 
 ### Overview
 
@@ -1110,11 +1111,15 @@ Same overview as real skill:
 > Setting up Databricks with Confidence requires three things:
 >
 > 1. **A Databricks workspace** — you need admin access to create a service principal (a robot account)
-> 2. **An AWS account with an S3 bucket** — Confidence needs this as a staging area for loading data into Databricks. This is required even if your Databricks runs on GCP or Azure
-> 3. **A schema in Databricks** — a place for Confidence to create tables (e.g., `confidence`)
+> 2. **A staging storage location** — Confidence needs this as a staging area for loading data into Databricks. You can use either **AWS S3** or **Azure ADLS Gen2**
+> 3. **A schema in Databricks** — a place for Confidence to create tables (e.g., `main.confidence`)
 >
 > **How data flows:**
-> Confidence collects your flag assignments and events internally, then writes parquet files to an S3 bucket you provide, and finally loads them into Databricks tables. This happens in batches every ~5 minutes.
+> Confidence collects your flag assignments and events internally, then writes parquet files to a staging location you provide (S3 or ADLS), and loads them into Databricks tables. This happens in batches every ~5 minutes.
+>
+> ```
+> Confidence (collects data) -> Staging (S3 or ADLS) -> Databricks (tables)
+> ```
 
 ### Step 2: Workspace URL
 
@@ -1131,7 +1136,21 @@ Same UX: explain how to create one, ask for Client ID and Secret.
 For dry run, accept any values. Display:
 > [DRY RUN] Service principal configured (mock credentials accepted).
 
-### Step 5: AWS account & CLI
+### Step 5: Choose staging provider
+
+Same UX as real skill:
+> Confidence needs a staging location to write parquet files before loading them into Databricks. You have two options:
+>
+> 1. **AWS S3** — Confidence writes files to an S3 bucket. Best if you already use AWS or your Databricks workspace is on AWS.
+> 2. **Azure ADLS Gen2** — Confidence writes files to Azure Data Lake Storage. Best if you already use Azure or your Databricks workspace is on Azure.
+>
+> Which would you prefer?
+
+Wait for user input. Based on their answer, continue to **Step 6a** (S3) or **Step 6b** (Azure ADLS). Update the step tracker to show the chosen provider in Step 6's label.
+
+### Step 6a: Configure staging — AWS S3
+
+#### AWS account & CLI
 
 Same choice:
 > Do you have the `aws` CLI set up, or would you prefer manual steps?
@@ -1140,14 +1159,14 @@ Same choice:
 
 > [DRY RUN] Skipping AWS CLI check — mock mode.
 
-### Step 6: S3 bucket
+#### S3 bucket
 
 Ask for bucket name (suggest `confidence-staging-dry-run-demo`) and region.
 
 > [DRY RUN] Would run: `aws s3api create-bucket --bucket <BUCKET> --region <REGION>`
 > [DRY RUN] S3 bucket `<BUCKET>` created in `<REGION>`.
 
-### Step 7: IAM role
+#### IAM role
 
 Show the trust policy that would be created:
 
@@ -1171,35 +1190,108 @@ Show the trust policy that would be created:
 > [DRY RUN] Would create S3 access policy scoped to `<BUCKET>`.
 > [DRY RUN] IAM role created: `arn:aws:iam::123456789012:role/confidence-databricks-staging`
 
-### Step 8: Databricks schema
+After completion:
+> [DRY RUN] AWS setup complete!
+> - Bucket: `<BUCKET>` in `<REGION>`
+> - Role: `arn:aws:iam::123456789012:role/confidence-databricks-staging`
+>
+> Continuing with connector setup...
 
-Same UX: ask for schema name (default `confidence`).
+### Step 6b: Configure staging — Azure ADLS Gen2
+
+#### Storage account & filesystem
+
+Ask the user:
+> Confidence writes parquet files to Azure Data Lake Storage Gen2, then Databricks loads them via COPY INTO. I need a few details:
+>
+> 1. **Storage account name** — the Azure storage account with hierarchical namespace enabled (not a URL, just the name)
+> 2. **Filesystem** (also called container) — the filesystem to use for staging
+> 3. **Path prefix** (optional) — a relative path within the filesystem, e.g. `confidence/staging`. Leave empty to use the filesystem root.
+
+Collect each value and confirm. For dry run, accept any values.
+
+#### User-assigned managed identity
+
+Ask the user:
+> Confidence uses Azure workload identity federation to access your storage — no Azure client secrets needed. I need you to create a **user-assigned managed identity** with a federated credential.
+>
+> **To create one:**
+> 1. In the Azure portal, create a **User-assigned managed identity**
+> 2. Open **Federated credentials** for the identity
+> 3. Add a credential for **Google Cloud** with these values:
+>
+> | Field | Value |
+> |-------|-------|
+> | Issuer | `https://accounts.google.com` |
+> | Subject | `123456789012345678901` |
+> | Audience | `api://AzureADTokenExchange` |
+>
+> 4. Save the identity's **Client ID** and your **Microsoft Entra tenant ID**
+
+> [DRY RUN] The Subject value above is the mock Confidence service account numeric ID. In the real flow, this is fetched from the MCP server.
+
+Collect the **tenant ID** and **managed identity client ID**. For dry run, accept any values.
+
+#### Storage permissions
+
+Ask the user:
+> Now grant the managed identity access to the storage. You need:
+>
+> 1. **Storage Blob Data Contributor** on the storage account or filesystem
+> 2. **Storage Blob Delegator** at the storage account scope (or higher)
+>
+> In the Azure portal: open the storage account -> **Access control (IAM)** -> **Add role assignment** for each.
+
+After the user confirms:
+> [DRY RUN] Azure staging setup complete!
+> - Storage account: `<STORAGE_ACCOUNT>`
+> - Filesystem: `<FILESYSTEM>`
+> - Path prefix: `<PATH_PREFIX>` (or root)
+> - Managed identity: `<CLIENT_ID>` in tenant `<TENANT_ID>`
+>
+> Continuing with connector setup...
+
+### Step 7: Databricks schema
+
+Same UX: ask for catalog and schema name (default `main.confidence`).
 
 Show the SQL that would need to be run:
 
 > [DRY RUN] In the real flow, this SQL would be copied to your clipboard:
 > ```sql
-> CREATE SCHEMA IF NOT EXISTS confidence;
-> GRANT USE SCHEMA, CREATE TABLE ON SCHEMA confidence TO `<service-principal-client-id>`;
+> CREATE SCHEMA IF NOT EXISTS <catalog>.<schema>;
+>
+> GRANT USE CATALOG ON CATALOG <catalog> TO `<service-principal-client-id>`;
+> GRANT USE SCHEMA, CREATE TABLE ON SCHEMA <catalog>.<schema> TO `<service-principal-client-id>`;
 > ```
 
-### Step 9: Create warehouse
+### Step 8: Create warehouse
 
 > [DRY RUN] Note: Pre-validation is not available for Databricks.
-> [DRY RUN] Would call `POST https://metrics.eu.confidence.dev/v1/dataWarehouses`
+> [DRY RUN] Would call MCP `createWarehouse` with type `databricks`
 > [DRY RUN] Warehouse created: `dataWarehouses/dry-run-wh-123`
 
-### Step 10: Create connectors
+### Step 9: Create connectors
 
-> [DRY RUN] Would call `POST https://connectors.eu.confidence.dev/v1/flagAppliedConnections`
+**If staging is S3:**
+
+> [DRY RUN] Would call MCP `createFlagAppliedConnection` (Databricks + S3 staging)
 > [DRY RUN] Flag assignment connector created (Databricks -> <SCHEMA>.assignments, S3 staging: <BUCKET>)
 >
-> [DRY RUN] Would call `POST https://connectors.eu.confidence.dev/v1/eventConnections`
+> [DRY RUN] Would call MCP `createEventConnection` (Databricks + S3 staging)
 > [DRY RUN] Event connector created (Databricks -> <SCHEMA>.events_*, S3 staging: <BUCKET>)
 
-### Step 11: Assignment table
+**If staging is Azure ADLS:**
 
-> [DRY RUN] Would call `POST https://metrics.eu.confidence.dev/v1/assignmentTables`
+> [DRY RUN] Would call MCP `createFlagAppliedConnection` (Databricks + ADLS staging)
+> [DRY RUN] Flag assignment connector created (Databricks -> <SCHEMA>.assignments, ADLS staging: <STORAGE_ACCOUNT>/<FILESYSTEM>)
+>
+> [DRY RUN] Would call MCP `createEventConnection` (Databricks + ADLS staging)
+> [DRY RUN] Event connector created (Databricks -> <SCHEMA>.events_*, ADLS staging: <STORAGE_ACCOUNT>/<FILESYSTEM>)
+
+### Step 10: Assignment table
+
+> [DRY RUN] Would call MCP `createAssignmentTable`
 > [DRY RUN] Assignment table created.
 
 Show the SQL:
@@ -1208,7 +1300,7 @@ SELECT targeting_key, rule, assignment_id, assignment_time
 FROM <SCHEMA>.assignments
 ```
 
-### Step 12: Verify pipeline
+### Step 11: Verify pipeline
 
 ```
 [DRY RUN] Pipeline verification:
@@ -1218,7 +1310,9 @@ FROM <SCHEMA>.assignments
     clicked_button on homepage (2026-06-10T12:00:00Z)
 ```
 
-### Step 13: Done
+### Step 12: Done
+
+**If staging is S3:**
 
 ```
 ═══════════════════════════════════════════════════════════════
@@ -1227,7 +1321,31 @@ FROM <SCHEMA>.assignments
 
   Warehouse:    Databricks (<host>)
   Schema:       <SCHEMA>
-  S3 Bucket:    <BUCKET_NAME> (<AWS_REGION>)
+  Staging:      AWS S3 — <BUCKET_NAME> (<AWS_REGION>)
+  Connectors:
+    ● Flag assignments -> assignments table (verified)
+    ● Events -> events_* tables (running)
+  Assignment:
+    ● Assignment table configured (auto-updating)
+
+  Flag assignment and event data is flowing to your
+  warehouse. Experiment analysis is ready.
+
+  Note: Data is delivered in ~5 minute batches.
+
+═══════════════════════════════════════════════════════════════
+```
+
+**If staging is Azure ADLS:**
+
+```
+═══════════════════════════════════════════════════════════════
+  [DRY RUN] Data Warehouse Connected & Verified
+═══════════════════════════════════════════════════════════════
+
+  Warehouse:    Databricks (<host>)
+  Schema:       <SCHEMA>
+  Staging:      Azure ADLS Gen2 — <STORAGE_ACCOUNT>/<FILESYSTEM>
   Connectors:
     ● Flag assignments -> assignments table (verified)
     ● Events -> events_* tables (running)

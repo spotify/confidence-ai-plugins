@@ -5,9 +5,9 @@ description: Set up Databricks as a data warehouse for Confidence. Use when the 
 
 # Setup Warehouse: Databricks
 
-> **Requires MCP authentication.** This skill uses the `confidence-flags` MCP server for all Confidence API operations. The MCP server must be connected and authenticated before running this skill. All AWS/Databricks-specific operations (aws CLI, S3, IAM roles, Databricks SQL API) remain as direct shell commands.
+> **Requires MCP authentication.** This skill uses the `confidence-flags` MCP server for all Confidence API operations. The MCP server must be connected and authenticated before running this skill. All AWS/Azure/Databricks-specific operations (aws CLI, az CLI, S3, IAM roles, ADLS, Databricks SQL API) remain as direct shell commands.
 
-Configure Databricks as the data warehouse for Confidence experimentation analytics. This skill handles the full end-to-end setup: collect Databricks connection details, set up an S3 staging bucket with IAM, configure the schema, create the warehouse, set up connectors, create the assignment table, and verify the pipeline.
+Configure Databricks as the data warehouse for Confidence experimentation analytics. This skill handles the full end-to-end setup: collect Databricks connection details, choose a staging provider (AWS S3 or Azure ADLS Gen2), set up staging storage and identity, configure the schema, create the warehouse, set up connectors, create the assignment table, and verify the pipeline.
 
 ---
 
@@ -53,8 +53,8 @@ curl -s -X POST "https://events.${REGION}.confidence.dev/v1/events:publish" \
 
 | Field | How to set it |
 |-------|--------------|
-| `step` | `<sub-command>.<step-title>`, e.g. `databricks.collect-config`, `databricks.create-s3-bucket`, `databricks.create-iam-role`, `databricks.create-warehouse`, `databricks.create-connector`, `databricks.create-assignment-table`, `databricks.verify-pipeline` |
-| `action` | Verb describing the operation: `collect_config`, `create_s3_bucket`, `create_iam_role`, `create_warehouse`, `create_connector`, `create_assignment_table`, `verify_pipeline` |
+| `step` | `<sub-command>.<step-title>`, e.g. `databricks.collect-config`, `databricks.choose-staging`, `databricks.configure-s3`, `databricks.configure-azure-adls`, `databricks.create-s3-bucket`, `databricks.create-iam-role`, `databricks.create-warehouse`, `databricks.create-connector`, `databricks.create-assignment-table`, `databricks.verify-pipeline` |
+| `action` | Verb describing the operation: `collect_config`, `choose_staging`, `configure_s3`, `configure_azure_adls`, `create_s3_bucket`, `create_iam_role`, `create_warehouse`, `create_connector`, `create_assignment_table`, `verify_pipeline` |
 | `sentiment` | Assess the conversation: `positive` (smooth, engaged), `neutral` (normal), `confused` (retries, questions, errors), `frustrated` (repeated failures, complaints) |
 | `completion` | Progress state: `starting` (first steps), `in_progress` (middle), `completing` (final steps), `done` (finished) |
 
@@ -88,23 +88,22 @@ Display at START and after EACH step completes (updating status):
 
 ```
 ───── Setup Warehouse (Databricks) ────────────────────────
-  [1] Choose warehouse     ● done
-  [2] Workspace URL        ○ pending
-  [3] SQL Warehouse ID     ○ pending
-  [4] Service principal    ○ pending
-  [5] AWS account & CLI    ○ pending
-  [6] S3 bucket            ○ pending
-  [7] IAM role             ○ pending
-  [8] Databricks schema    ○ pending
-  [9] Create warehouse     ○ pending
-  [10] Create connectors   ○ pending
-  [11] Assignment table    ○ pending
-  [12] Verify pipeline     ○ pending
-  [13] Done                ○ pending
+  [1]  Choose warehouse        ● done
+  [2]  Workspace URL           ○ pending
+  [3]  SQL Warehouse ID        ○ pending
+  [4]  Service principal       ○ pending
+  [5]  Choose staging provider ○ pending
+  [6]  Configure staging       ○ pending
+  [7]  Databricks schema       ○ pending
+  [8]  Create warehouse        ○ pending
+  [9]  Create connectors       ○ pending
+  [10] Assignment table        ○ pending
+  [11] Verify pipeline         ○ pending
+  [12] Done                    ○ pending
 ────────────────────────────────────────────────────────────
 ```
 
-Use `●` for completed, `▶` for in-progress, `○` for pending. Re-display the full tracker after every step transition.
+Use `●` for completed, `▶` for in-progress, `○` for pending. Re-display the full tracker after every step transition. After the user chooses a staging provider in Step 5, update the Step 6 label to show which one (e.g., `Configure staging (S3)` or `Configure staging (ADLS)`).
 
 ---
 
@@ -121,17 +120,15 @@ Before collecting details, explain the full picture so the user knows what they 
 > Setting up Databricks with Confidence requires three things:
 >
 > 1. **A Databricks workspace** -- you need admin access to create a service principal (a robot account)
-> 2. **An AWS account with an S3 bucket** -- Confidence needs this as a staging area for loading data into Databricks. This is required even if your Databricks runs on GCP or Azure
-> 3. **A schema in Databricks** -- a place for Confidence to create tables (e.g., `confidence`)
+> 2. **A staging storage location** -- Confidence needs this as a staging area for loading data into Databricks. You can use either **AWS S3** or **Azure ADLS Gen2**
+> 3. **A schema in Databricks** -- a place for Confidence to create tables (e.g., `main.confidence`)
 >
 > **How data flows:**
-> Confidence collects your flag assignments and events internally, then writes parquet files to an S3 bucket you provide, and finally loads them into Databricks tables. This happens in batches every ~5 minutes.
+> Confidence collects your flag assignments and events internally, then writes parquet files to a staging location you provide (S3 or ADLS), and loads them into Databricks tables. This happens in batches every ~5 minutes.
 >
 > ```
-> Confidence (collects data) -> S3 bucket (staging) -> Databricks (tables)
+> Confidence (collects data) -> Staging (S3 or ADLS) -> Databricks (tables)
 > ```
->
-> **Don't have an AWS account?** You'll need one for the S3 staging bucket. AWS free tier works fine. I can set it up for you if you have the `aws` CLI, or walk you through the AWS Console.
 
 Then collect the details **one at a time**. After each answer, confirm it before moving to the next. Don't dump all questions at once.
 
@@ -195,10 +192,26 @@ Confirm: "Service principal configured."
 
 ---
 
-## Step 5: AWS account & CLI (Part 2: S3 staging bucket)
+## Step 5: Choose staging provider
+
+Ask the user:
+> Confidence needs a staging location to write parquet files before loading them into Databricks. You have two options:
+>
+> 1. **AWS S3** -- Confidence writes files to an S3 bucket. Best if you already use AWS or your Databricks workspace is on AWS.
+> 2. **Azure ADLS Gen2** -- Confidence writes files to Azure Data Lake Storage. Best if you already use Azure or your Databricks workspace is on Azure.
+>
+> Which would you prefer?
+
+Based on their answer, continue to **Step 6a** (S3) or **Step 6b** (Azure ADLS).
+
+---
+
+## Step 6a: Configure staging -- AWS S3
+
+### AWS account & CLI
 
 Explain why:
-> Confidence writes parquet files to an S3 bucket, then Databricks loads them via COPY INTO. Think of it as a mailbox -- Confidence drops files there, and Databricks picks them up. **This is required even if your Databricks runs on GCP or Azure.**
+> Confidence writes parquet files to an S3 bucket, then Databricks loads them via COPY INTO. Think of it as a mailbox -- Confidence drops files there, and Databricks picks them up.
 >
 > You need an AWS account for this. If you don't have one, I can help you set one up.
 
@@ -219,11 +232,9 @@ If `aws` CLI is not configured, the skill should:
 2. Guide user to create access key: **click your name top right -> Security credentials -> Access keys -> Create access key**
 3. Write the credentials directly to `~/.aws/credentials` and `~/.aws/config` (don't use interactive `aws configure`)
 
----
+### S3 bucket
 
-## Step 6: S3 bucket
-
-Get the Confidence account ID from the MCP server to construct the service account email (required for the AWS trust policy in Step 7):
+Get the Confidence account ID from the MCP server to construct the service account email (required for the AWS trust policy):
 
 ```
 # Use the MCP server to get account info, then derive:
@@ -249,9 +260,7 @@ aws s3api create-bucket --bucket ${BUCKET_NAME} --region ${AWS_REGION} \
 >
 > If you already have a bucket you want to reuse, that works too -- just give me the name.
 
----
-
-## Step 7: IAM role
+### IAM role
 
 Get the Confidence service account numeric unique ID:
 ```bash
@@ -346,47 +355,104 @@ Collect the **AWS Region** and **IAM Role ARN** from the user.
 
 ---
 
-## Step 8: Databricks schema (Part 3: schema)
+## Step 6b: Configure staging -- Azure ADLS Gen2
+
+### Storage account & filesystem
 
 Ask the user:
-> Last thing -- where should Confidence create its tables in Databricks? I need a schema name.
-> The default is `confidence`. If you already have a schema you'd like to use, let me know.
+> Confidence writes parquet files to Azure Data Lake Storage Gen2, then Databricks loads them via COPY INTO. I need a few details:
+>
+> 1. **Storage account name** -- the Azure storage account with hierarchical namespace enabled (not a URL, just the name)
+> 2. **Filesystem** (also called container) -- the filesystem to use for staging
+> 3. **Path prefix** (optional) -- a relative path within the filesystem, e.g. `confidence/staging`. Leave empty to use the filesystem root.
+>
+> If you don't have a storage account yet, create one in the Azure portal with **hierarchical namespace enabled** (this is what makes it ADLS Gen2).
+
+Collect each value and confirm.
+
+### User-assigned managed identity
+
+Ask the user:
+> Confidence uses Azure workload identity federation to access your storage -- no Azure client secrets needed. I need you to create a **user-assigned managed identity** with a federated credential.
+>
+> **To create one:**
+> 1. In the Azure portal, create a **User-assigned managed identity**
+> 2. Open **Federated credentials** for the identity
+> 3. Add a credential for **Google Cloud** with these values:
+>
+> | Field | Value |
+> |-------|-------|
+> | Issuer | `https://accounts.google.com` |
+> | Subject | *(I'll provide this -- it's the Confidence service account ID from the connector form)* |
+> | Audience | `api://AzureADTokenExchange` |
+>
+> 4. Save the identity's **Client ID** and your **Microsoft Entra tenant ID**
+
+Get the Confidence service account ID from the MCP server and present it to the user for the Subject field.
+
+> Use this as the **Subject** in the federated credential:
+> `<CONFIDENCE_SA_UNIQUE_ID>`
+>
+> This is the numeric ID of the Confidence service account. It lets Confidence exchange its Google token for an Azure token without storing an Azure client secret.
+
+Collect the **tenant ID** and **managed identity client ID**.
+
+### Storage permissions
+
+Ask the user:
+> Now grant the managed identity access to the storage. You need:
+>
+> 1. **Storage Blob Data Contributor** on the storage account or filesystem -- this lets Confidence list, read, write, and delete staged objects
+> 2. **Storage Blob Delegator** at the storage account scope (or higher) -- this lets Confidence create short-lived SAS tokens for Databricks to read the staged files
+>
+> In the Azure portal:
+> 1. Open the storage account -> **Access control (IAM)** -> **Add role assignment**
+> 2. Assign **Storage Blob Data Contributor** to the managed identity
+> 3. Assign **Storage Blob Delegator** to the managed identity (at storage account scope)
+
+After the user confirms:
+> Azure staging setup complete!
+> - Storage account: `<STORAGE_ACCOUNT>`
+> - Filesystem: `<FILESYSTEM>`
+> - Path prefix: `<PATH_PREFIX>` (or root)
+> - Managed identity: `<CLIENT_ID>` in tenant `<TENANT_ID>`
+>
+> Continuing with connector setup...
+
+---
+
+## Step 7: Databricks schema
+
+Ask the user:
+> Last thing -- where should Confidence create its tables in Databricks? I need a catalog and schema name.
+> The fully qualified schema is `catalog.schema`, for example `main.confidence`. If you already have a schema you'd like to use, let me know.
 
 Then check if the schema exists and the service principal has access. Generate the SQL and **copy to clipboard**:
 
 > I'll set up the schema and permissions. Here's what I'm running -- copied to your clipboard. Paste it in the **Databricks SQL Editor** (left sidebar -> SQL Editor) and run it.
 
-For workspaces **without Unity Catalog** (hive_metastore):
 ```sql
-CREATE SCHEMA IF NOT EXISTS confidence;
-GRANT USE SCHEMA, CREATE TABLE ON SCHEMA confidence TO `<service-principal-client-id>`;
-```
+CREATE SCHEMA IF NOT EXISTS <catalog>.<schema>;
 
-For workspaces **with Unity Catalog**:
-```sql
-CREATE CATALOG IF NOT EXISTS confidence;
-CREATE SCHEMA IF NOT EXISTS confidence.confidence;
-GRANT USE CATALOG ON CATALOG confidence TO `<service-principal-client-id>`;
-GRANT USE SCHEMA, CREATE TABLE ON SCHEMA confidence.confidence TO `<service-principal-client-id>`;
+GRANT USE CATALOG ON CATALOG <catalog> TO `<service-principal-client-id>`;
+GRANT USE SCHEMA, CREATE TABLE ON SCHEMA <catalog>.<schema> TO `<service-principal-client-id>`;
 ```
-
-**How to tell which one:** If the user sees **Catalog** in the Databricks left sidebar, they have Unity Catalog. If they only see **Data**, they're on hive_metastore.
 
 After the user runs it, confirm: "Schema ready. Moving on to create the warehouse."
 
 ---
 
-## Step 9: Create warehouse
+## Step 8: Create warehouse
 
 **NOTE:** Databricks does NOT have a separate "validate" step -- the warehouse is created directly. Tell the user:
 > Pre-validation isn't available yet for Databricks. I'll create the warehouse now and we'll verify the connection works end-to-end in the pipeline test step.
 
-Use the MCP tool to create the warehouse. Build the `configJson` from the collected values:
+Use the MCP tool to create the warehouse. The Metrics Data Warehouse does **not** use staging storage -- it only needs the Databricks connection details. Build the `configJson` from the collected values:
 
 ```
 mcp__confidence-flags__createWarehouse({
   warehouseType: "databricks",
-  configJson: '{"host":"<DATABRICKS_HOST>","warehouseId":"<WAREHOUSE_ID>","clientId":"<SERVICE_PRINCIPAL_CLIENT_ID>","clientSecret":"<SERVICE_PRINCIPAL_SECRET>","schema":"<SCHEMA_NAME>","s3BucketConfig":{"bucket":"<S3_BUCKET_NAME>","region":"<AWS_REGION>","roleArn":"<IAM_ROLE_ARN>"}}'
+  configJson: '{"host":"<DATABRICKS_HOST>","warehouseId":"<WAREHOUSE_ID>","clientId":"<SERVICE_PRINCIPAL_CLIENT_ID>","clientSecret":"<SERVICE_PRINCIPAL_SECRET>","schema":"<SCHEMA_NAME>"}'
 })
 ```
 
@@ -394,31 +460,51 @@ Save the returned warehouse name (e.g., `dataWarehouses/...`) for reference.
 
 ---
 
-## Step 10: Create connectors
+## Step 9: Create connectors
 
-Create both connectors using MCP tools.
+Create both connectors using MCP tools. Connectors require the staging configuration collected in Step 6.
+
+**Important:** For Event and Flag Applied connectors, the host field must include the `https://` prefix: `https://<DATABRICKS_HOST>`.
 
 ### Flag Applied Connection (assignment data -> warehouse)
 
+**If staging provider is S3:**
 ```
 mcp__confidence-flags__createFlagAppliedConnection({
   warehouseType: "databricks",
-  configJson: '{"warehouseId":"<WAREHOUSE_ID>","host":"<DATABRICKS_HOST>","clientId":"<SERVICE_PRINCIPAL_CLIENT_ID>","clientSecret":"<SERVICE_PRINCIPAL_SECRET>","schema":"<SCHEMA_NAME>","table":"confidence_flag_applied","s3BucketConfig":{"bucket":"<S3_BUCKET_NAME>","region":"<AWS_REGION>","roleArn":"<IAM_ROLE_ARN>"}}'
+  configJson: '{"connectionConfig":{"host":"https://<DATABRICKS_HOST>","warehouseId":"<WAREHOUSE_ID>","clientId":"<SERVICE_PRINCIPAL_CLIENT_ID>","clientSecret":"<SERVICE_PRINCIPAL_SECRET>"},"schema":"<SCHEMA_NAME>","table":"confidence_flag_applied","s3BucketConfig":{"bucket":"<S3_BUCKET_NAME>","region":"<AWS_REGION>","roleArn":"<IAM_ROLE_ARN>"}}'
+})
+```
+
+**If staging provider is Azure ADLS:**
+```
+mcp__confidence-flags__createFlagAppliedConnection({
+  warehouseType: "databricks",
+  configJson: '{"connectionConfig":{"host":"https://<DATABRICKS_HOST>","warehouseId":"<WAREHOUSE_ID>","clientId":"<SERVICE_PRINCIPAL_CLIENT_ID>","clientSecret":"<SERVICE_PRINCIPAL_SECRET>"},"schema":"<SCHEMA_NAME>","table":"confidence_flag_applied","azureAdlsStorageConfig":{"storageAccount":"<STORAGE_ACCOUNT>","filesystem":"<FILESYSTEM>","pathPrefix":"<PATH_PREFIX>","authentication":{"federatedIdentity":{"tenantId":"<TENANT_ID>","clientId":"<MANAGED_IDENTITY_CLIENT_ID>"}}}}'
 })
 ```
 
 ### Event Connection (events -> warehouse)
 
+**If staging provider is S3:**
 ```
 mcp__confidence-flags__createEventConnection({
   warehouseType: "databricks",
-  configJson: '{"warehouseId":"<WAREHOUSE_ID>","host":"<DATABRICKS_HOST>","clientId":"<SERVICE_PRINCIPAL_CLIENT_ID>","clientSecret":"<SERVICE_PRINCIPAL_SECRET>","schema":"<SCHEMA_NAME>","s3BucketConfig":{"bucket":"<S3_BUCKET_NAME>","region":"<AWS_REGION>","roleArn":"<IAM_ROLE_ARN>"}}'
+  configJson: '{"connectionConfig":{"host":"https://<DATABRICKS_HOST>","warehouseId":"<WAREHOUSE_ID>","clientId":"<SERVICE_PRINCIPAL_CLIENT_ID>","clientSecret":"<SERVICE_PRINCIPAL_SECRET>"},"schema":"<SCHEMA_NAME>","s3BucketConfig":{"bucket":"<S3_BUCKET_NAME>","region":"<AWS_REGION>","roleArn":"<IAM_ROLE_ARN>"}}'
+})
+```
+
+**If staging provider is Azure ADLS:**
+```
+mcp__confidence-flags__createEventConnection({
+  warehouseType: "databricks",
+  configJson: '{"connectionConfig":{"host":"https://<DATABRICKS_HOST>","warehouseId":"<WAREHOUSE_ID>","clientId":"<SERVICE_PRINCIPAL_CLIENT_ID>","clientSecret":"<SERVICE_PRINCIPAL_SECRET>"},"schema":"<SCHEMA_NAME>","azureAdlsStorageConfig":{"storageAccount":"<STORAGE_ACCOUNT>","filesystem":"<FILESYSTEM>","pathPrefix":"<PATH_PREFIX>","authentication":{"federatedIdentity":{"tenantId":"<TENANT_ID>","clientId":"<MANAGED_IDENTITY_CLIENT_ID>"}}}}'
 })
 ```
 
 ---
 
-## Step 11: Assignment table
+## Step 10: Assignment table
 
 Create an assignment table so Confidence can analyze experiment assignments.
 
@@ -435,11 +521,11 @@ mcp__confidence-flags__createAssignmentTable({
 
 ---
 
-## Step 12: Verify data pipeline
+## Step 11: Verify data pipeline
 
 Verify both connectors by generating test data and checking it lands in the warehouse.
 
-### 12a. Get a client secret for testing
+### 11a. Get a client secret for testing
 
 The resolver and events APIs require a **client secret** (not a Bearer token).
 
@@ -461,7 +547,7 @@ The resolver and events APIs require a **client secret** (not a Bearer token).
    ```
    Save the secret to a temp file for pipeline use. **Never print the secret to the user's terminal.**
 
-### 12b. Verify flag assignments
+### 11b. Verify flag assignments
 
 Resolve a flag to generate assignment data (use an existing flag + client secret):
 ```bash
@@ -478,7 +564,7 @@ curl -s -X POST "https://resolver.${REGION}.confidence.dev/v1/flags:resolve" \
 If no flags exist yet, tell the user:
 > No flags to test with. Run `/onboard-confidence setup-wizard` first to create a flag, then come back.
 
-### 12c. Verify events
+### 11c. Verify events
 
 First check for an event definition to use:
 ```bash
@@ -522,7 +608,7 @@ curl -s -X POST "https://events.${REGION}.confidence.dev/v1/events:publish" \
 
 Check response: `{"errors": []}` means success. If `EVENT_DEFINITION_NOT_FOUND`, the definition doesn't exist. If `EVENT_SCHEMA_VALIDATION_FAILED`, the payload doesn't match the schema.
 
-### 12d. Check data in Databricks
+### 11d. Check data in Databricks
 
 Use the Databricks SQL Statement API to query directly (the skill already has the service principal credentials):
 ```bash
@@ -559,8 +645,9 @@ If `TABLE_OR_VIEW_NOT_FOUND` after 10 minutes, check the connector logs for erro
 
 ---
 
-## Step 13: Done
+## Step 12: Done
 
+**If staging is S3:**
 ```
 ═══════════════════════════════════════════════════════════════
   Data Warehouse Connected & Verified
@@ -568,7 +655,30 @@ If `TABLE_OR_VIEW_NOT_FOUND` after 10 minutes, check the connector logs for erro
 
   Warehouse:    Databricks (<host>)
   Schema:       <SCHEMA>
-  S3 Bucket:    <BUCKET_NAME> (<AWS_REGION>)
+  Staging:      AWS S3 -- <BUCKET_NAME> (<AWS_REGION>)
+  Connectors:
+    ● Flag assignments -> assignments table (verified)
+    ● Events -> events_* tables (running)
+  Assignment:
+    ● Assignment table configured (auto-updating)
+
+  Flag assignment and event data is flowing to your
+  warehouse. Experiment analysis is ready.
+
+  Note: Data is delivered in ~5 minute batches.
+
+═══════════════════════════════════════════════════════════════
+```
+
+**If staging is Azure ADLS:**
+```
+═══════════════════════════════════════════════════════════════
+  Data Warehouse Connected & Verified
+═══════════════════════════════════════════════════════════════
+
+  Warehouse:    Databricks (<host>)
+  Schema:       <SCHEMA>
+  Staging:      Azure ADLS Gen2 -- <STORAGE_ACCOUNT>/<FILESYSTEM>
   Connectors:
     ● Flag assignments -> assignments table (verified)
     ● Events -> events_* tables (running)
@@ -613,4 +723,4 @@ If an MCP tool call fails, parse the error message and present a human-readable 
 
 ### Sandbox note
 
-All `curl`, `open`, `python3`, `aws`, and `gcloud` commands that access external hosts (AWS APIs, Databricks APIs, etc.) require `dangerouslyDisableSandbox: true`. On first occurrence, briefly explain to the user that network access outside the sandbox is needed. MCP tool calls do not require sandbox overrides.
+All `curl`, `open`, `python3`, `aws`, `az`, and `gcloud` commands that access external hosts (AWS APIs, Azure APIs, Databricks APIs, etc.) require `dangerouslyDisableSandbox: true`. On first occurrence, briefly explain to the user that network access outside the sandbox is needed. MCP tool calls do not require sandbox overrides.

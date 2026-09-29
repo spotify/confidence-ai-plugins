@@ -15,7 +15,7 @@ A data warehouse is where Confidence writes your experimentation data. It connec
 |---|-----------|----------|
 | 1 | **BigQuery** | Google Cloud users, fastest setup |
 | 2 | **Snowflake** | Snowflake users, key-pair authentication |
-| 3 | **Databricks** | Databricks users, requires AWS S3 staging bucket |
+| 3 | **Databricks** | Databricks users, supports AWS S3 or Azure ADLS Gen2 staging |
 | 4 | **Redshift** | AWS users, requires S3 staging bucket |
 
 ## Flow
