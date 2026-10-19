@@ -1,0 +1,59 @@
+[
+  {
+    "name": "retry-selected-only",
+    "tags": [
+      "synthetic",
+      "retry",
+      "subset"
+    ],
+    "input": {
+      "user_message": "Retry only orders. I confirm the displayed retry manifest for orders r1. Do not retry visits or refunds.",
+      "context": "{\n  \"synthetic\": true,\n  \"scope\": {\n    \"account\": \"synthetic-account\",\n    \"warehouse\": \"synthetic-warehouse\"\n  },\n  \"capabilities\": {\n    \"confidence_data\": true,\n    \"authenticated\": true,\n    \"read_only_discovery\": true,\n    \"sql_validation\": true,\n    \"registration\": true,\n    \"retry\": true,\n    \"readiness_evidence\": true,\n    \"dependency_inspection\": true,\n    \"context_import\": false\n  },\n  \"durable_progress\": {\n    \"supported\": true,\n    \"run\": \"synthetic-run\",\n    \"version\": 1,\n    \"checkpoint_healthy\": true\n  },\n  \"tracked_ids\": [\n    \"orders\",\n    \"visits\",\n    \"refunds\"\n  ],\n  \"data_policy\": \"Metadata only; no sample rows, credentials, or raw error payloads.\",\n  \"manifest\": [\n    {\n      \"id\": \"orders\",\n      \"revision\": \"r1\",\n      \"type\": \"fact\",\n      \"domain\": \"commerce\",\n      \"sql\": \"SELECT visitor_id, occurred_at FROM synthetic.commerce.orders\",\n      \"mapping\": {\n        \"entity\": \"visitor_id\",\n        \"timestamp\": \"occurred_at\"\n      },\n      \"description\": \"Synthetic orders events\",\n      \"warnings\": [],\n      \"blocking_questions\": [],\n      \"resource_identity\": \"factTables/synthetic-orders\",\n      \"reviewed\": true,\n      \"read_only_sql_check\": \"passed\",\n      \"schema_fresh\": true,\n      \"dependencies_verified\": true\n    }\n  ],\n  \"confirmation\": {\n    \"operation\": \"retry\",\n    \"ids\": [\n      \"orders\"\n    ],\n    \"revision\": \"r1\"\n  },\n  \"reconciliation\": {\n    \"orders\": \"Authoritatively absent, no in-flight operation; permission repaired; read-only checks passed; known failed earlier operation.\",\n    \"visits\": \"known failed, not selected\",\n    \"refunds\": \"verified agent available\"\n  },\n  \"prior_decisions\": {\n    \"orders\": \"approved\",\n    \"visits\": \"pending\",\n    \"refunds\": \"approved\"\n  },\n  \"pre_write_intents\": \"Retry intent durably recorded for orders only.\",\n  \"runtime_verification\": {\n    \"source\": \"Synthetic prior read-only capability inspection; supported flags represent verified semantics, not proposed names.\",\n    \"supported_registration_safety\": [\n      \"stable operation and intended resource identity\",\n      \"authoritative read-only reconciliation\",\n      \"documented idempotency\",\n      \"bounded validation\",\n      \"supported safe concurrency control\"\n    ],\n    \"supported_discovery_bounds\": {\n      \"max_page_size\": 20,\n      \"continuation\": true,\n      \"coverage\": true\n    },\n    \"durable_progress_semantics\": \"When supported, scope/version/atomic checkpoints and exclusive intent locking have been verified.\",\n    \"data_policy\": \"All SQL and metadata in this synthetic snapshot are policy-cleared; no samples or credentials.\"\n  }\n}"
+    },
+    "expected": {
+      "decision": "retry",
+      "actions": [
+        {
+          "operation": "retry",
+          "targets": [
+            "orders"
+          ],
+          "timing": "now",
+          "prerequisites": [],
+          "required": true
+        }
+      ],
+      "approval": {
+        "valid": true,
+        "targets": [
+          "orders"
+        ],
+        "revision": "r1"
+      },
+      "tables": [
+        {
+          "id": "orders",
+          "state": "approved",
+          "availability": "not_available",
+          "approval": "approved"
+        },
+        {
+          "id": "visits",
+          "state": "permission_failed",
+          "availability": "not_available",
+          "approval": "pending"
+        },
+        {
+          "id": "refunds",
+          "state": "available",
+          "availability": "available",
+          "approval": "approved"
+        }
+      ],
+      "review": null,
+      "questions": [],
+      "summary": null,
+      "context": "none"
+    }
+  }
+]

@@ -161,6 +161,42 @@ npm run eval:onboard                    # single-turn → Braintrust (onboard-si
 npm run eval:multi-turn:onboard         # multi-turn → Braintrust (onboard-multi-turn-v1)
 ```
 
+## Data onboarding evals
+
+`onboard-data` has [14 synthetic metadata-only decision cases](cases/onboard-data/README.md)
+covering finite 300-table review, explicit approvals, local progress prerequisites,
+selected retry/reconciliation, immutable replacement gates, refresh, context
+support and honest partial completion. Unlike account onboarding, this skill
+never performs direct REST/authentication or SQL-job polling.
+
+```bash
+npm run test:onboard-data    # credential-free scorer, fixture and plugin registration checks
+npm run typecheck
+npm run eval:onboard-data:local
+ONBOARD_DATA_BASELINE=1 npm run eval:onboard-data:local
+```
+
+The two local model runs share cases, output contract and deterministic scorer;
+the baseline omits the skill. The data-onboarding script defaults to the Hendrix
+`/snipe/anthropic` route; override with `HENDRIX_BASE_URL` if needed.
+Set `HENDRIX_API_KEY` for local runs, or use
+`npm run eval:onboard-data` with the provider and Braintrust credentials configured
+as above. Local runs use `--no-send-logs`. Model/API failures fail the run rather
+than appearing as passing scores. The full skill and five reference documents
+are loaded for the with-skill run.
+
+These are single-turn **action-plan evaluations**, not mocked or live warehouse
+tool execution. A forced `report_decision` output tool transports the structured
+answer; it cannot execute the operations listed in the plan. Set
+`ONBOARD_DATA_DEBUG=1` to print failed synthetic answers and scoring reasons.
+Both eval scripts use `--terminate-on-failure` so missing safety references or
+load failures cannot produce a successful zero-evaluator run. Unit tests validate the scorer and fixtures, not model quality.
+Neither proves durable local journal behavior, warehouse permissions, deployed
+MCP integration or analytical accuracy; those require separate end-to-end evidence.
+
+The `Data onboarding checks` PR workflow runs the credential-free tests and
+TypeScript checks. Model evaluations remain opt-in because they use paid models.
+
 ## CI
 
 PR runs are **disabled** (each full run costs real tokens). The workflow

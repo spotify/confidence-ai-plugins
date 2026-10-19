@@ -46,6 +46,9 @@ claude plugin install confidence
     "confidence-flags": {
       "url": "https://mcp.confidence.dev/mcp/flags"
     },
+    "confidence-data": {
+      "url": "https://mcp.confidence.dev/mcp/data"
+    },
     "confidence-docs": {
       "url": "https://mcp.confidence.dev/mcp/docs"
     }
@@ -93,7 +96,7 @@ The migration and onboarding **skills** can also be installed individually via t
 npx skills add spotify/confidence-ai-plugins
 ```
 
-This installs only the skill logic (auto-triggering guidance for migrations and onboarding). It does **not** configure the `confidence-flags`/`confidence-docs` MCP servers or the `/confidence:*` slash commands, even when targeting one of the four clients above. Since several skills call into those MCP servers to manage flags, use one of the full installs above for complete functionality; use this only if you want the skill guidance on an agent the full installs don't support.
+This installs only the skill logic (auto-triggering guidance for migrations and onboarding). It does **not** configure the `confidence-flags`/`confidence-data`/`confidence-docs` MCP servers or the `/confidence:*` slash commands, even when targeting one of the four clients above. Since several skills call into those MCP servers to manage flags, use one of the full installs above for complete functionality; use this only if you want the skill guidance on an agent the full installs don't support.
 
 ## 🚀 Usage
 
@@ -139,6 +142,56 @@ This plugin provides access to Confidence tools across these categories:
 - `/confidence:migrate-statsig <plan flag | plan code | execute <plan-file>>`: [Migrate feature flags from Statsig to Confidence](https://confidence.spotify.com/docs/migrations/migrate-from-statsig)
 - `/confidence:migrate-optimizely <plan access | adjust access | execute access | plan flags | adjust flags | execute flags | plan code | adjust code | execute code | execute <plan-file>>`: [Migrate Optimizely Feature Experimentation to Confidence](https://confidence.spotify.com/docs/migrations/migrate-from-optimizely) — see [Optimizely access](#optimizely--confidence) (Flag clients are handled in `plan access` Step 4; Cursor also exposes dedicated `/` menu shortcuts)
 - `/confidence:analyze-project [project-dir]`: Analyze a project and propose meaningful feature flag changes using Confidence
+- `/confidence:onboard-data [optional goal | resume | status | retry | resolve | include | replace | refresh]`: Review warehouse tables and manage a local onboarding run (see [data onboarding](#warehouse-data-onboarding))
+
+## Warehouse data onboarding
+
+`/confidence:onboard-data` reviews warehouse tables for import into Confidence.
+An analytics goal is optional. This is a **CLI skill**, not a Confidence chat
+flow or a web inventory. Account creation and existing warehouse setup remain
+available through `/confidence:onboard-confidence` and the setup-warehouse skills.
+
+```text
+/confidence:onboard-data
+/confidence:onboard-data resume <run-id>
+/confidence:onboard-data status <run-id>
+/confidence:onboard-data retry <run-id> <table-ids>
+/confidence:onboard-data resolve <run-id> <table-id>
+/confidence:onboard-data include <run-id> <table-ids>
+/confidence:onboard-data replace <run-id> <table-id>
+/confidence:onboard-data refresh <run-id>
+```
+
+Review is grouped by domain, with pages and filters for large inventories.
+You can inspect and edit types, SQL, mappings and descriptions, exclude tables,
+or leave questions pending. Selection is not approval: only an explicitly
+approved, finite batch of unchanged definitions may be submitted. Unresolved
+mappings and unsupported types stay pending. Replacement requires a separate
+dependency-checked plan and confirmation; it is never a retry side effect.
+
+The skill delegates authentication, API composition and bounded validation
+polling to **`confidence-data`**. Its endpoint is registered by this plugin,
+but tool availability depends on the deployed MCP server. Discovery/import,
+durable local progress and authoritative readiness capabilities must be
+available before their corresponding operations can run. If a prerequisite is
+missing, the skill reports the blocker rather than inventing a tool or using
+REST as a fallback. Context imports remain gated on explicit backend support.
+Local run files contain decisions and resource references, not credentials or
+sample rows; no server-side run storage is introduced.
+
+`status` observes remote resources without changing them. `refresh` is
+read-only rediscovery followed by review: new/changed candidates need approval;
+prior decisions and remote resources are retained. It is not a data reload,
+background sync or delete-and-recreate operation. Its V1 versus P1 launch
+priority remains a separate product decision.
+
+Completion can be partial. Registered/ACTIVE tables are not automatically
+agent-ready. The summary separates available, preparing, failed, unknown,
+pending and excluded tables; a first question is optional and can use only
+authoritatively available data.
+
+See the [skill contract](skills/onboard-data/SKILL.md) and
+[synthetic evaluation coverage](evals/README.md#data-onboarding-evals).
 
 ## Optimizely → Confidence
 
@@ -196,6 +249,7 @@ Running experiments and partial-% rollouts stay out by default (different bucket
 | Server | Endpoint | Description |
 |--------|----------|-------------|
 | `confidence-flags` | `https://mcp.confidence.dev/mcp/flags` | Feature flag management |
+| `confidence-data` | `https://mcp.confidence.dev/mcp/data` | Warehouse discovery and approved imports (requires server capabilities) |
 | `confidence-docs` | `https://mcp.confidence.dev/mcp/docs` | Confidence documentation |
 
 ## Supported Clients

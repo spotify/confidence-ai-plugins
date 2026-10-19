@@ -41,6 +41,7 @@ export function ValidExplorerURL(args: { output: TaskOutput }) {
 
   // Check required params exist (handle both encoded and unencoded)
   const paramString = url.split("?")[1] || "";
+  const params = new URLSearchParams(paramString);
   const hasFactTable = /factTable=/.test(paramString);
   const hasEntity = /entity=/.test(paramString);
   const hasKind = /kind=/.test(paramString);

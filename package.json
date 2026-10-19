@@ -3,6 +3,10 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "test:onboard-data": "tsx --test evals/tests/*.test.ts",
+    "typecheck": "tsc --noEmit",
+    "eval:onboard-data": "braintrust eval --terminate-on-failure evals/onboard-data.eval.ts",
+    "eval:onboard-data:local": "ANTHROPIC_BASE_URL=${HENDRIX_BASE_URL:-https://hendrix-genai.spotify.net/snipe/anthropic} ANTHROPIC_API_KEY=$HENDRIX_API_KEY braintrust eval --terminate-on-failure --no-send-logs evals/onboard-data.eval.ts",
     "eval": "braintrust eval evals/migrate-optimizely.eval.ts evals/migrate-posthog.eval.ts evals/migrate-eppo.eval.ts evals/migrate-statsig.eval.ts evals/onboard-confidence.eval.ts",
     "eval:hendrix": "ANTHROPIC_BASE_URL=${HENDRIX_BASE_URL:-https://hendrix-genai.spotify.net/taskforce/glm-5-2} ANTHROPIC_API_KEY=$HENDRIX_API_KEY BRAINTRUST_API_URL=${BRAINTRUST_API_URL:-https://braintrust.spotifyinternal.com} braintrust eval evals/migrate-optimizely.eval.ts evals/migrate-posthog.eval.ts evals/migrate-eppo.eval.ts evals/migrate-statsig.eval.ts evals/onboard-confidence.eval.ts",
     "eval:hendrix:local": "ANTHROPIC_BASE_URL=${HENDRIX_BASE_URL:-https://hendrix-genai.spotify.net/taskforce/glm-5-2} ANTHROPIC_API_KEY=$HENDRIX_API_KEY braintrust eval --no-send-logs evals/migrate-optimizely.eval.ts evals/migrate-posthog.eval.ts evals/migrate-eppo.eval.ts evals/migrate-statsig.eval.ts evals/onboard-confidence.eval.ts",

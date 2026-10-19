@@ -12,6 +12,15 @@
         "x-confidence-mcp-consumer:plugin"
       ]
     },
+    "confidence-data": {
+      "command": "npx",
+      "args": [
+        "mcp-remote@0.1.29-fork",
+        "${CONFIDENCE_MCP_DATA_URL:-https://mcp.confidence.dev/mcp/data}",
+        "--header",
+        "x-confidence-mcp-consumer:plugin"
+      ]
+    },
     "confidence-docs": {
       "command": "npx",
       "args": [
@@ -28,6 +37,11 @@
       "name": "Confidence MCP Flags URL",
       "description": "Confidence MCP flags endpoint URL (default: https://mcp.confidence.dev/mcp/flags).",
       "envVar": "CONFIDENCE_MCP_FLAGS_URL"
+    },
+    {
+      "name": "Confidence MCP Data URL",
+      "description": "Confidence MCP data endpoint URL (default: https://mcp.confidence.dev/mcp/data).",
+      "envVar": "CONFIDENCE_MCP_DATA_URL"
     },
     {
       "name": "Confidence MCP Docs URL",
