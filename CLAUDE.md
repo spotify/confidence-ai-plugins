@@ -4,6 +4,8 @@ This plugin integrates Confidence with Claude Code, providing tools for feature 
 
 ## Commands
 
+- `/confidence:onboard-data [optional goal | resume | status | retry | resolve | include | replace | refresh]` — Review warehouse tables and manage a local data-onboarding run; read `skills/onboard-data/SKILL.md`.
+
 - `/confidence:migrate-posthog <plan flag | plan code | execute <plan-file>>` — Migrate feature flags from PostHog to Confidence SDK
 - `/confidence:migrate-eppo <plan flag | plan code | execute <plan-file>>` — Migrate feature flags from Eppo to Confidence SDK
 - `/confidence:migrate-statsig <plan flag | plan code | execute <plan-file>>` — Migrate feature flags from Statsig to Confidence SDK
@@ -15,6 +17,8 @@ This plugin integrates Confidence with Claude Code, providing tools for feature 
 - `/confidence:setup-session-recording [project-dir]` — Set up Confidence Session Recording in a browser-based project
 
 ## Skills
+
+- **onboard-data** — Use for warehouse table discovery, import review, mapping resolution, local run status/resume, selected retries and rediscovery. Not account onboarding; no direct REST, tokens or polling in the skill.
 
 - **migrate-posthog** — Auto-triggers when the user asks to migrate PostHog flags or transform SDK code to Confidence
 - **migrate-eppo** — Auto-triggers when the user asks to migrate Eppo flags or transform SDK code to Confidence
@@ -28,10 +32,17 @@ This plugin integrates Confidence with Claude Code, providing tools for feature 
 
 ## MCP Servers
 
+- **confidence-data** — Warehouse discovery, proposal preparation, approved registration and status. Discover available capabilities; never assume the configured endpoint supports every operation.
+
 - **confidence-flags** — Feature flag management (create, list, resolve, target, archive)
 - **confidence-docs** — Confidence documentation and SDK integration guides
 
 ## Agent Routing
+
+For warehouse table onboarding, use `onboard-data` with **confidence-data**.
+Keep authentication, API composition and validation polling in MCP. Do not use
+the account-onboarding auth script, direct REST, or flags write aliases as a
+fallback for missing data tools. Existing account/connection setup stays separate.
 
 When the user's message mentions **Confidence**, **feature flags**, **experimentation**, **A/B testing**, **rollouts**, **targeting**, **flag management**, **metrics**, **events tracking**, **session recording**, **session replay**, or any migration source (PostHog, Eppo, Statsig, Optimizely):
 

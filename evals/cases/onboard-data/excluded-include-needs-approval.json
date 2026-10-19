@@ -1,0 +1,69 @@
+[
+  {
+    "name": "excluded-include-needs-approval",
+    "tags": [
+      "synthetic",
+      "include",
+      "exclusion",
+      "consent"
+    ],
+    "input": {
+      "user_message": "/confidence:onboard-data include archived_orders. Bring it back for review; do not import it yet.",
+      "context": "{\n  \"synthetic\": true,\n  \"scope\": {\n    \"account\": \"synthetic-account\",\n    \"warehouse\": \"synthetic-warehouse\"\n  },\n  \"capabilities\": {\n    \"confidence_data\": true,\n    \"authenticated\": true,\n    \"read_only_discovery\": true,\n    \"sql_validation\": true,\n    \"registration\": true,\n    \"retry\": true,\n    \"readiness_evidence\": true,\n    \"dependency_inspection\": true,\n    \"context_import\": false\n  },\n  \"durable_progress\": {\n    \"supported\": true,\n    \"run\": \"synthetic-run\",\n    \"version\": 1,\n    \"checkpoint_healthy\": true\n  },\n  \"tracked_ids\": [\n    \"archived_orders\"\n  ],\n  \"data_policy\": \"Metadata only; no sample rows, credentials, or raw error payloads.\",\n  \"run_phase\": \"completed\",\n  \"prior_decisions\": {\n    \"archived_orders\": \"excluded\"\n  },\n  \"proposal\": {\n    \"id\": \"archived_orders\",\n    \"revision\": \"r1\",\n    \"type\": \"fact\",\n    \"domain\": \"commerce\",\n    \"sql\": \"SELECT visitor_id, occurred_at FROM synthetic.commerce.archived_orders\",\n    \"mapping\": {\n      \"entity\": \"visitor_id\",\n      \"timestamp\": \"occurred_at\"\n    },\n    \"description\": \"Synthetic archived_orders events\",\n    \"warnings\": [],\n    \"blocking_questions\": [],\n    \"resource_identity\": \"factTables/synthetic-archived_orders\",\n    \"reviewed\": true,\n    \"read_only_sql_check\": \"passed\",\n    \"schema_fresh\": true,\n    \"dependencies_verified\": true\n  },\n  \"runtime_verification\": {\n    \"source\": \"Synthetic prior read-only capability inspection; supported flags represent verified semantics, not proposed names.\",\n    \"supported_registration_safety\": [\n      \"stable operation and intended resource identity\",\n      \"authoritative read-only reconciliation\",\n      \"documented idempotency\",\n      \"bounded validation\",\n      \"supported safe concurrency control\"\n    ],\n    \"supported_discovery_bounds\": {\n      \"max_page_size\": 20,\n      \"continuation\": true,\n      \"coverage\": true\n    },\n    \"durable_progress_semantics\": \"When supported, scope/version/atomic checkpoints and exclusive intent locking have been verified.\",\n    \"data_policy\": \"All SQL and metadata in this synthetic snapshot are policy-cleared; no samples or credentials.\"\n  }\n}"
+    },
+    "expected": {
+      "decision": "adjust",
+      "actions": [
+        {
+          "operation": "include",
+          "targets": [
+            "archived_orders"
+          ],
+          "timing": "now",
+          "prerequisites": [],
+          "required": true
+        },
+        {
+          "operation": "create",
+          "targets": [
+            "archived_orders"
+          ],
+          "timing": "deferred",
+          "prerequisites": [
+            "approval"
+          ],
+          "required": false
+        }
+      ],
+      "approval": {
+        "valid": false,
+        "targets": [],
+        "revision": null
+      },
+      "tables": [
+        {
+          "id": "archived_orders",
+          "state": "pending",
+          "availability": "not_available",
+          "approval": "pending"
+        }
+      ],
+      "review": {
+        "total": 1,
+        "page_size": 20,
+        "page_count": 1,
+        "scope": ["archived_orders"],
+        "warnings": [],
+        "pending": ["archived_orders"]
+      },
+      "questions": [
+        {
+          "topic": "approval",
+          "required": false
+        }
+      ],
+      "summary": null,
+      "context": "none"
+    }
+  }
+]
